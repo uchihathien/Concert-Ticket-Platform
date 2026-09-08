@@ -32,11 +32,20 @@ public record ConsumedEvent(UUID eventId, String eventType, UUID aggregateId, Js
         if (messageId == null) {
             throw new MalformedEventException("Message không có messageId nên không chống trùng được");
         }
+        // Gán ra biến Object TRƯỚC khi gọi String.valueOf.
+        //
+        // MessageProperties.getHeader khai báo là <T> T getHeader(String), tức generic không
+        // ràng buộc. Truyền thẳng vào String.valueOf(...) thì compiler suy ra T = char[] và
+        // chọn overload valueOf(char[]) — code biên dịch sạch, rồi nổ lúc chạy với
+        // "class java.lang.String cannot be cast to class [C". Biến trung gian kiểu Object ép
+        // chọn đúng overload valueOf(Object).
+        Object eventType = headers.getHeader("eventType");
+        Object aggregateId = headers.getHeader("aggregateId");
         try {
             return new ConsumedEvent(
                     UUID.fromString(messageId),
-                    String.valueOf(headers.getHeader("eventType")),
-                    uuidHeader(headers.getHeader("aggregateId")),
+                    eventType == null ? null : eventType.toString(),
+                    uuidHeader(aggregateId),
                     json.readTree(new String(message.getBody(), StandardCharsets.UTF_8)));
         } catch (MalformedEventException e) {
             throw e;
