@@ -35,6 +35,14 @@ spring:
                 redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST:100}
                 key-resolver: "#{@principalOrIpKeyResolver}"
           routes:
+            # THỨ TỰ QUAN TRỌNG (xem ghi chú ở ticketing bên dưới): catalog khai TRƯỚC identity
+            # vì cả hai cùng nằm dưới /v1/organizations/**. Identity giữ tiền tố rộng đó, nên nếu
+            # nó đứng trước thì mọi request quản trị sự kiện sẽ bị gửi sang identity-service và
+            # trả 404 — trong khi cấu hình trông vẫn hoàn toàn hợp lý.
+            - id: catalog
+              uri: ${CATALOG_URL:http://localhost:8091}
+              predicates:
+                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**
             - id: identity
               uri: ${IDENTITY_URL:http://localhost:8090}
               predicates:

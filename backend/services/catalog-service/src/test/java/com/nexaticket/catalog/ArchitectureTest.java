@@ -6,6 +6,7 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+/** Luật kiến trúc chạy như test thường (plan/backend.md §2). */
 @AnalyzeClasses(packages = "com.nexaticket.catalog")
 class ArchitectureTest {
 

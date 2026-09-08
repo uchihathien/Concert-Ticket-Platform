@@ -27,6 +27,49 @@ spring:
 server:
   port: ${PORT:8091}
   shutdown: graceful
+  compression:
+    # Trang chi tiết trả cả suất diễn và hạng vé; JSON lặp tên field nên nén rất ăn.
+    enabled: true
+    mime-types: application/json
+
+nexaticket:
+  identity:
+    # BẮT BUỘC, không phải tuỳ chọn.
+    #
+    # TenantFilter dựng TenantScope bằng cách hỏi identity-service xem người dùng thuộc tổ chức
+    # nào. Thiếu khoá này thì bean MembershipLookup không được tạo (@ConditionalOnProperty), filter
+    # rơi về bản luôn trả null, và MỌI endpoint quản trị đều hỏng với 401 — dù token hoàn toàn hợp
+    # lệ. Triệu chứng trông y hệt lỗi cấu hình OIDC, nên rất tốn thời gian để lần ra.
+    base-url: ${IDENTITY_URL:http://localhost:8090}
+
+  outbox:
+    publish-interval-ms: 500
+
+  catalog:
+    # TRẦN CỨNG của nền tảng, không phải giá trị gợi ý. Ban tổ chức khai số nhỏ hơn thì được, khai
+    # số lớn hơn thì bị kẹp xuống (PurchaseLimits.resolve). Đây là chốt chặn chống đầu cơ vé, nên
+    # nới nó ra là quyết định của nền tảng chứ không phải của từng ban tổ chức.
+    max-seated-per-hold: ${MAX_SEATED_PER_HOLD:8}
+    max-standing-per-hold: ${MAX_STANDING_PER_HOLD:10}
+    max-units-per-hold: ${MAX_UNITS_PER_HOLD:10}
+    max-tickets-per-customer: ${MAX_TICKETS_PER_CUSTOMER:20}
+
+    # Dựng sẵn một tổ chức mẫu với vài sự kiện đã publish, lúc khởi động.
+    #
+    # BẬT mặc định vì một catalog rỗng làm cả hệ thống trông như hỏng: trang chủ trắng, không có
+    # gì để bấm, không có suất nào để thử luồng mua vé. Bộ dựng là idempotent (UUID cố định,
+    # ON CONFLICT DO NOTHING) nên khởi động lại nhiều lần không sinh thêm dữ liệu.
+    #
+    # ĐẶT false Ở PRODUCTION. Dữ liệu mẫu mang tổ chức và sự kiện không có thật.
+    demo-data: ${CATALOG_DEMO_DATA:true}
+
+    # Tổ chức đứng tên dữ liệu mẫu.
+    #
+    # Mặc định là một UUID không có thật, nên sự kiện mẫu hiện ở trang khách nhưng KHÔNG hiện
+    # trong khu vực quản trị — không ai là thành viên của tổ chức đó. Muốn vừa có dữ liệu ở trang
+    # khách vừa có dữ liệu để bấm thử trong app tổ chức thì đặt biến này bằng id tổ chức thật của
+    # bạn (lấy ở GET /v1/me/organizations).
+    demo-organization-id: ${CATALOG_DEMO_ORG_ID:00000000-0000-4000-a000-000000000001}
 
 management:
   endpoints:
@@ -41,3 +84,5 @@ management:
 logging:
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
+  level:
+    com.nexaticket: ${LOG_LEVEL:INFO}
