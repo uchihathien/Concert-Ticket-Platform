@@ -1,0 +1,30 @@
+# --- Java / Maven ---
+target/
+*.class
+# Wrapper dạng script, không có jar binary — commit để ai clone về cũng build được ngay.
+!.mvn/wrapper/maven-wrapper.properties
+
+# --- Node ---
+node_modules/
+.next/
+.turbo/
+dist/
+*.tsbuildinfo
+.pnpm-store/
+
+# --- Env & secrets ---
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# --- Runtime ---
+logs/
+*.log

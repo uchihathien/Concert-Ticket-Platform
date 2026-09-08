@@ -1,0 +1,13 @@
+sequenceDiagram
+  participant S as Scanner
+  participant A as Tickets API
+  participant D as PostgreSQL
+  S->>A: POST /v1/check-ins (signed QR)
+  A->>D: verify token and atomically mark CHECKED_IN
+  alt first valid scan
+    D-->>A: check-in created
+    A-->>S: CHECKED_IN
+  else already checked in
+    D-->>A: existing check-in
+    A-->>S: ALREADY_CHECKED_IN + permitted ticket info
+  end

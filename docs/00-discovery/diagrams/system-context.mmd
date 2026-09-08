@@ -1,0 +1,12 @@
+flowchart LR
+  Customer[Khách hàng] --> Web[Customer Web / React Native]
+  Organizer[Organizer] --> Admin[Admin Web]
+  Staff[Check-in staff] --> Scanner[Scanner app]
+  Web --> Nexa[NexaTicket]
+  Admin --> Nexa
+  Scanner --> Nexa
+  Nexa --> VietQR[VietQR]
+  Customer --> Bank[Ngân hàng nhận tiền]
+  Bank --> SePay[SePay]
+  SePay --> Nexa
+  Nexa --> Notify[Email / SMS provider]

@@ -1,0 +1,52 @@
+name: Backend
+
+on:
+  pull_request:
+    paths: ['backend/**', '.github/workflows/backend.yml']
+  push:
+    branches: [main]
+    paths: ['backend/**', '.github/workflows/backend.yml']
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      - name: Lint (Spotless)
+        run: ./mvnw -B -ntp spotless:check
+
+      # Unit test + ArchUnit. ArchUnit là thứ chặn monorepo thoái hoá thành monolith,
+      # nên nó chạy ở mọi PR chứ không phải nightly.
+      - name: Unit test + ArchUnit
+        run: ./mvnw -B -ntp verify -DskipITs
+
+      # Tách job để thấy ngay cái nào hỏng: logic hay hạ tầng.
+      # Runner của GitHub có sẵn Docker nên Testcontainers chạy được.
+      - name: Integration test (Testcontainers)
+        run: ./mvnw -B -ntp verify -Dsurefire.skip=true
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

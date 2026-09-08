@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+  cloud:
+    gateway:
+      server:
+        webflux:
+          default-filters:
+            # Rate limit: public theo IP, authenticated theo user (services.md §0)
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RATE_LIMIT_RPS:50}
+                redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST:100}
+                key-resolver: "#{@principalOrIpKeyResolver}"
+          routes:
+            - id: identity
+              uri: ${IDENTITY_URL:http://localhost:8090}
+              predicates:
+                - Path=/v1/platform/organizations/**,/v1/organizations/**,/v1/me/**,/v1/invitations/**
+            # Các service khác thêm vào đây khi tới giai đoạn của chúng (G1+).
+            # /internal/** CỐ Ý không có route: Open Host Service chỉ gọi được trong mạng nội bộ.
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"

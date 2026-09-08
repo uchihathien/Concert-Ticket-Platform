@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: identity-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/identity_db}
+    username: ${DB_USER:identity}
+    password: ${DB_PASSWORD:identity}
+    hikari:
+      # 30-50 là đủ. To hơn KHÔNG giúp — nó chỉ chuyển tranh chấp vào trong database
+      # (plan/backend.md §14).
+      maximum-pool-size: ${DB_POOL_SIZE:30}
+      pool-name: identity-pool
+  flyway:
+    enabled: true
+    # Migration nền tảng đến từ các starter; migration của service nằm trong service.
+    locations: classpath:db/migration/platform,classpath:db/migration/identity
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:nexaticket}
+    password: ${RABBITMQ_PASSWORD:nexaticket}
+    publisher-confirm-type: correlated   # ADR-1009: chỉ đánh dấu published_at sau khi broker xác nhận
+    publisher-returns: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+  jackson:
+    default-property-inclusion: non_null
+
+server:
+  port: ${PORT:8090}
+  shutdown: graceful
+
+nexaticket:
+  outbox:
+    publish-interval-ms: 500
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      service: identity-service
+
+logging:
+  pattern:
+    # correlationId đi xuyên toàn bộ saga; luôn có mặt trong log.
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
+  level:
+    com.nexaticket: ${LOG_LEVEL:INFO}

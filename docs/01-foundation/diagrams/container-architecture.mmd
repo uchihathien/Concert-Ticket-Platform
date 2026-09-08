@@ -1,0 +1,12 @@
+flowchart TB
+  Client[Next.js customer/admin + React Native] --> WAF[Gateway / WAF]
+  WAF --> API[Spring Boot modular monolith]
+  API --> PG[(PostgreSQL)]
+  API --> Redis[(Redis)]
+  API --> MQ[RabbitMQ]
+  API --> QR[VietQR]
+  SePay[SePay webhook] --> API
+  MQ --> Worker[Outbox / expiry / notification workers]
+  Worker --> PG
+  API --> OTel[OpenTelemetry]
+  Worker --> OTel

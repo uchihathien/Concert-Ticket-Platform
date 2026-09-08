@@ -1,0 +1,15 @@
+sequenceDiagram
+  participant C as Client
+  participant I as Inventory
+  participant R as Redis
+  participant D as PostgreSQL
+  participant W as WebSocket
+  C->>I: POST holds + Idempotency-Key
+  I->>R: Lua verify seats + TTL 5m
+  R-->>I: success/failure
+  I->>D: persist ACTIVE seat_holds
+  I->>W: seat.availability.changed(version)
+  W-->>C: changed seats
+  C->>I: POST orders
+  I->>D: lock seats, RESERVED 15m, convert hold
+  I->>W: seat.availability.changed(version)

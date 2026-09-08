@@ -1,0 +1,10 @@
+{
+  "name": "@nexaticket/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./tokens.css": "./src/tokens.css",
+    "./reset.css": "./src/reset.css"
+  },
+  "files": ["src"]
+}

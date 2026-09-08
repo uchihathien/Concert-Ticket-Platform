@@ -1,0 +1,18 @@
+name: E2E (nightly)
+
+on:
+  schedule:
+    - cron: '0 18 * * *'   # 01:00 giờ Việt Nam
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dựng hạ tầng
+        run: docker compose -f deploy/compose/infra.yml up -d --wait
+      - name: Áp RabbitMQ topology
+        run: ./scripts/apply-rabbitmq-topology.sh
+      - name: (G1+) Playwright
+        run: echo "E2E dựng ở G1 khi đã có luồng nghiệp vụ đầu tiên"

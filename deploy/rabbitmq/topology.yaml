@@ -1,0 +1,59 @@
+# NGUỒN CHÂN LÝ của topology RabbitMQ (plan/README.md §4).
+# Áp bằng scripts/apply-rabbitmq-topology.sh khi deploy — KHÔNG để mỗi service tự khai báo tuỳ ý,
+# vì sau vài tháng sẽ trôi.
+#
+# Quy ước bắt buộc: quorum queue, publisher confirms, manual ack, mọi queue có DLX.
+
+exchanges:
+  - { name: nexaticket.identity,     type: topic,  durable: true }
+  - { name: nexaticket.catalog,      type: topic,  durable: true }
+  - { name: nexaticket.inventory,    type: topic,  durable: true }
+  - { name: nexaticket.ordering,     type: topic,  durable: true }
+  - { name: nexaticket.payment,      type: topic,  durable: true }
+  - { name: nexaticket.ledger,       type: topic,  durable: true }
+  - { name: nexaticket.payout,       type: topic,  durable: true }
+  - { name: nexaticket.ticketing,    type: topic,  durable: true }
+  # Fan-out cho realtime-gateway: mỗi instance tự khai queue exclusive riêng,
+  # nên không có queue tĩnh nào bind vào exchange này (services.md §4).
+  - { name: nexaticket.availability, type: fanout, durable: true }
+  - { name: nexaticket.dlx,          type: topic,  durable: true }
+  - { name: nexaticket.retry,        type: x-delayed-message, durable: true,
+      arguments: { x-delayed-type: topic } }
+
+queues:
+  # --- G0: identity ---
+  - name: notification.identity.organization-created
+    exchange: nexaticket.identity
+    routing_key: organization.created
+  - name: notification.identity.member-invited
+    exchange: nexaticket.identity
+    routing_key: member.invited
+  - name: analytics.identity.all
+    exchange: nexaticket.identity
+    routing_key: "#"
+
+  # --- G3+: thanh toán. ledger chạy TUẦN TỰ (ADR-1009 §4) ---
+  - name: ledger.payment.confirmed
+    exchange: nexaticket.payment
+    routing_key: payment.confirmed
+    consumers: 1
+  - name: ordering.payment.confirmed
+    exchange: nexaticket.payment
+    routing_key: payment.confirmed
+
+  # --- G3+: đơn đã trả tiền, nhiều consumer độc lập trên cùng sự kiện ---
+  - name: inventory.ordering.paid
+    exchange: nexaticket.ordering
+    routing_key: order.paid
+  - name: ticketing.ordering.paid
+    exchange: nexaticket.ordering
+    routing_key: order.paid
+  - name: notification.ordering.paid
+    exchange: nexaticket.ordering
+    routing_key: order.paid
+
+defaults:
+  queue_type: quorum
+  durable: true
+  dead_letter_exchange: nexaticket.dlx
+  # DLQ đặt tên <queue>.dlq, tạo tự động bởi script.

@@ -1,0 +1,11 @@
+flowchart LR
+  Identity --> Catalog
+  Catalog --> Inventory
+  Inventory --> Orders
+  Orders --> Payments
+  Payments --> Tickets
+  Orders --> Notifications
+  Payments --> Notifications
+  Tickets --> Analytics
+  Orders --> Analytics
+  Payments --> Analytics

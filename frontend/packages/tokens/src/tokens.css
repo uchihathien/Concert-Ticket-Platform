@@ -1,0 +1,83 @@
+/*
+ * NexaTicket — design tokens v2
+ * Nguồn: docs/architecture-v2/ui-direction.md §3
+ *
+ * Đổi hệ so với v1: nền SÁNG + đỏ ấm, thay cho nền tối + lime.
+ * Scanner giữ nền tối — dùng ngoài trời buổi tối ở cửa soát vé, nền tối đỡ chói
+ * và đỡ tốn pin. Đây là quyết định có lý do, không phải thiếu nhất quán.
+ */
+
+:root {
+  /* Nền & chữ */
+  --nt-bg: #ffffff;
+  --nt-bg-subtle: #f7f5f3;
+  --nt-surface: #ffffff;
+  --nt-border: #e6e2de;
+  --nt-text: #1a1614;
+  --nt-text-muted: #6b625c;
+
+  /* Thương hiệu */
+  --nt-primary: #c02a2a;
+  --nt-primary-hover: #a32222;
+  --nt-primary-ink: #ffffff;
+  --nt-accent: #f2b705;
+  --nt-accent-ink: #2a1f00;
+
+  /* Trạng thái */
+  --nt-success: #1f7a4d;
+  --nt-warn: #b06a00;
+  --nt-danger: #b3261e;
+
+  /* Sơ đồ chỗ ngồi — phải phân biệt được trên nền sáng */
+  --nt-seat-available: #1f7a4d;
+  --nt-seat-mine: #c02a2a;
+  --nt-seat-held-other: #b8b2ac;
+  --nt-seat-reserved: #d99a00;
+  --nt-seat-sold: #d6d1cc;
+  --nt-seat-blocked: #efece9;
+  --nt-zone-standing-bg: rgba(242, 183, 5, 0.13);
+  --nt-zone-standing-border: #f2b705;
+
+  /* Hình khối */
+  --nt-radius: 10px;
+  --nt-radius-lg: 16px;
+  --nt-focus: 0 0 0 2px #fff, 0 0 0 4px var(--nt-primary);
+
+  /* Chữ */
+  --nt-font: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --nt-font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+
+  /* Khoảng cách */
+  --nt-space-1: 4px;
+  --nt-space-2: 8px;
+  --nt-space-3: 12px;
+  --nt-space-4: 16px;
+  --nt-space-6: 24px;
+  --nt-space-8: 32px;
+  --nt-space-12: 48px;
+}
+
+/* Scanner: nền tối, cùng bộ token nghĩa vụ */
+[data-app='scanner'] {
+  --nt-bg: #14100f;
+  --nt-bg-subtle: #1d1817;
+  --nt-surface: #1d1817;
+  --nt-border: #352d2b;
+  --nt-text: #f5f1ef;
+  --nt-text-muted: #a3968f;
+  --nt-focus: 0 0 0 2px #14100f, 0 0 0 4px var(--nt-accent);
+}
+
+/* Ba hiệu ứng có mục đích, không hơn (ui-direction.md §7) */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --nt-motion-seat: 150ms ease-out;
+    --nt-motion-flash: 300ms ease-out;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --nt-motion-seat: 0ms;
+    --nt-motion-flash: 0ms;
+  }
+}
