@@ -13,6 +13,10 @@ import java.util.UUID;
  * (ADR-1002). Vì vậy mọi thứ Inventory cần đều phải nằm ở đây: nhãn chỗ, giá, hạng vé, và trần
  * mua vé đã giải quyết kế thừa.
  *
+ * <p>Khung giờ bán đi kèm ở đây chứ không để Inventory hỏi lại Catalog: {@code session_inventory}
+ * bắt buộc có nó, và một lời gọi ngược lại lúc materialize sẽ biến Catalog thành phụ thuộc cứng
+ * của việc mở bán.
+ *
  * @param seats chỗ ngồi đánh số, mỗi phần tử là một chỗ
  * @param standingBlocks khu vực vé đứng, mỗi phần tử là một khối có số lượng — Inventory tự sinh
  *     đơn vị ảo, không truyền 3.000 phần tử qua message
@@ -21,6 +25,8 @@ public record SeatManifest(
         UUID eventSessionId,
         UUID eventId,
         UUID organizationId,
+        java.time.Instant salesOpenAt,
+        java.time.Instant salesCloseAt,
         List<SeatLine> seats,
         List<StandingBlock> standingBlocks,
         ResolvedPurchaseLimits limits) {
