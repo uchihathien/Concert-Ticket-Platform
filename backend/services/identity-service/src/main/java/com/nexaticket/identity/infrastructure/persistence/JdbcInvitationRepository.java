@@ -61,6 +61,25 @@ public class JdbcInvitationRepository implements InvitationRepository {
     }
 
     @Override
+    public Optional<Invitation> findById(UUID id) {
+        return jdbc
+                .query(
+                        """
+                        SELECT id, organization_id, email, role, token_hash, expires_at, accepted_at
+                          FROM invitations WHERE id = ?
+                        """,
+                        MAPPER,
+                        id)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public void delete(UUID id) {
+        jdbc.update("DELETE FROM invitations WHERE id = ?", id);
+    }
+
+    @Override
     public void save(Invitation invitation) {
         jdbc.update(
                 """

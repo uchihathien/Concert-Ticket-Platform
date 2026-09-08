@@ -25,6 +25,24 @@ public class TenantFilter extends OncePerRequestFilter {
 
     private static final Pattern ORG_IN_PATH = Pattern.compile("/organizations/([0-9a-fA-F-]{36})");
 
+    /**
+     * Khu vực nền tảng: superadmin thao tác cross-tenant, nên id trên đường dẫn KHÔNG phải là
+     * tenant của người gọi.
+     *
+     * <p>Thiếu ngoại lệ này thì mọi route dạng {@code /v1/platform/organizations/{id}/...} đều
+     * không dùng được: filter thấy {@code /organizations/{id}}, hỏi "người này có phải thành viên
+     * không", và superadmin — theo đúng thiết kế — không phải thành viên của tổ chức nào. Kết quả
+     * là 404 cho chính người có toàn quyền.
+     *
+     * <p>Lỗi này nằm im vì hai route nền tảng đầu tiên không mang id trên đường dẫn. Nó chỉ lộ ra
+     * khi thêm route thứ ba.
+     *
+     * <p>Bỏ qua bước lấy tenant KHÔNG phải là bỏ qua kiểm quyền: handler ở khu vực này vẫn gọi
+     * {@code TenantContext.requireSuperAdmin()}, nên người thường nhận 403 — và 403 chỉ nói "bạn
+     * không phải superadmin", không xác nhận tổ chức kia có tồn tại hay không.
+     */
+    private static final String PLATFORM_PREFIX = "/v1/platform/";
+
     private final MembershipLookup membershipLookup;
 
     public TenantFilter(MembershipLookup membershipLookup) {
@@ -41,7 +59,9 @@ public class TenantFilter extends OncePerRequestFilter {
             MembershipLookup.Principal principal = membershipLookup.resolve(claimsOf(jwt));
             if (principal != null) {
                 scope = new TenantScope(principal.userId(), principal.memberships(), null, principal.superAdmin());
-                TenantId fromPath = extractOrganization(request.getRequestURI());
+                TenantId fromPath = request.getRequestURI().startsWith(PLATFORM_PREFIX)
+                        ? null
+                        : extractOrganization(request.getRequestURI());
                 if (fromPath != null) {
                     // Superadmin thao tác cross-tenant qua route /v1/platform/**; các route
                     // /organizations/{id} vẫn đòi membership thật.

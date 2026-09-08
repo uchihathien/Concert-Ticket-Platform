@@ -142,6 +142,47 @@ class AuthenticationFlowIT extends PostgresTestBase {
                 .isEqualTo(200);
     }
 
+    @Test
+    @DisplayName("superadmin dùng được route /v1/platform/{id}/... dù không là thành viên tổ chức đó")
+    void superadmin_thao_tac_cross_tenant() throws Exception {
+        // TenantFilter lấy tổ chức từ đoạn /organizations/{id} trên ĐƯỜNG DẪN và trả 404 nếu người
+        // gọi không phải thành viên. Với khu vực nền tảng thì luật đó sai hoàn toàn: superadmin
+        // theo thiết kế không là thành viên của tổ chức nào, nên nó tự chặn chính mình khỏi những
+        // route sinh ra cho mình — 404 cho người có toàn quyền.
+        //
+        // Lỗi nằm im rất lâu vì hai route nền tảng đầu tiên không mang id trên đường dẫn.
+        provisionSuperAdmin();
+        var created = mockMvc.perform(MockMvcRequestBuilders.post("/v1/platform/organizations")
+                        .header("Authorization", BEARER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"To chuc cross tenant\",\"ownerEmail\":\"o2@example.com\"}"))
+                .andReturn();
+        String organizationId = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(created.getResponse().getContentAsString())
+                .path("id")
+                .asText();
+
+        mockMvc.perform(MockMvcRequestBuilders.post("/v1/platform/organizations/" + organizationId + "/suspend")
+                        .header("Authorization", BEARER))
+                .andExpect(result -> assertThat(result.getResponse().getStatus())
+                        .as("superadmin phải khoá được tổ chức mình không thuộc về")
+                        .isEqualTo(200));
+    }
+
+    @Test
+    @DisplayName("người thường vào route nền tảng: 403, không phải 404")
+    void nguoi_thuong_vao_route_nen_tang() throws Exception {
+        // 403 nói "bạn không phải superadmin" và KHÔNG xác nhận tổ chức kia có tồn tại — nên bỏ
+        // bước lấy tenant ở khu vực nền tảng không mở ra kênh dò tìm tổ chức nào.
+        users.upsertByIdpSubject(IDP_SUBJECT, "auth-test@example.com", "Nguoi thuong");
+
+        mockMvc.perform(MockMvcRequestBuilders.post(
+                                "/v1/platform/organizations/" + java.util.UUID.randomUUID() + "/suspend")
+                        .header("Authorization", BEARER))
+                .andExpect(
+                        result -> assertThat(result.getResponse().getStatus()).isEqualTo(403));
+    }
+
     private void provisionSuperAdmin() {
         var user = users.upsertByIdpSubject(IDP_SUBJECT, "auth-test@example.com", "Super Admin");
         jdbc.update(

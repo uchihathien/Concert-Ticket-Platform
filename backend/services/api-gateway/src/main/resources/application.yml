@@ -46,7 +46,10 @@ spring:
             - id: identity
               uri: ${IDENTITY_URL:http://localhost:8090}
               predicates:
-                - Path=/v1/platform/organizations/**,/v1/organizations/**,/v1/me/**,/v1/invitations/**
+                # `/v1/me` khai TÁCH khỏi `/v1/me/**`: hai mẫu này không phải một, và nhầm
+                # lẫn đó khiến endpoint hồ sơ trả 404 trong khi `/v1/me/organizations` vẫn chạy —
+                # triệu chứng trông như lỗi của identity chứ không phải của gateway.
+                - Path=/v1/platform/organizations/**,/v1/organizations/**,/v1/me,/v1/me/**,/v1/invitations/**
             - id: inventory
               uri: ${INVENTORY_URL:http://localhost:8092}
               predicates:
