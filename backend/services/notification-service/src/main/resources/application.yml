@@ -24,6 +24,17 @@ spring:
         jwt:
           issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
 
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+
+nexaticket:
+  notification:
+    from: ${MAIL_FROM:no-reply@nexaticket.vn}
+    workers:
+      enabled: true
+      interval: 10s
+
 server:
   port: ${PORT:8098}
   shutdown: graceful
