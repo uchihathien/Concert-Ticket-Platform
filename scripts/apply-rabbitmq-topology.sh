@@ -15,10 +15,22 @@ api() {
   curl -fsS -u "$USER:$PASS" -H 'content-type: application/json' "$@"
 }
 
+# Git Bash trên Windows chỉ có `python`, không có `python3`; Linux và macOS thì ngược lại — nhiều
+# bản chỉ có `python3`. Dò một lần rồi dùng chung, thay vì để script chết với một thông báo của
+# Microsoft Store mà không liên quan gì tới RabbitMQ.
+PY_BIN=""
+for candidate in python3 python; do
+  # PHẢI thử chạy thật, không được chỉ `command -v`. Windows cài sẵn một stub `python3.exe` trong
+  # WindowsApps: `command -v` tìm thấy nó, nhưng chạy thì nó in quảng cáo Microsoft Store rồi thoát
+  # với mã 0 — script sẽ hỏng ở một chỗ hoàn toàn không liên quan tới RabbitMQ.
+  if "$candidate" -c 'import sys' >/dev/null 2>&1; then PY_BIN="$candidate"; break; fi
+done
+[ -z "$PY_BIN" ] && { echo "Không tìm thấy Python chạy được (cần để đọc YAML)" >&2; exit 1; }
+
 echo "==> Áp topology lên $HOST"
 
 # --- exchanges ---
-python3 - "$TOPOLOGY" <<'PY' | while IFS=$'\t' read -r name type args; do
+"$PY_BIN" - "$TOPOLOGY" <<'PY' | while IFS=$'\t' read -r name type args; do
 import sys, yaml, json
 spec = yaml.safe_load(open(sys.argv[1], encoding='utf-8'))
 for ex in spec.get('exchanges', []):
@@ -30,7 +42,7 @@ PY
 done
 
 # --- queues + bindings + DLQ ---
-python3 - "$TOPOLOGY" <<'PY' | while IFS=$'\t' read -r name exchange key consumers; do
+"$PY_BIN" - "$TOPOLOGY" <<'PY' | while IFS=$'\t' read -r name exchange key consumers; do
 import sys, yaml
 spec = yaml.safe_load(open(sys.argv[1], encoding='utf-8'))
 for q in spec.get('queues', []):

@@ -11,6 +11,7 @@
 
   <artifactId>catalog-service</artifactId>
   <name>catalog-service</name>
+  <description>Catalog &amp; Admin — địa điểm, sự kiện, suất diễn, hạng vé, publish</description>
 
   <dependencies>
     <dependency>
@@ -41,10 +42,6 @@
     <dependency>
       <groupId>com.nexaticket</groupId>
       <artifactId>starter-outbox</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.nexaticket</groupId>
-      <artifactId>starter-idempotency</artifactId>
     </dependency>
 
     <dependency>

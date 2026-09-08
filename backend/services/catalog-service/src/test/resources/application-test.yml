@@ -1,0 +1,19 @@
+# Cấu hình riêng cho test.
+#
+# `nexaticket.identity.base-url` CỐ Ý vắng mặt: có nó thì SecurityAutoConfiguration tạo
+# HttpMembershipLookup và bean giả trong CatalogTestBase bị bỏ qua — test sẽ gọi ra một
+# identity-service không tồn tại và mọi request đều 401.
+nexaticket:
+  catalog:
+    # Test tự dựng dữ liệu của nó. Bộ dựng mẫu chạy cùng lúc sẽ làm mọi khẳng định về số lượng
+    # sai lệch, và tệ hơn là sai lệch tuỳ thời điểm chạy.
+    demo-data: false
+  outbox:
+    # Không có broker trong test. Để chu kỳ mặc định 500ms thì mỗi lần chạy đều đầy log lỗi kết
+    # nối, che mất lỗi thật. Test kiểm hàng trong bảng outbox chứ không kiểm việc gửi đi.
+    publish-interval-ms: 3600000
+
+spring:
+  rabbitmq:
+    # Thất bại nhanh thay vì treo 60 giây cho mỗi lần thử kết nối.
+    connection-timeout: 1s
