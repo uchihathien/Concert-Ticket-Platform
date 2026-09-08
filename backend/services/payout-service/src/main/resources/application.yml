@@ -6,7 +6,15 @@ spring:
     username: ${DB_USER:payout}
     password: ${DB_PASSWORD:payout}
     hikari:
-      maximum-pool-size: ${DB_POOL_SIZE:30}
+      # Mười một service dùng CHUNG một cụm PostgreSQL ở MVP (ADR-1002 — database riêng, cụm
+      # chung). Với pool 30 thì tổng nhu cầu là 330 kết nối, còn cụm mặc định cho 100: hệ thống
+      # KHÔNG BAO GIỜ chạy đủ được. Thực tế bốn service đã chiếm 99/100, toàn bộ nhàn rỗi, và
+      # service thứ năm chết lúc khởi động với "remaining connection slots are reserved".
+      #
+      # 10 là con số hợp lý cho một service Spring: pool lớn không làm nhanh hơn, nó chỉ dịch chỗ
+      # xếp hàng từ ứng dụng sang database. Service nào thật sự cần nhiều hơn thì nâng bằng
+      # DB_POOL_SIZE, và đó là một quyết định có chủ đích chứ không phải mặc định.
+      maximum-pool-size: ${DB_POOL_SIZE:10}
       pool-name: payout-pool
   flyway:
     enabled: true

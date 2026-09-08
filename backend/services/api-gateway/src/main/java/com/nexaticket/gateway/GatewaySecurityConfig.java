@@ -23,6 +23,10 @@ public class GatewaySecurityConfig {
     @Bean
     public SecurityWebFilterChain securityWebFilterChain(ServerHttpSecurity http) {
         return http.csrf(ServerHttpSecurity.CsrfSpec::disable)
+                // PHẢI bật ở đây, không phải bằng `globalcors` trong YAML: CORS xử lý bên trong
+                // chuỗi bảo mật thì nằm TRƯỚC bước uỷ quyền, nên preflight OPTIONS — vốn không
+                // mang header Authorization — được trả lời thay vì nhận 401. Xem CorsConfig.
+                .cors(Customizer.withDefaults())
                 .authorizeExchange(exchange -> exchange.pathMatchers("/actuator/health/**", "/actuator/info")
                         .permitAll()
                         .pathMatchers(HttpMethod.GET, "/v1/events/**", "/v1/sessions/*/seats")

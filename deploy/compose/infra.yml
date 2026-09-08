@@ -5,6 +5,14 @@ name: nexaticket-infra
 services:
   postgres:
     image: postgres:16-alpine
+    # Mặc định của Postgres là 100 kết nối. Ở MVP, mười một service dùng chung cụm này (ADR-1002),
+    # nên 100 không đủ cho cả hệ thống chạy cùng lúc — service khởi động sau chết với
+    # "remaining connection slots are reserved for roles with the SUPERUSER attribute", một thông
+    # báo không hề gợi ý rằng nguyên nhân nằm ở cấu hình pool của service khác.
+    #
+    # 200 = 11 service x 10 kết nối, cộng chỗ trống cho psql và công cụ. Đi kèm việc hạ pool mặc
+    # định của service xuống 10; chỉ nâng một trong hai đầu là chưa đủ.
+    command: ["postgres", "-c", "max_connections=200"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres

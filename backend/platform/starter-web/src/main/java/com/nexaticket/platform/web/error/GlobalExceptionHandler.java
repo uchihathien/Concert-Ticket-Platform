@@ -8,9 +8,12 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -51,6 +54,37 @@ public class GlobalExceptionHandler {
      * Lưới cuối. Không bao giờ trả thông điệp gốc ra ngoài — nó có thể chứa dữ liệu nhạy cảm hoặc chi
      * tiết hạ tầng. Người dùng nhận correlationId để báo hỗ trợ.
      */
+    /**
+     * Đường dẫn không tồn tại, và thân request không đọc được.
+     *
+     * <p>Không có hai nhánh này thì {@code handleUnexpected} nuốt chúng và trả <b>500</b> — sai với
+     * cả hai. Đường dẫn gõ nhầm phải là 404, JSON hỏng phải là 400; báo 500 nghĩa là "lỗi của
+     * server", và nó gửi người đi tìm sai chỗ.
+     *
+     * <p>Điều này từng che một lỗi thật: api-gateway gửi nhầm {@code /v1/me/orders} sang
+     * identity-service, identity trả 500 vì không có handler nào, và triệu chứng trông như
+     * ordering-service hỏng. Một cái 404 ở đây đã chỉ thẳng ra rằng request tới nhầm service.
+     */
+    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+    public ResponseEntity<ApiError> handleNotFound(Exception ex) {
+        return ResponseEntity.status(404)
+                .body(ApiError.of(
+                        ErrorCode.Common.NOT_FOUND,
+                        "No handler for this path",
+                        CorrelationContext.current(),
+                        Map.of()));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiError> handleUnreadableBody(HttpMessageNotReadableException ex) {
+        return ResponseEntity.status(400)
+                .body(ApiError.of(
+                        ErrorCode.Common.VALIDATION_FAILED,
+                        "Malformed request body",
+                        CorrelationContext.current(),
+                        Map.of()));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
         String correlationId = CorrelationContext.current();
