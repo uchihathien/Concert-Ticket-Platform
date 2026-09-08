@@ -67,3 +67,50 @@ người khác cấp; có nút tự đăng ký ở ba app kia là mời người
 
 `registrationEmailAsUsername: true` để form chỉ hỏi email và mật khẩu. Với một trang bán vé,
 bắt khách nghĩ ra username riêng là thêm một ô để họ bỏ dở.
+
+## Đăng nhập bằng Google
+
+Google là **identity provider của Keycloak**, không phải provider thứ ba của Auth.js. Frontend
+vẫn dùng đúng client `web-customer`, đúng callback `/api/auth/callback/keycloak`, chỉ thêm một
+tham số `kc_idp_hint=google` vào authorization request để Keycloak bỏ qua trang mật khẩu của nó
+và chuyển thẳng sang Google.
+
+Cách này đổi lấy ba thứ:
+
+- **Một danh tính duy nhất.** Người đăng nhập bằng Google hôm nay và bằng mật khẩu ngày mai vẫn
+  là cùng một user Keycloak, cùng một `sub` — mà `sub` chính là khoá backend dùng để tạo bản ghi
+  người dùng. Nếu Google là provider riêng của Auth.js thì đó sẽ là hai `sub` khác nhau và một
+  người thành hai tài khoản.
+- **Thêm nhà cung cấp sau này là việc cấu hình.** Facebook hay Apple chỉ cần khai thêm trong
+  Keycloak; code của bốn app không đổi một dòng.
+- **Không thêm redirect URI.** Callback vẫn là callback cũ, nên realm file không phải sửa.
+
+Khai bằng script, đừng nhét vào `nexaticket-realm.json`:
+
+```bash
+GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... ./scripts/setup-google-idp.sh
+```
+
+Realm file được commit, còn client secret của Google là bí mật thật. Để realm mặc định không có
+Google nghĩa là mọi máy dev vẫn chạy được ngay khi chưa ai có tài khoản Google Cloud; ai cần thì
+chạy thêm một lệnh.
+
+Ba chỗ dễ sai:
+
+1. **Redirect URI phía Google.** Trong Google Cloud Console phải khai
+   `http://localhost:8081/realms/nexaticket/broker/google/endpoint` — địa chỉ của *Keycloak*,
+   không phải của Next.js. Khai nhầm sang `localhost:3000` thì Google chặn với `redirect_uri_mismatch`.
+2. **`kc_idp_hint` phải là đối số thứ BA của `signIn()`**, tức `authorizationParams`. Đặt nhầm
+   vào đối số thứ hai thì Auth.js coi đó là tuỳ chọn của nó, bỏ qua lặng lẽ, và người dùng rơi
+   vào trang đăng nhập mật khẩu của Keycloak — không có lỗi nào để lần ra.
+3. **`trustEmail: true`.** Google đã xác minh email; không bật thì Keycloak gửi thêm một mail xác
+   minh nữa, và ở môi trường dev không có SMTP thật thì người dùng kẹt luôn ở đó.
+
+Một người có sẵn tài khoản mật khẩu rồi mới đăng nhập Google: realm bật
+`registrationEmailAsUsername` nên Keycloak không cho hai user trùng email, và luồng
+`first broker login` sẽ hỏi để **liên kết** hai đường vào cùng một tài khoản thay vì tạo tài
+khoản mới. Đó là hành vi mong muốn — `sub` giữ nguyên nên backend không thấy gì thay đổi.
+
+Nút ở frontend tắt mặc định, bật bằng `AUTH_GOOGLE_ENABLED=true` trong `.env.local` của
+`web-customer`. Hiện nút khi chưa khai provider thì người dùng bấm vào và nhận trang lỗi của
+Keycloak — tệ hơn hẳn so với không thấy nút.
