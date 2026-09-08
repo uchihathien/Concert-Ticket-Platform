@@ -57,7 +57,8 @@
         "http://localhost:3000"
       ],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##http://localhost:3000/##http://localhost:3000/login"
       }
     },
     {
@@ -75,7 +76,8 @@
         "http://localhost:3001"
       ],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##http://localhost:3001/##http://localhost:3001/login"
       }
     },
     {
@@ -93,7 +95,8 @@
         "http://localhost:3003"
       ],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##http://localhost:3003/##http://localhost:3003/login"
       }
     },
     {
@@ -111,7 +114,8 @@
         "http://localhost:3002"
       ],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##http://localhost:3002/##http://localhost:3002/login"
       }
     }
   ],
