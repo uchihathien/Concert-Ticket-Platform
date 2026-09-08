@@ -120,7 +120,14 @@ class ArchitectureTest {
 }
 JAVA
 
-cat > "$DIR/src/main/resources/db/migration/$NAME/V0100__init.sql" <<SQL
+# Đặt tên theo context ngay từ đầu, KHÔNG phải V0100__init.sql.
+#
+# Maven không xoá resource đã bị xoá khỏi target/classes. Nếu khuôn sinh ra
+# V0100__init.sql rồi sau đó ta xoá đi để viết V0100__<name>.sql, bản cũ vẫn nằm
+# trong target và Flyway sẽ chết với "Found more than one migration with version 0100"
+# — một lỗi trỏ vào Flyway trong khi nguyên nhân là build cache. Dùng đúng tên cuối
+# cùng ngay từ đầu thì không bao giờ có hai file.
+cat > "$DIR/src/main/resources/db/migration/$NAME/V0100__$NAME.sql" <<SQL
 -- Migration đầu tiên của $NAME-service.
 -- Quy ước tiền: cột VND là BIGINT, tên kết thúc _vnd. Không có _cents ở bất cứ đâu.
 SQL
