@@ -15,7 +15,7 @@ Trong repo này:
 
 | Thư mục | Nội dung | README |
 | --- | --- | --- |
-| [`backend/`](backend/) | 11 service Spring Boot, Maven multi-module | [backend/README.md](backend/README.md) |
+| [`backend/`](backend/) | 11 service + gateway, Maven multi-module | [backend/README.md](backend/README.md) |
 | `deploy/` | Hạ tầng dùng chung: compose, RabbitMQ topology, Keycloak realm | — |
 | `scripts/` | Công cụ dùng chung | — |
 | `docs/` | Tài liệu thiết kế — **nguồn chân lý cho cả hai repo** | [docs/README.md](docs/README.md) |
@@ -57,6 +57,7 @@ cd frontend && corepack pnpm install && corepack pnpm dev
 | --- | --- |
 | Gateway | http://localhost:8080 |
 | identity-service | http://localhost:8090 |
+| inventory-service | http://localhost:8092 |
 | Keycloak | http://localhost:8081 (`admin` / `admin`) |
 | RabbitMQ UI | http://localhost:15672 (`nexaticket` / `nexaticket`) |
 | Mailpit | http://localhost:8025 |
@@ -85,19 +86,44 @@ Trả về `invitationToken` — dùng nó gọi `POST /v1/invitations/{token}/a
 
 > `invitationToken` chỉ xuất hiện trong response ở dev và staging để thử được mà không cần hộp thư. Ở production, `notification-service` gửi email và endpoint không trả token.
 
-## Trạng thái: giai đoạn G0
+## Trạng thái
+
+21 module Maven (6 thư viện `platform/` + gateway + 11 service) đã dựng và **build xanh**. Mức độ
+hoàn thiện rất khác nhau giữa các service — bảng dưới nói rõ cái nào là sản phẩm, cái nào mới là khung.
 
 | Thành phần | |
 | --- | --- |
 | Maven multi-module, 6 thư viện `platform/` | ✅ build xanh |
 | `identity-service` — tạo tổ chức, mời thành viên, membership | ✅ lát cắt dọc đầy đủ |
+| `ledger-service` — sổ cái kép, bút toán N1, bất biến do database ép | ✅ lát cắt dọc đầy đủ |
+| `inventory-service` — giữ chỗ, chống oversell, trần mua vé | ✅ lát cắt dọc đầy đủ |
 | `api-gateway` — route, JWT, rate limit, correlation id | ✅ |
 | Hạ tầng local: PostgreSQL, Redis, RabbitMQ, Keycloak, Mailpit | ✅ |
 | 4 app Next.js + design token | ✅ khung |
-| CI riêng cho từng repo | ✅ |
-| **25 test** (21 unit + ArchUnit, 4 integration với PostgreSQL thật) | ✅ |
-| catalog · inventory · ordering · payment · ledger · payout · ticketing | ⬜ G1–G6 |
-| **3 spike bắt buộc**: hold Redis Lua, sổ cái cân bằng, webhook SePay | ⬜ |
+| **96 test** (63 unit + ArchUnit, 33 integration với PostgreSQL và Redis thật) | ✅ |
+| catalog · ordering · payment · payout · ticketing · realtime · notification · analytics | ⬜ khung: POM, cấu hình, ArchUnit, migration rỗng |
+
+### Ba spike bắt buộc
+
+Ba chỗ dồn rủi ro lớn nhất của dự án. Hai đã xong, có test chứng minh:
+
+| Spike | | Bằng chứng |
+| --- | --- | --- |
+| Sổ cái luôn cân | ✅ | `LedgerInvariantIT` — ghi thẳng SQL để cố tình làm lệch sổ, database từ chối |
+| Chống oversell (ngồi + đứng) | ✅ | `SeatHoldConcurrencyIT`, `OversellBackstopIT` — xem dưới |
+| Webhook SePay 8 nhánh | ⬜ | thuộc `payment-service` |
+
+Bộ test chống oversell chạy **thật sự đồng thời**, không phải nộp việc vào thread pool rồi hy vọng:
+
+- 200 người giành cùng 1 ghế → đúng **1** người giữ được
+- 500 người mua vé đứng ở zone 200 chỗ → phát đúng **200** vé, không hơn một vé
+- Cùng một người mở 20 tab, trần 10 vé → giữ được đúng **10** chỗ
+- Giữ chỗ hỗn hợp 2 ngồi + 2 đứng, hỏng phần đứng → rollback cả bốn, không sót dấu vết người giữ
+- **Cổng Redis bị làm cho mù** (mô phỏng mất key / vừa failover) → database vẫn chỉ cho đúng 1 người
+
+Điểm cuối là điểm quan trọng nhất. Redis chỉ để 9.900 request thua cuộc khỏi phải chạm database;
+chốt chặn thật là partial unique index `uq_hold_item_active`. Nếu không có test đó, ta không biết
+được ai đang thật sự chặn — và ngày Redis failover thì hệ thống bán trùng ghế mà mọi test vẫn xanh.
 
 Ba spike là chỗ dồn rủi ro lớn nhất của dự án — chi tiết ở [plan/backend.md §5](docs/architecture-v2/plan/backend.md).
 

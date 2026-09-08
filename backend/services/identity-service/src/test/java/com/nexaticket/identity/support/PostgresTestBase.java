@@ -1,42 +1,29 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.identity.support;
 
+import com.nexaticket.platform.test.PostgresSingleton;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * Nền cho integration test: PostgreSQL thật qua Testcontainers, Flyway chạy đủ migration của
- * platform và identity.
+ * Nền cho integration test: PostgreSQL thật, Flyway chạy đủ migration của platform và identity.
  *
- * <p>Container khai bằng {@link Container} để Testcontainers quản lý vòng đời. Không start trong
- * static block: làm vậy thì khi Docker không chạy, JUnit hỏng ngay ở bước <i>discovery</i> với
- * thông báo khó hiểu thay vì báo lỗi test sạch sẽ.
+ * <p>Dùng PostgreSQL thật để test đúng thứ chạy ở production: partial unique index trên slug và ràng buộc membership đều là ràng buộc của database.
  *
- * <p>{@code withReuse(true)} giữ container sống giữa các lớp test và giữa các lần chạy — bật bằng
- * {@code testcontainers.reuse.enable=true} trong {@code ~/.testcontainers.properties}.
+ * <p>Vòng đời container do {@link PostgresSingleton} giữ, <b>không</b> do JUnit — xem javadoc ở đó
+ * để biết vì sao {@code @Testcontainers} + {@code @Container} làm hỏng lớp test thứ hai.
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@Testcontainers
 public abstract class PostgresTestBase {
 
-    @Container
-    @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("identity_db")
-            .withUsername("identity")
-            .withPassword("identity")
-            .withReuse(true);
+    private static final PostgreSQLContainer<?> POSTGRES = PostgresSingleton.forDatabase("identity_db");
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        PostgresSingleton.bind(registry, POSTGRES);
     }
 }

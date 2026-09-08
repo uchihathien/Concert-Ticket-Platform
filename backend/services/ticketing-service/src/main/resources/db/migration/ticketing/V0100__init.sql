@@ -1,0 +1,2 @@
+-- Migration đầu tiên của ticketing-service.
+-- Quy ước tiền: cột VND là BIGINT, tên kết thúc _vnd. Không có _cents ở bất cứ đâu.

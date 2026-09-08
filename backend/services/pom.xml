@@ -18,6 +18,15 @@
     <module>api-gateway</module>
     <module>identity-service</module>
     <module>ledger-service</module>
+    <module>catalog-service</module>
+    <module>inventory-service</module>
+    <module>ordering-service</module>
+    <module>realtime-gateway</module>
+    <module>payment-service</module>
+    <module>payout-service</module>
+    <module>ticketing-service</module>
+    <module>notification-service</module>
+    <module>analytics-service</module>
   </modules>
 
   <dependencies>

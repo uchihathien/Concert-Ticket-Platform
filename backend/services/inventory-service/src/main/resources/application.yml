@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: inventory-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/inventory_db}
+    username: ${DB_USER:inventory}
+    password: ${DB_PASSWORD:inventory}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:30}
+      pool-name: inventory-pool
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/platform,classpath:db/migration/inventory
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 1s
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:nexaticket}
+    password: ${RABBITMQ_PASSWORD:nexaticket}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+
+server:
+  port: ${PORT:8092}
+  shutdown: graceful
+  # So do 3.000 ghe la ~400KB JSON. Nen xoa gan het chenh lech giua ten field dai
+  # va ten field rut gon, nen giu ten dai cho de debug.
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+nexaticket:
+  inventory:
+    hold-expiry:
+      enabled: true
+      interval: 10s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"

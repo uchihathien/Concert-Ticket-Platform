@@ -25,12 +25,28 @@ import java.util.List;
 public final class ArchitectureRules {
 
     /** Mọi bounded context của hệ thống. Thêm context mới thì thêm vào đây. */
-    private static final List<String> ALL_CONTEXTS =
-            List.of("identity", "catalog", "inventory", "ordering", "payment", "ledger", "payout", "ticketing");
+    private static final List<String> ALL_CONTEXTS = List.of(
+            "identity",
+            "catalog",
+            "inventory",
+            "realtime",
+            "ordering",
+            "payment",
+            "ledger",
+            "payout",
+            "ticketing",
+            "notification",
+            "analytics");
 
     private ArchitectureRules() {}
 
-    /** domain không được biết đến framework — nếu không, mô hình dữ liệu sẽ lấn mô hình nghiệp vụ. */
+    /**
+     * domain không được biết đến framework — nếu không, mô hình dữ liệu sẽ lấn mô hình nghiệp vụ.
+     *
+     * <p>{@code allowEmptyShould(true)} vì service vừa sinh ra từ khuôn chưa có class domain nào.
+     * Không có nó, mọi service mới đều đỏ ngay từ commit đầu tiên — và cách sửa dễ nhất khi đó là
+     * xoá luật đi, tức là mất luôn thứ ta muốn giữ.
+     */
     public static ArchRule domainIsFrameworkFree() {
         return noClasses()
                 .that()
@@ -42,7 +58,8 @@ public final class ArchitectureRules {
                         "jakarta.persistence..",
                         "jakarta.servlet..",
                         "com.fasterxml.jackson..")
-                .because("domain phải thuần nghiệp vụ; persistence và web là adapter (tactical-ddd.md §1)");
+                .because("domain phải thuần nghiệp vụ; persistence và web là adapter (tactical-ddd.md §1)")
+                .allowEmptyShould(true);
     }
 
     /**

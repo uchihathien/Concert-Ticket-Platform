@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: realtime-gateway
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:nexaticket}
+    password: ${RABBITMQ_PASSWORD:nexaticket}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+
+server:
+  port: ${PORT:8100}
+  shutdown: graceful
+
+# Gom 200ms moi suat dien thanh MOT message roi moi day xuong WebSocket.
+# Khong gui mot message cho moi ghe (services.md §4).
+nexaticket:
+  realtime:
+    coalesce-window: 200ms
+    max-sessions-per-connection: 5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
