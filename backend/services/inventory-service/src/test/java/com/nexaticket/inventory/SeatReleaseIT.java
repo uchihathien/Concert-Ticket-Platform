@@ -69,7 +69,12 @@ class SeatReleaseIT extends InventoryTestBase {
         var hold = placeHold.handle(command(session.id(), user, session.seatIds()));
 
         fixture.expireHold(hold.holdId());
-        assertThat(expireHolds.runOnce()).isEqualTo(1);
+
+        // KHÔNG khẳng định runOnce() trả đúng 1: job này quét toàn database, và container
+        // PostgreSQL được dùng lại giữa các lần build (withReuse), nên nó sẽ nhặt cả những
+        // lần giữ chỗ hết hạn do lần chạy trước để lại. Khẳng định đúng là "có dọn" cộng với
+        // các khẳng định trên chính suất diễn của test này.
+        assertThat(expireHolds.runOnce()).isPositive();
 
         assertThat(fixture.countByStatus(session.id(), "AVAILABLE")).isEqualTo(2);
         assertThat(fixture.countHolders(session.id())).isZero();
