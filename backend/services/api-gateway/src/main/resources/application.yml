@@ -30,6 +30,15 @@ spring:
               uri: ${INVENTORY_URL:http://localhost:8092}
               predicates:
                 - Path=/v1/sessions/**,/v1/holds/**
+            # THỨ TỰ QUAN TRỌNG: gateway khớp route theo thứ tự khai báo, và route đầu tiên
+            # khớp là route thắng. /v1/orders/** của ordering bao trùm cả
+            # /v1/orders/{id}/tickets, nên nếu ordering đứng trước thì mọi request lấy vé
+            # theo đơn sẽ bị gửi nhầm sang ordering-service và trả 404.
+            # Quy tắc: route hẹp hơn khai trước.
+            - id: ticketing
+              uri: ${TICKETING_URL:http://localhost:8097}
+              predicates:
+                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins
             - id: ordering
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:
