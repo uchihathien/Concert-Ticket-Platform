@@ -23,6 +23,19 @@
       <artifactId>spring-boot-starter-jdbc</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- ConsumedEvent boc header cua message AMQP va parse JSON.
+         scope provided: service nao dung consumer thi da co san amqp va jackson;
+         service khong dung thi khong bi keo them dependency thua. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-amqp</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-configuration-processor</artifactId>
