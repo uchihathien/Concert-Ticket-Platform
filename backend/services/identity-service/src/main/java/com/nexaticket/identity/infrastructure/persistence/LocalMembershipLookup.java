@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,7 +63,28 @@ public class LocalMembershipLookup implements MembershipLookup {
                 log.warn("JWT của subject {} không có claim email, không tạo được người dùng", claims.subject());
                 return null;
             }
-            user = users.upsertByIdpSubject(claims.subject(), claims.email(), claims.fullName());
+            try {
+                user = users.upsertByIdpSubject(claims.subject(), claims.email(), claims.fullName());
+            } catch (DuplicateKeyException e) {
+                // Email đã thuộc về một `sub` khác.
+                //
+                // KHÔNG tự chuyển bản ghi cũ sang `sub` mới, dù rất cám dỗ: `sub` là danh tính,
+                // email chỉ là thuộc tính. Nhận diện người dùng theo email là đúng cái lỗ hổng
+                // chiếm tài khoản kinh điển — ai đổi email ở IdP thành email của người khác sẽ
+                // thừa hưởng luôn tài khoản đó, kể cả quyền superadmin.
+                //
+                // Ở môi trường dev, nguyên nhân gần như luôn là realm Keycloak vừa được import
+                // lại: người dùng bị tạo mới với id mới, còn identity_db vẫn giữ id cũ. Cách sửa
+                // là dọn bản ghi cũ hoặc trỏ nó sang `sub` mới BẰNG TAY — một thao tác có người
+                // chịu trách nhiệm, không phải một nhánh code chạy âm thầm.
+                log.error(
+                        "Email {} đã gắn với một idp_subject khác; subject mới {} không tạo được bản ghi. "
+                                + "Nếu vừa import lại realm Keycloak: cập nhật users.idp_subject sang giá trị mới, "
+                                + "hoặc xoá bản ghi cũ.",
+                        claims.email(),
+                        claims.subject());
+                return null;
+            }
             log.info("Đã tạo người dùng {} ở lần đăng nhập đầu tiên", user.id());
         }
 

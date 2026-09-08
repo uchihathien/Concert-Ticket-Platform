@@ -5,8 +5,11 @@ import com.nexaticket.catalog.application.CatalogErrorCode;
 import com.nexaticket.catalog.application.command.AddSessionHandler;
 import com.nexaticket.catalog.application.command.AddTicketTypeHandler;
 import com.nexaticket.catalog.application.command.AddZoneHandler;
+import com.nexaticket.catalog.application.command.CancelEventHandler;
 import com.nexaticket.catalog.application.command.CreateEventHandler;
 import com.nexaticket.catalog.application.command.CreateVenueHandler;
+import com.nexaticket.catalog.application.command.EditSessionHandler;
+import com.nexaticket.catalog.application.command.EditTicketTypeHandler;
 import com.nexaticket.catalog.application.command.PublishEventHandler;
 import com.nexaticket.catalog.application.command.UnpublishEventHandler;
 import com.nexaticket.catalog.application.command.UpdateEventHandler;
@@ -25,6 +28,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -61,6 +65,9 @@ public class AdminCatalogController {
     private final AddTicketTypeHandler addTicketType;
     private final PublishEventHandler publishEvent;
     private final UnpublishEventHandler unpublishEvent;
+    private final EditSessionHandler editSession;
+    private final EditTicketTypeHandler editTicketType;
+    private final CancelEventHandler cancelEvent;
     private final AdminCatalogQuery adminQuery;
     private final CatalogQueries queries;
 
@@ -73,6 +80,9 @@ public class AdminCatalogController {
             AddTicketTypeHandler addTicketType,
             PublishEventHandler publishEvent,
             UnpublishEventHandler unpublishEvent,
+            EditSessionHandler editSession,
+            EditTicketTypeHandler editTicketType,
+            CancelEventHandler cancelEvent,
             AdminCatalogQuery adminQuery,
             CatalogQueries queries) {
         this.createVenue = createVenue;
@@ -83,6 +93,9 @@ public class AdminCatalogController {
         this.addTicketType = addTicketType;
         this.publishEvent = publishEvent;
         this.unpublishEvent = unpublishEvent;
+        this.editSession = editSession;
+        this.editTicketType = editTicketType;
+        this.cancelEvent = cancelEvent;
         this.adminQuery = adminQuery;
         this.queries = queries;
     }
@@ -216,6 +229,76 @@ public class AdminCatalogController {
         return adminQuery.event(organizationId, eventId).orElseThrow();
     }
 
+    @PatchMapping("/events/{eventId}/sessions/{sessionId}")
+    public CatalogViews.AdminEventDetail updateSession(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID eventId,
+            @PathVariable UUID sessionId,
+            @RequestBody SessionPatch request) {
+        editSession.update(
+                organizationId,
+                eventId,
+                sessionId,
+                request.startsAt(),
+                request.endsAt(),
+                request.salesOpenAt(),
+                request.salesCloseAt(),
+                request.maxSeatedPerHold(),
+                request.maxStandingPerHold(),
+                request.maxUnitsPerHold(),
+                request.maxTicketsPerCustomer());
+        return adminQuery.event(organizationId, eventId).orElseThrow();
+    }
+
+    @DeleteMapping("/events/{eventId}/sessions/{sessionId}")
+    public CatalogViews.AdminEventDetail deleteSession(
+            @PathVariable UUID organizationId, @PathVariable UUID eventId, @PathVariable UUID sessionId) {
+        editSession.delete(organizationId, eventId, sessionId);
+        return adminQuery.event(organizationId, eventId).orElseThrow();
+    }
+
+    @PatchMapping("/events/{eventId}/sessions/{sessionId}/ticket-types/{ticketTypeId}")
+    public CatalogViews.AdminEventDetail updateTicketType(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID eventId,
+            @PathVariable UUID sessionId,
+            @PathVariable UUID ticketTypeId,
+            @Valid @RequestBody TicketTypePatch request) {
+        editTicketType.update(
+                organizationId,
+                eventId,
+                sessionId,
+                ticketTypeId,
+                request.name(),
+                request.priceVnd() == null ? -1 : request.priceVnd(),
+                request.sortOrder());
+        return adminQuery.event(organizationId, eventId).orElseThrow();
+    }
+
+    @DeleteMapping("/events/{eventId}/sessions/{sessionId}/ticket-types/{ticketTypeId}")
+    public CatalogViews.AdminEventDetail deleteTicketType(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID eventId,
+            @PathVariable UUID sessionId,
+            @PathVariable UUID ticketTypeId) {
+        editTicketType.delete(organizationId, eventId, sessionId, ticketTypeId);
+        return adminQuery.event(organizationId, eventId).orElseThrow();
+    }
+
+    /** Huỷ: trạng thái cuối. Không xoá tồn kho hay vé đã bán — xem {@code CancelEventHandler}. */
+    @PostMapping("/events/{eventId}/cancel")
+    public CatalogViews.AdminEventDetail cancel(@PathVariable UUID organizationId, @PathVariable UUID eventId) {
+        cancelEvent.cancel(organizationId, eventId);
+        return adminQuery.event(organizationId, eventId).orElseThrow();
+    }
+
+    /** Chỉ xoá được bản nháp chưa từng lên bán; 204 vì sau đó không còn gì để trả về. */
+    @DeleteMapping("/events/{eventId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteEvent(@PathVariable UUID organizationId, @PathVariable UUID eventId) {
+        cancelEvent.deleteDraft(organizationId, eventId);
+    }
+
     // --- Hình dạng request -------------------------------------------------
 
     public record VenueRequest(
@@ -258,6 +341,26 @@ public class AdminCatalogController {
             @Positive Integer maxStandingPerHold,
             @Positive Integer maxUnitsPerHold,
             @Positive Integer maxTicketsPerCustomer) {}
+
+    /**
+     * Sửa suất diễn. Mốc thời gian null nghĩa là giữ nguyên.
+     *
+     * <p>Các trần mua vé thì KHÁC: null ở đó là một giá trị có nghĩa ("theo mặc định nền tảng"),
+     * nên chúng luôn được ghi đè bằng đúng thứ form gửi lên. Form phải gửi lại giá trị hiện có nếu
+     * không muốn đổi.
+     */
+    public record SessionPatch(
+            Instant startsAt,
+            Instant endsAt,
+            Instant salesOpenAt,
+            Instant salesCloseAt,
+            @Positive Integer maxSeatedPerHold,
+            @Positive Integer maxStandingPerHold,
+            @Positive Integer maxUnitsPerHold,
+            @Positive Integer maxTicketsPerCustomer) {}
+
+    /** Sửa hạng vé; trường nào null thì giữ nguyên. Không đổi được khu — đó là tạo hạng vé khác. */
+    public record TicketTypePatch(@Size(max = 100) String name, @PositiveOrZero Long priceVnd, Integer sortOrder) {}
 
     public record TicketTypeRequest(
             @NotNull UUID venueZoneId,

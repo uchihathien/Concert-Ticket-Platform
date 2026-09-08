@@ -114,6 +114,52 @@ public class JdbcEventRepository implements EventRepository {
     }
 
     @Override
+    public void updateTicketType(UUID ticketTypeId, String name, long priceVnd, int sortOrder) {
+        jdbc.update(
+                "UPDATE ticket_types SET name = ?, price_vnd = ?, sort_order = ? WHERE id = ?",
+                name,
+                priceVnd,
+                sortOrder,
+                ticketTypeId);
+    }
+
+    @Override
+    public void deleteTicketType(UUID ticketTypeId) {
+        jdbc.update("DELETE FROM ticket_types WHERE id = ?", ticketTypeId);
+    }
+
+    @Override
+    public void updateSession(EventSession session) {
+        jdbc.update(
+                """
+                UPDATE event_sessions
+                   SET starts_at = ?, ends_at = ?, sales_open_at = ?, sales_close_at = ?,
+                       max_seated_per_hold = ?, max_standing_per_hold = ?,
+                       max_units_per_hold = ?, max_tickets_per_customer = ?
+                 WHERE id = ?
+                """,
+                Timestamp.from(session.startsAt()),
+                session.endsAt() == null ? null : Timestamp.from(session.endsAt()),
+                Timestamp.from(session.salesOpenAt()),
+                Timestamp.from(session.salesCloseAt()),
+                session.maxSeatedPerHold(),
+                session.maxStandingPerHold(),
+                session.maxUnitsPerHold(),
+                session.maxTicketsPerCustomer(),
+                session.id());
+    }
+
+    @Override
+    public void deleteSession(UUID sessionId) {
+        jdbc.update("DELETE FROM event_sessions WHERE id = ?", sessionId);
+    }
+
+    @Override
+    public void deleteEvent(UUID eventId) {
+        jdbc.update("DELETE FROM events WHERE id = ?", eventId);
+    }
+
+    @Override
     public boolean slugExists(Slug slug) {
         Integer count = jdbc.queryForObject("SELECT count(*) FROM events WHERE slug = ?", Integer.class, slug.value());
         return count != null && count > 0;

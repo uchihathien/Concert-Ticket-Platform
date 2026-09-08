@@ -9,6 +9,7 @@ public enum CatalogErrorCode implements ErrorCode {
     ZONE_NOT_FOUND(404),
     EVENT_NOT_FOUND(404),
     SESSION_NOT_FOUND(404),
+    TICKET_TYPE_NOT_FOUND(404),
     SLUG_ALREADY_TAKEN(409),
     ZONE_ALREADY_PRICED(409),
     /** Còn vướng mắc chưa gỡ; danh sách nằm ở {@code meta.blockers}. */
