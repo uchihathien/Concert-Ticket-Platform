@@ -53,8 +53,35 @@ public class OrderQueries {
                 order.commission().amountVnd(),
                 order.paymentReference(),
                 order.paidAt(),
-                order.items().size());
+                order.items().size(),
+                order.items().stream()
+                        .map(item -> new InternalOrderItem(
+                                item.id(),
+                                item.sessionSeatId(),
+                                item.seatCode(),
+                                item.zoneCode(),
+                                item.admissionType(),
+                                item.seatLabel(),
+                                item.ticketTypeName()))
+                        .toList());
     }
+
+    /**
+     * Một dòng đơn, đủ để ticketing-service phát vé.
+     *
+     * <p>Cố ý <b>không</b> có giá và hoa hồng: vé in ra nhãn chỗ và tên hạng vé, không in giá.
+     * Trả thêm trường mà consumer không cần chỉ mở rộng bề mặt hợp đồng phải giữ ổn định.
+     *
+     * @param orderItemId khoá chống phát hành trùng ở phía ticketing
+     */
+    public record InternalOrderItem(
+            UUID orderItemId,
+            UUID sessionSeatId,
+            String seatCode,
+            String zoneCode,
+            String admissionType,
+            String seatLabel,
+            String ticketTypeName) {}
 
     /**
      * Bản dành cho service nội bộ.
@@ -73,5 +100,6 @@ public class OrderQueries {
             long commissionVnd,
             String paymentReference,
             java.time.Instant paidAt,
-            int ticketCount) {}
+            int ticketCount,
+            List<InternalOrderItem> items) {}
 }
