@@ -4,10 +4,11 @@ package com.nexaticket.platform.security;
 import com.nexaticket.platform.security.tenant.HttpMembershipLookup;
 import com.nexaticket.platform.security.tenant.MembershipLookup;
 import com.nexaticket.platform.security.tenant.TenantFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -43,6 +44,8 @@ import org.springframework.web.client.RestClient;
 @EnableConfigurationProperties(IdentityServiceProperties.class)
 public class SecurityAutoConfiguration {
 
+    private static final Logger log = LoggerFactory.getLogger(SecurityAutoConfiguration.class);
+
     /**
      * Cài đặt mặc định cho mọi service trừ identity.
      *
@@ -51,8 +54,11 @@ public class SecurityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(MembershipLookup.class)
-    @ConditionalOnProperty(prefix = "nexaticket.identity", name = "base-url")
     public MembershipLookup httpMembershipLookup(IdentityServiceProperties properties) {
+        // KHÔNG còn @ConditionalOnProperty. Trước đây bean này chỉ tồn tại khi service tự khai
+        // `nexaticket.identity.base-url`, và mười trên mười một service đã quên — khiến mọi
+        // endpoint cần đăng nhập trả 401 dù token hợp lệ. Xem IdentityServiceProperties.
+        log.info("MembershipLookup gọi identity-service tại {}", properties.baseUrl());
         return new HttpMembershipLookup(
                 RestClient.builder().baseUrl(properties.baseUrl()).build());
     }
@@ -60,9 +66,15 @@ public class SecurityAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean(TenantFilter.class)
     public TenantFilter tenantFilter(ObjectProvider<MembershipLookup> membershipLookup) {
-        // Không có MembershipLookup thì filter vẫn tồn tại nhưng để scope rỗng: request đi tiếp và
-        // bị chặn ở tầng uỷ quyền với 401/403. Cách này tốt hơn là service không khởi động nổi.
-        return new TenantFilter(membershipLookup.getIfAvailable(() -> idpSubject -> null));
+        MembershipLookup lookup = membershipLookup.getIfAvailable(() -> {
+            // Nhánh này giờ chỉ còn xảy ra khi ai đó cố tình loại bean đi. Nó vẫn để service khởi
+            // động được — nhưng phải KÊU TO, vì hệ quả là mọi endpoint cần đăng nhập đều 401 mà
+            // không có lỗi nào khác để lần theo.
+            log.error("Không có MembershipLookup: TenantScope sẽ luôn rỗng và MỌI endpoint cần đăng "
+                    + "nhập sẽ trả 401 dù token hợp lệ.");
+            return claims -> null;
+        });
+        return new TenantFilter(lookup);
     }
 
     /**

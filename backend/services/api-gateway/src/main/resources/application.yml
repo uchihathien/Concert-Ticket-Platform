@@ -35,30 +35,25 @@ spring:
                 redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST:100}
                 key-resolver: "#{@principalOrIpKeyResolver}"
           routes:
-            # THỨ TỰ QUAN TRỌNG (xem ghi chú ở ticketing bên dưới): catalog khai TRƯỚC identity
-            # vì cả hai cùng nằm dưới /v1/organizations/**. Identity giữ tiền tố rộng đó, nên nếu
-            # nó đứng trước thì mọi request quản trị sự kiện sẽ bị gửi sang identity-service và
-            # trả 404 — trong khi cấu hình trông vẫn hoàn toàn hợp lý.
+            # THỨ TỰ LÀ MỘT PHẦN CỦA CẤU HÌNH, KHÔNG PHẢI CHUYỆN THẨM MỸ.
+            #
+            # Gateway khớp theo thứ tự khai báo và route ĐẦU TIÊN khớp là route thắng. Nên quy tắc
+            # duy nhất ở đây: mẫu HẸP hơn phải đứng trước mẫu RỘNG hơn bao trùm nó.
+            #
+            # Vi phạm quy tắc này không gây lỗi cấu hình nào — nó chỉ lặng lẽ gửi request sang sai
+            # service. Đã xảy ra thật: identity giữ `/v1/me/**` và đứng trước ticketing, nên
+            # `/v1/me/tickets` và `/v1/me/orders` đều rơi vào identity. Triệu chứng là 500 từ một
+            # service không liên quan, và người ta đi soi ordering-service đang chạy hoàn toàn tốt.
+            #
+            # Bốn cặp chồng lấn hiện có, hẹp trước rộng sau:
+            #   /v1/organizations/*/events/**  <  /v1/organizations/**   (catalog trước identity)
+            #   /v1/me/tickets, /v1/me/orders  <  /v1/me/**              (ticketing, ordering trước identity)
+            #   /v1/orders/*/tickets           <  /v1/orders/**          (ticketing trước ordering)
+            #   /v1/sessions/*/checkins        <  /v1/sessions/**        (ticketing trước inventory)
             - id: catalog
               uri: ${CATALOG_URL:http://localhost:8091}
               predicates:
                 - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**
-            - id: identity
-              uri: ${IDENTITY_URL:http://localhost:8090}
-              predicates:
-                # `/v1/me` khai TÁCH khỏi `/v1/me/**`: hai mẫu này không phải một, và nhầm
-                # lẫn đó khiến endpoint hồ sơ trả 404 trong khi `/v1/me/organizations` vẫn chạy —
-                # triệu chứng trông như lỗi của identity chứ không phải của gateway.
-                - Path=/v1/platform/organizations/**,/v1/organizations/**,/v1/me,/v1/me/**,/v1/invitations/**
-            - id: inventory
-              uri: ${INVENTORY_URL:http://localhost:8092}
-              predicates:
-                - Path=/v1/sessions/**,/v1/holds/**
-            # THỨ TỰ QUAN TRỌNG: gateway khớp route theo thứ tự khai báo, và route đầu tiên
-            # khớp là route thắng. /v1/orders/** của ordering bao trùm cả
-            # /v1/orders/{id}/tickets, nên nếu ordering đứng trước thì mọi request lấy vé
-            # theo đơn sẽ bị gửi nhầm sang ordering-service và trả 404.
-            # Quy tắc: route hẹp hơn khai trước.
             - id: ticketing
               uri: ${TICKETING_URL:http://localhost:8097}
               predicates:
@@ -66,12 +61,20 @@ spring:
             - id: ordering
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:
-                - Path=/v1/orders/**,/v1/me/orders
+                - Path=/v1/me/orders,/v1/orders/**
+            - id: inventory
+              uri: ${INVENTORY_URL:http://localhost:8092}
+              predicates:
+                - Path=/v1/sessions/**,/v1/holds/**
+            # Rộng nhất, nên đứng cuối: `/v1/organizations/**` và `/v1/me/**` bao trùm mọi mẫu trên.
+            - id: identity
+              uri: ${IDENTITY_URL:http://localhost:8090}
+              predicates:
+                - Path=/v1/platform/organizations/**,/v1/organizations/**,/v1/me,/v1/me/**,/v1/invitations/**
             # Các service khác thêm vào đây khi tới giai đoạn của chúng (G1+).
             # /internal/** CỐ Ý không có route: Open Host Service chỉ gọi được trong mạng nội bộ.
-            # Riêng với inventory điều đó là bắt buộc: /internal/reservations đổi trạng thái
-            # tồn kho mà không kiểm chủ sở hữu như đường công khai — để lọt ra internet là mất
-            # kiểm soát ghế.
+            # Riêng với inventory điều đó là bắt buộc: /internal/reservations đổi trạng thái tồn kho
+            # mà không kiểm chủ sở hữu như đường công khai — để lọt ra internet là mất kiểm soát ghế.
 
 server:
   port: ${PORT:8080}
