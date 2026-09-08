@@ -20,6 +20,23 @@ public interface EventRepository {
 
     void addTicketType(TicketType ticketType);
 
+    void updateTicketType(UUID ticketTypeId, String name, long priceVnd, int sortOrder);
+
+    void deleteTicketType(UUID ticketTypeId);
+
+    void updateSession(EventSession session);
+
+    void deleteSession(UUID sessionId);
+
+    /**
+     * Xoá hẳn sự kiện.
+     *
+     * <p>Suất diễn và hạng vé đi theo nhờ {@code ON DELETE CASCADE}. Chỉ dùng cho bản nháp chưa
+     * từng lên bán — sự kiện đã publish thì {@code cancel} chứ không xoá, vì bên Inventory và
+     * Ticketing còn dữ liệu trỏ vào nó.
+     */
+    void deleteEvent(UUID eventId);
+
     boolean slugExists(Slug slug);
 
     /**

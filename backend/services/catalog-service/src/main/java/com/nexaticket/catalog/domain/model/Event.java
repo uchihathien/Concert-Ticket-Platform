@@ -136,6 +136,30 @@ public final class Event {
         publishedAt = null;
     }
 
+    /**
+     * Huỷ sự kiện — trạng thái cuối, không quay lại được.
+     *
+     * <p>Khác {@link #unpublish()} ở chỗ dứt khoát: rút xuống là "tạm dừng bán, sẽ bán lại", huỷ là
+     * "sự kiện này không diễn ra". Phân biệt hai thứ đó quan trọng vì việc hoàn tiền bám vào huỷ,
+     * còn rút xuống thì không.
+     *
+     * <p>Catalog KHÔNG tự hoàn tiền: tiền thuộc ledger và payment, và một thao tác trên màn hình
+     * quản trị sự kiện không nên âm thầm chuyển tiền. Ở MVP, hoàn tiền là quy trình ngoài hệ thống
+     * (docs/02-catalog-admin/state-machines.md — "refunds out of band").
+     */
+    public void cancel() {
+        if (status == EventStatus.CANCELLED) {
+            throw new IllegalStateException("Sự kiện đã huỷ rồi");
+        }
+        status = EventStatus.CANCELLED;
+        publishedAt = null;
+    }
+
+    /** Chưa từng lên bán thì mới xoá hẳn được — nếu không, dữ liệu ở service khác sẽ mồ côi. */
+    public boolean isDeletable() {
+        return status == EventStatus.DRAFT;
+    }
+
     public void rename(
             String newTitle, String newSummary, String newDescription, String newCategory, String newPoster) {
         if (newTitle != null && !newTitle.isBlank()) {
