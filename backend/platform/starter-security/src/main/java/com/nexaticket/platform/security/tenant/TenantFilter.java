@@ -38,7 +38,7 @@ public class TenantFilter extends OncePerRequestFilter {
         TenantScope scope = TenantScope.anonymous();
 
         if (auth != null && auth.getPrincipal() instanceof Jwt jwt) {
-            MembershipLookup.Principal principal = membershipLookup.resolve(jwt.getSubject());
+            MembershipLookup.Principal principal = membershipLookup.resolve(claimsOf(jwt));
             if (principal != null) {
                 scope = new TenantScope(principal.userId(), principal.memberships(), null, principal.superAdmin());
                 TenantId fromPath = extractOrganization(request.getRequestURI());
@@ -62,6 +62,21 @@ public class TenantFilter extends OncePerRequestFilter {
         } finally {
             TenantContext.clear();
         }
+    }
+
+    /**
+     * Đọc danh tính từ JWT.
+     *
+     * <p>Keycloak đặt tên hiển thị ở claim {@code name}; một số IdP khác dùng
+     * {@code preferred_username}. Lấy cái nào có — tên hiển thị sai chỉ làm email trông xấu, còn
+     * thiếu {@code email} thì không tạo được bản ghi người dùng.
+     */
+    private static MembershipLookup.Claims claimsOf(Jwt jwt) {
+        String fullName = jwt.getClaimAsString("name");
+        if (fullName == null) {
+            fullName = jwt.getClaimAsString("preferred_username");
+        }
+        return new MembershipLookup.Claims(jwt.getSubject(), jwt.getClaimAsString("email"), fullName);
     }
 
     private static TenantId extractOrganization(String uri) {

@@ -65,6 +65,15 @@ cd frontend && corepack pnpm install && corepack pnpm dev
 
 Tài khoản dev trong realm: `superadmin`, `organizer`, `staff`, `customer` — mật khẩu trùng tên đăng nhập. Chỉ dùng cho local.
 
+> **Ai là superadmin?** Cột `users.is_super_admin` chỉ được ghi theo cấu hình
+> `nexaticket.identity.super-admin-emails` (biến môi trường `SUPER_ADMIN_EMAILS`). Mặc định ở dev
+> là `superadmin@nexaticket.local`. Không có danh sách này thì hệ thống không khởi động được từ
+> trạng thái rỗng: `POST /v1/platform/organizations` — cửa vào duy nhất của luồng onboarding — sẽ
+> luôn trả 403.
+>
+> Bản ghi người dùng được tạo ở **request đầu tiên sau khi đăng nhập**, không có bước đăng ký
+> riêng: Keycloak là nguồn chân lý của danh tính.
+
 ## Thử luồng G0
 
 Chỉ superadmin tạo được tổ chức ([ADR-1010](docs/architecture-v2/adr/ADR-1010-superadmin-tenancy-and-finance-visibility.md)).
