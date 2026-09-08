@@ -28,3 +28,7 @@ Thumbs.db
 # --- Runtime ---
 logs/
 *.log
+
+# Frontend có repo riêng: github.com/uchihathien/Concert-Ticket-Frontend
+# Giữ ở đây để chạy local, nhưng KHÔNG version ở repo này (tránh hai lịch sử phân kỳ).
+/frontend/

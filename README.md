@@ -4,17 +4,24 @@ Nền tảng bán vé sự kiện có chọn chỗ realtime, thanh toán VietQR,
 
 Kiến trúc microservices + DDD, nền tảng giữ tiền. Toàn bộ thiết kế ở [`docs/architecture-v2/`](docs/architecture-v2/README.md).
 
-## Repo chia đôi
+## Hai repo
+
+| Repo | Nội dung |
+| --- | --- |
+| **Repo này** | Backend (11 service Spring Boot), tài liệu thiết kế, hạ tầng |
+| [Concert-Ticket-Frontend](https://github.com/uchihathien/Concert-Ticket-Frontend) | 4 app Next.js, pnpm workspace |
+
+Trong repo này:
 
 | Thư mục | Nội dung | README |
 | --- | --- | --- |
 | [`backend/`](backend/) | 11 service Spring Boot, Maven multi-module | [backend/README.md](backend/README.md) |
-| [`frontend/`](frontend/) | 4 app Next.js, pnpm workspace | [frontend/README.md](frontend/README.md) |
 | `deploy/` | Hạ tầng dùng chung: compose, RabbitMQ topology, Keycloak realm | — |
 | `scripts/` | Công cụ dùng chung | — |
-| `docs/` | Tài liệu thiết kế | [docs/README.md](docs/README.md) |
+| `docs/` | Tài liệu thiết kế — **nguồn chân lý cho cả hai repo** | [docs/README.md](docs/README.md) |
 
-Hai bên build độc lập, có CI riêng ([`backend.yml`](.github/workflows/backend.yml), [`frontend.yml`](.github/workflows/frontend.yml)) chạy theo path filter — sửa frontend không kích hoạt build backend và ngược lại.
+> `frontend/` nằm trong `.gitignore` của repo này. Nếu bạn clone repo frontend vào đó thì chạy local
+> được cả hai bên cùng lúc, mà không có hai lịch sử git chồng lên cùng một code.
 
 ## Tài liệu thiết kế
 
@@ -41,8 +48,9 @@ docker compose -f deploy/compose/infra.yml up -d --wait
 # 2. Backend
 cd backend && ./mvnw -B verify && ./mvnw -pl services/identity-service spring-boot:run
 
-# 3. Frontend (terminal khác)
-cd frontend && corepack enable pnpm && pnpm install && pnpm dev
+# 3. Frontend (terminal khác, repo riêng)
+git clone https://github.com/uchihathien/Concert-Ticket-Frontend.git frontend
+cd frontend && corepack pnpm install && corepack pnpm dev
 ```
 
 | Dịch vụ | Địa chỉ |
@@ -86,7 +94,7 @@ Trả về `invitationToken` — dùng nó gọi `POST /v1/invitations/{token}/a
 | `api-gateway` — route, JWT, rate limit, correlation id | ✅ |
 | Hạ tầng local: PostgreSQL, Redis, RabbitMQ, Keycloak, Mailpit | ✅ |
 | 4 app Next.js + design token | ✅ khung |
-| CI tách backend / frontend theo path filter | ✅ |
+| CI riêng cho từng repo | ✅ |
 | **25 test** (21 unit + ArchUnit, 4 integration với PostgreSQL thật) | ✅ |
 | catalog · inventory · ordering · payment · ledger · payout · ticketing | ⬜ G1–G6 |
 | **3 spike bắt buộc**: hold Redis Lua, sổ cái cân bằng, webhook SePay | ⬜ |

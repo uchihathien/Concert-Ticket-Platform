@@ -54,7 +54,16 @@ NexaTicket/
   .github/workflows/           # backend.yml, frontend.yml, e2e.yml
 ```
 
-**Backend và frontend tách hẳn**, mỗi bên một hệ build và một pipeline CI chạy theo path filter — sửa frontend không kích hoạt build backend và ngược lại. `deploy/` và `scripts/` dùng chung vì cả hai bên đều cần Keycloak và hạ tầng local.
+**Backend và frontend nằm ở hai repo riêng**, mỗi bên một hệ build và một pipeline CI độc lập:
+
+| Repo | Nội dung |
+| --- | --- |
+| `Concert-Ticket-Platform` | `backend/`, `docs/`, `deploy/`, `scripts/` |
+| `Concert-Ticket-Frontend` | `apps/`, `packages/` |
+
+Tài liệu thiết kế (kể cả plan frontend và hướng giao diện) nằm ở repo backend và là nguồn chân lý cho cả hai — tránh việc hai bên mô tả cùng một hệ thống theo hai cách khác nhau.
+
+`deploy/` và `scripts/` ở repo backend vì frontend chỉ cần chúng khi chạy local; lúc đó clone repo frontend vào thư mục `frontend/` (đã có trong `.gitignore`) là chạy được cả hai.
 
 **Vì sao vẫn monorepo dù đã tách service:** một PR đổi contract sửa được cả producer, consumer và frontend trong cùng một commit. Với 11 service ở 11 repo, mỗi thay đổi contract thành một vũ điệu 4 PR. Đổi lại phải giữ kỷ luật: **cùng repo không có nghĩa là được import chéo** — `ArchitectureRules.noCrossContextImports` cấm ở tầng test.
 
