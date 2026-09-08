@@ -28,6 +28,18 @@ server:
   port: ${PORT:8095}
   shutdown: graceful
 
+nexaticket:
+  payment:
+    sepay:
+      # Khoa SePay gui kem header "Authorization: Apikey <key>".
+      # KHONG co gia tri mac dinh: thieu cau hinh thi moi webhook bi tu choi 401,
+      # dung hon la lang le chap nhan moi request voi mot khoa rong.
+      api-key: ${SEPAY_API_KEY:}
+      ordering-url: ${ORDERING_URL:http://localhost:8093}
+    workers:
+      enabled: true
+      expire-interval: 15s
+
 management:
   endpoints:
     web:
