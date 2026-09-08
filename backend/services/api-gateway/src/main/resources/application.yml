@@ -30,6 +30,10 @@ spring:
               uri: ${INVENTORY_URL:http://localhost:8092}
               predicates:
                 - Path=/v1/sessions/**,/v1/holds/**
+            - id: ordering
+              uri: ${ORDERING_URL:http://localhost:8093}
+              predicates:
+                - Path=/v1/orders/**,/v1/me/orders
             # Các service khác thêm vào đây khi tới giai đoạn của chúng (G1+).
             # /internal/** CỐ Ý không có route: Open Host Service chỉ gọi được trong mạng nội bộ.
             # Riêng với inventory điều đó là bắt buộc: /internal/reservations đổi trạng thái
