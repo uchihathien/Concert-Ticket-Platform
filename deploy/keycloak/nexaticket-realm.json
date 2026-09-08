@@ -3,7 +3,7 @@
   "enabled": true,
   "displayName": "NexaTicket",
   "sslRequired": "none",
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
@@ -50,7 +50,8 @@
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "http://localhost:3000/api/auth/callback/keycloak"
+        "http://localhost:3000/api/auth/callback/keycloak",
+        "http://localhost:3000/api/auth/callback/keycloak-register"
       ],
       "webOrigins": [
         "http://localhost:3000"
@@ -187,5 +188,6 @@
         "CUSTOMER"
       ]
     }
-  ]
+  ],
+  "registrationEmailAsUsername": true
 }

@@ -49,3 +49,21 @@ manh mối nào — phải đọc log của Keycloak mới thấy.
 
 `defaultAction: false` là cố ý: MFA có sẵn để bật, nhưng không ép mọi người dùng mới phải cấu
 hình TOTP qua trình duyệt ngay lần đăng nhập đầu.
+
+## Đăng ký: `registrationAllowed` và callback riêng
+
+`packages/auth` mở đường đăng ký bằng một provider Auth.js thứ hai, `keycloak-register`, trỏ vào
+endpoint `/protocol/openid-connect/registrations` của Keycloak. Nó cần HAI thứ ở realm, thiếu một
+trong hai là hỏng:
+
+1. `registrationAllowed: true` — không bật thì Keycloak trả trang lỗi thay vì form đăng ký.
+2. `http://localhost:3000/api/auth/callback/keycloak-register` trong `redirectUris` của
+   `web-customer`. Auth.js đặt callback theo **id provider**, nên provider thứ hai có callback
+   khác provider đăng nhập. Thiếu URI này thì Keycloak từ chối với
+   `Invalid parameter: redirect_uri` — trước cả khi người dùng thấy form.
+
+Chỉ mở cho `web-customer`. Tài khoản của ban tổ chức, nhân viên soát vé và superadmin đều do
+người khác cấp; có nút tự đăng ký ở ba app kia là mời người lạ vào khu vực quản trị.
+
+`registrationEmailAsUsername: true` để form chỉ hỏi email và mật khẩu. Với một trang bán vé,
+bắt khách nghĩ ra username riêng là thêm một ô để họ bỏ dở.

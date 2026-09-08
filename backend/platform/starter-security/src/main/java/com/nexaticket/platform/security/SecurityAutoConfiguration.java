@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpMethod;
@@ -32,7 +33,13 @@ import org.springframework.web.client.RestClient;
  * đánh giá. Khai tường minh để nó không còn phụ thuộc vào may rủi.
  */
 @AutoConfiguration(before = org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class)
-@ConditionalOnWebApplication
+// CHỈ áp cho ứng dụng servlet.
+//
+// Toàn bộ lớp này là servlet: HttpSecurity, OncePerRequestFilter, SecurityFilterChain. api-gateway
+// là WebFlux, và nếu auto-config này được nạp ở đó thì hạ tầng bảo mật servlet và reactive cùng
+// đăng ký một bean tên conversionServicePostProcessor — app không khởi động nổi. Gateway có
+// GatewaySecurityConfig riêng theo kiểu reactive.
+@ConditionalOnWebApplication(type = Type.SERVLET)
 @EnableConfigurationProperties(IdentityServiceProperties.class)
 public class SecurityAutoConfiguration {
 
