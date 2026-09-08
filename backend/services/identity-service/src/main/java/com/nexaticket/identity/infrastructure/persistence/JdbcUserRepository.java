@@ -17,9 +17,10 @@ public class JdbcUserRepository implements UserRepository {
             rs.getString("idp_subject"),
             rs.getString("email"),
             rs.getString("full_name"),
+            rs.getString("phone"),
             rs.getBoolean("is_super_admin"));
 
-    private static final String SELECT = "SELECT id, idp_subject, email, full_name, is_super_admin FROM users ";
+    private static final String SELECT = "SELECT id, idp_subject, email, full_name, phone, is_super_admin FROM users ";
 
     private final JdbcTemplate jdbc;
 
@@ -66,5 +67,38 @@ public class JdbcUserRepository implements UserRepository {
                 fullName,
                 UUID.randomUUID());
         return findByIdpSubject(idpSubject).orElseThrow();
+    }
+
+    /**
+     * Chỉ sửa được tên và số điện thoại.
+     *
+     * <p>{@code COALESCE} chứ không phải gán thẳng: trong một lệnh PATCH, {@code null} nghĩa là
+     * "không gửi trường này", không phải "xoá trường này". Gán thẳng sẽ khiến form chỉ đổi số điện
+     * thoại lại xoá mất tên người dùng.
+     */
+    @Override
+    public void updateProfile(UserId id, String fullName, String phone) {
+        jdbc.update(
+                """
+                UPDATE users SET full_name = COALESCE(?, full_name),
+                                 phone     = COALESCE(?, phone),
+                                 updated_at = now()
+                 WHERE id = ?
+                """,
+                fullName,
+                phone,
+                id.value());
+    }
+
+    @Override
+    public java.util.List<UserRecord> findAllByIds(java.util.Collection<UserId> ids) {
+        if (ids.isEmpty()) {
+            return java.util.List.of();
+        }
+        // Một câu với mảng UUID thay vì N câu trong vòng lặp: bảng thành viên của một tổ chức lớn
+        // sẽ là hàng chục truy vấn nối tiếp nếu làm cách kia.
+        String placeholders = String.join(",", ids.stream().map(x -> "?").toList());
+        Object[] args = ids.stream().map(UserId::value).toArray();
+        return jdbc.query(SELECT + "WHERE id IN (" + placeholders + ")", MAPPER, args);
     }
 }
