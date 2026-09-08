@@ -26,6 +26,25 @@ public class InventoryFixture {
     }
 
     /**
+     * Xoá sạch tồn kho trước mỗi test.
+     *
+     * <p>Container PostgreSQL được dùng lại giữa các lần build ({@code withReuse}), nên nếu không
+     * dọn thì mỗi lần chạy lại kế thừa dữ liệu của lần trước. Điều đó phá các test có worker quét
+     * toàn database: {@code ExpireHoldsJob} nhận lô 200 lần giữ chỗ hết hạn cũ nhất, và lần giữ
+     * chỗ vừa tạo trong test không lọt vào lô — job chạy, trả về số dương, nhưng không đụng tới
+     * dữ liệu của test.
+     *
+     * <p>Đó là kiểu flaky tệ nhất: xanh trên database sạch, đỏ từ lần chạy thứ hai trở đi.
+     */
+    public void reset() {
+        jdbc.update(
+                """
+                TRUNCATE seat_hold_items, seat_holds, seat_reservations, session_seats, session_inventory
+                RESTART IDENTITY CASCADE
+                """);
+    }
+
+    /**
      * @param seatedCount số ghế ngồi, đặt tên A-1 … A-n
      * @param standingCapacity số đơn vị ảo vé đứng ở zone {@code GA}
      */

@@ -3,6 +3,8 @@ package com.nexaticket.inventory.support;
 
 import com.nexaticket.platform.test.PostgresSingleton;
 import com.nexaticket.platform.test.RedisSingleton;
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -25,6 +27,15 @@ import org.testcontainers.containers.PostgreSQLContainer;
 public abstract class InventoryTestBase {
 
     private static final PostgreSQLContainer<?> POSTGRES = PostgresSingleton.forDatabase("inventory_db");
+
+    @Autowired
+    private InventoryFixture fixtureForReset;
+
+    /** Mọi test bắt đầu từ tồn kho rỗng — xem {@link InventoryFixture#reset()} để biết vì sao. */
+    @BeforeEach
+    void resetInventory() {
+        fixtureForReset.reset();
+    }
 
     @DynamicPropertySource
     static void containers(DynamicPropertyRegistry registry) {
