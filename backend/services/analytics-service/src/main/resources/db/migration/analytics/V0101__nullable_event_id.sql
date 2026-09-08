@@ -1,0 +1,12 @@
+-- session_sales.event_id cho phép NULL.
+--
+-- V0100 khai NOT NULL, và điều đó sai khi consumer thật chạy: sự kiện order.paid của
+-- ordering-service KHÔNG mang eventId. Order aggregate chỉ biết eventSessionId — nó không
+-- cần biết suất diễn thuộc sự kiện nào để làm việc của mình, và ép nó mang thêm một trường
+-- chỉ để phục vụ read model của service khác là đẩy ràng buộc sai chỗ.
+--
+-- Dashboard nhóm theo suất diễn; gộp theo sự kiện là việc của tầng hiển thị khi nào cần.
+--
+-- Migration MỚI chứ không sửa V0100: V0100 đã merge, và sửa nó sẽ làm mọi môi trường đã chạy
+-- migration đó hỏng validate với checksum mismatch (plan/README.md §7).
+ALTER TABLE session_sales ALTER COLUMN event_id DROP NOT NULL;
