@@ -28,6 +28,23 @@ server:
   port: ${PORT:8093}
   shutdown: graceful
 
+nexaticket:
+  ordering:
+    # Khach co bao lau de chuyen khoan. Cung la luoi an toan cuoi cung cua saga:
+    # het han nay thi ghe duoc nha du moi co che bu tru khac da hong (sagas.md §2).
+    payment-window: 15m
+    # Han cho MOI loi goi noi bo. Ngan la co y: khach dang cho man hinh, va retry
+    # trong luong dong bo se vuot ngan sach thoi gian cua ho.
+    remote-timeout: 2s
+    services:
+      inventory-url: ${INVENTORY_URL:http://localhost:8092}
+      catalog-url: ${CATALOG_URL:http://localhost:8091}
+      payment-url: ${PAYMENT_URL:http://localhost:8095}
+    workers:
+      enabled: true
+      expire-interval: 15s
+      sweep-interval: 30s
+
 management:
   endpoints:
     web:

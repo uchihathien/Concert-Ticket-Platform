@@ -4,9 +4,11 @@ package com.nexaticket.ordering;
 import java.time.Clock;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.context.annotation.Bean;
 
 @SpringBootApplication(scanBasePackages = {"com.nexaticket.ordering", "com.nexaticket.platform"})
+@ConfigurationPropertiesScan
 public class OrderingApplication {
 
     public static void main(String[] args) {
