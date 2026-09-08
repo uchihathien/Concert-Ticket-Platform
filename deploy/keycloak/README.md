@@ -114,3 +114,37 @@ khoản mới. Đó là hành vi mong muốn — `sub` giữ nguyên nên backen
 Nút ở frontend tắt mặc định, bật bằng `AUTH_GOOGLE_ENABLED=true` trong `.env.local` của
 `web-customer`. Hiện nút khi chưa khai provider thì người dùng bấm vào và nhận trang lỗi của
 Keycloak — tệ hơn hẳn so với không thấy nút.
+
+## Đăng xuất: `post.logout.redirect.uris` và vì sao logout của Auth.js là chưa đủ
+
+`signOut()` của Auth.js chỉ xoá cookie phiên của Next.js. Bên Keycloak không có gì thay đổi, và
+điều đó gây ra một lỗi mà người dùng gặp ngay: **đăng xuất rồi không đăng nhập được bằng tài khoản
+khác**.
+
+Đo trên hệ thống đang chạy, cùng một tài khoản, ba cách kết thúc phiên:
+
+| Cách | Refresh token | Phiên SSO | Đổi được tài khoản? |
+| --- | --- | --- | --- |
+| Không gọi gì (hành vi cũ) | còn dùng được | còn sống | **không** |
+| `POST /logout` kèm `refresh_token` | đã thu hồi | đã kết thúc | có |
+| `GET /logout?client_id=…` | còn dùng được | còn sống | **không** |
+
+Dòng đầu là lỗi: `ssoSessionIdleTimeout` của realm là 30 ngày, nên cookie `KEYCLOAK_IDENTITY` sống
+rất lâu. Lần đăng nhập sau Keycloak thấy phiên còn hiệu lực và **cấp code ngay mà không hỏi mật
+khẩu** — bấm "Đăng nhập" là quay lại đúng tài khoản vừa thoát, không có cách nào chọn tài khoản
+khác ngoài việc tự đi xoá cookie trình duyệt.
+
+Dòng cuối gây bất ngờ hơn: Keycloak trả HTTP 200 nhưng **không đăng xuất gì cả**. Thiếu
+`id_token_hint` thì nó chỉ hiện trang hỏi "bạn có chắc muốn thoát không" và chờ người dùng bấm.
+Nhìn từ script thì như đã thành công.
+
+Nên `packages/auth` gọi đường **backchannel** trong `events.signOut`: chạy hoàn toàn ở server, chỉ
+cần refresh token vốn đã có sẵn ở store, làm đủ cả hai việc, và vẫn chạy khi người dùng đã đóng
+tab trước lúc chuyển hướng kịp.
+
+`post.logout.redirect.uris` vẫn được khai cho cả bốn client, để đường frontchannel — nếu sau này
+cần, ví dụ muốn Keycloak đăng xuất luôn khỏi các app khác trong cùng phiên SSO — dùng được ngay.
+Không khai thì Keycloak **từ chối** `post_logout_redirect_uri` và cả yêu cầu đăng xuất thất bại
+trong im lặng.
+
+`+` nghĩa là "mọi giá trị đã khai ở `redirectUris`", cộng thêm trang chủ và trang đăng nhập.
