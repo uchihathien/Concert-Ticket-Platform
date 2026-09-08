@@ -1,4 +1,17 @@
 spring:
+  main:
+    # BẮT BUỘC khai tường minh là reactive.
+    #
+    # pom cha thêm spring-boot-starter-web cho mọi service; gateway hạ nó xuống scope provided để
+    # "loại", nhưng spring-boot:run VẪN nạp dependency scope provided. Kết quả là cả hạ tầng web
+    # servlet lẫn reactive cùng nằm trên classpath, Boot đoán kiểu ứng dụng là SERVLET, và Spring
+    # Cloud Gateway — vốn chỉ chạy trên WebFlux — làm app chết ngay lúc khởi động:
+    #
+    #   The bean 'conversionServicePostProcessor' ... could not be registered
+    #
+    # Lỗi này nằm sẵn từ đầu và không ai thấy, vì gateway chưa từng được chạy thử: nó biên dịch
+    # được, test được, chỉ không khởi động được.
+    web-application-type: reactive
   application:
     name: api-gateway
   data:
