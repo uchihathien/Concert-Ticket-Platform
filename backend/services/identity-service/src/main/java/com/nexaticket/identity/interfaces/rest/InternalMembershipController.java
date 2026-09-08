@@ -31,8 +31,12 @@ public class InternalMembershipController {
 
     @GetMapping("/memberships")
     @PublicEndpoint(reason = "Open Host Service, chỉ truy cập được trong mạng nội bộ")
-    public PrincipalView resolve(@RequestParam String idpSubject) {
-        MembershipLookup.Principal principal = membershipLookup.resolve(idpSubject);
+    public PrincipalView resolve(
+            @RequestParam String idpSubject,
+            @RequestParam(required = false) String email,
+            @RequestParam(required = false) String fullName) {
+        MembershipLookup.Principal principal =
+                membershipLookup.resolve(new MembershipLookup.Claims(idpSubject, email, fullName));
         if (principal == null) {
             return new PrincipalView(null, Map.of(), false);
         }
@@ -55,7 +59,7 @@ public class InternalMembershipController {
             @RequestParam String email,
             @RequestParam(required = false) String fullName) {
         provisionUser.handle(idpSubject, email, fullName);
-        return resolve(idpSubject);
+        return resolve(idpSubject, email, fullName);
     }
 
     public record PrincipalView(String userId, Map<String, String> memberships, boolean superAdmin) {}

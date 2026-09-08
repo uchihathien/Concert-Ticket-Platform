@@ -38,25 +38,37 @@ public class HttpMembershipLookup implements MembershipLookup {
     }
 
     @Override
-    public Principal resolve(String idpSubject) {
+    public Principal resolve(Claims claims) {
+        if (claims == null || claims.subject() == null) {
+            return null;
+        }
         long now = System.currentTimeMillis();
-        CacheEntry cached = cache.get(idpSubject);
+        CacheEntry cached = cache.get(claims.subject());
         if (cached != null && cached.expiresAtMillis() > now) {
             return cached.principal();
         }
 
-        Principal principal = fetch(idpSubject);
+        Principal principal = fetch(claims);
         if (principal != null) {
-            cache.put(idpSubject, new CacheEntry(principal, now + TTL.toMillis()));
+            cache.put(claims.subject(), new CacheEntry(principal, now + TTL.toMillis()));
         }
         return principal;
     }
 
-    private Principal fetch(String idpSubject) {
+    /**
+     * Gọi endpoint <b>tra-hoặc-tạo</b> của identity.
+     *
+     * <p>Truyền cả email và tên chứ không chỉ {@code sub}: người dùng vừa đăng nhập lần đầu chưa có
+     * bản ghi nào ở identity, và nếu chỉ tra thì họ nhận 401 vĩnh viễn — không endpoint nào chạm
+     * tới được, kể cả endpoint dùng để tạo bản ghi.
+     */
+    private Principal fetch(Claims claims) {
         try {
             PrincipalPayload payload = client.get()
-                    .uri(uri -> uri.path("/internal/memberships")
-                            .queryParam("idpSubject", idpSubject)
+                    .uri(uri -> uri.path("/internal/users/provision")
+                            .queryParam("idpSubject", claims.subject())
+                            .queryParam("email", claims.email())
+                            .queryParam("fullName", claims.fullName())
                             .build())
                     .retrieve()
                     .body(PrincipalPayload.class);
@@ -73,11 +85,11 @@ public class HttpMembershipLookup implements MembershipLookup {
         } catch (RuntimeException e) {
             // Identity không phản hồi thì coi như chưa xác thực được — request sẽ nhận 401/403.
             // Không cache lỗi: identity hồi phục thì request kế tiếp phải thử lại ngay.
-            log.warn("Không tra được membership cho sub={}: {}", idpSubject, e.toString());
+            log.warn("Không tra được membership cho sub={}: {}", claims.subject(), e.toString());
             return null;
         }
     }
 
-    /** Hình dạng response của {@code GET /internal/memberships}. */
+    /** Hình dạng response của {@code GET /internal/users/provision}. */
     public record PrincipalPayload(String userId, Map<String, String> memberships, boolean superAdmin) {}
 }
