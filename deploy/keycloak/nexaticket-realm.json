@@ -3,37 +3,42 @@
   "enabled": true,
   "displayName": "NexaTicket",
   "sslRequired": "none",
-  "registrationAllowed": false,
+  "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
-
-  "_comment_tokens": "ADR-0016: access token ngắn hạn, refresh xoay vòng có phát hiện tái sử dụng.",
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 2592000,
   "ssoSessionMaxLifespan": 2592000,
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
-
   "roles": {
     "realm": [
-      { "name": "SUPER_ADMIN", "description": "Nền tảng: tạo/khoá tổ chức, toàn quyền trên tiền (ADR-1010)" },
-      { "name": "ORG_MEMBER", "description": "Thuộc ít nhất một tổ chức; vai trò cụ thể lấy từ identity-service" },
-      { "name": "CUSTOMER", "description": "Khách mua vé" }
+      {
+        "name": "SUPER_ADMIN",
+        "description": "Nền tảng: tạo/khoá tổ chức, toàn quyền trên tiền (ADR-1010)"
+      },
+      {
+        "name": "ORG_MEMBER",
+        "description": "Thuộc ít nhất một tổ chức; vai trò cụ thể lấy từ identity-service"
+      },
+      {
+        "name": "CUSTOMER",
+        "description": "Khách mua vé"
+      }
     ]
   },
-
-  "_comment_roles": "Vai trò trong tổ chức (ORG_ADMIN, EVENT_MANAGER, CHECKIN_STAFF) KHÔNG nằm ở Keycloak. Chúng đến từ organization_members của identity-service, vì một người có thể có vai trò khác nhau ở các tổ chức khác nhau (ADR-0008).",
-
   "requiredActions": [
     {
       "alias": "CONFIGURE_TOTP",
       "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
       "enabled": true,
-      "defaultAction": false
+      "defaultAction": false,
+      "priority": 10,
+      "config": {}
     }
   ],
-
   "clients": [
     {
       "clientId": "web-customer",
@@ -42,11 +47,18 @@
       "publicClient": false,
       "secret": "dev-secret-customer",
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
-      "redirectUris": ["http://localhost:3000/api/auth/callback/keycloak"],
-      "webOrigins": ["http://localhost:3000"],
-      "attributes": { "pkce.code.challenge.method": "S256" }
+      "redirectUris": [
+        "http://localhost:3000/api/auth/callback/keycloak",
+        "http://localhost:3000/api/auth/callback/keycloak-register"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
     },
     {
       "clientId": "web-admin",
@@ -55,10 +67,16 @@
       "publicClient": false,
       "secret": "dev-secret-admin",
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:3001/api/auth/callback/keycloak"],
-      "webOrigins": ["http://localhost:3001"],
-      "attributes": { "pkce.code.challenge.method": "S256" }
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:3001/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "http://localhost:3001"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
     },
     {
       "clientId": "web-platform",
@@ -67,10 +85,16 @@
       "publicClient": false,
       "secret": "dev-secret-platform",
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:3003/api/auth/callback/keycloak"],
-      "webOrigins": ["http://localhost:3003"],
-      "attributes": { "pkce.code.challenge.method": "S256" }
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:3003/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "http://localhost:3003"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
     },
     {
       "clientId": "web-scanner",
@@ -79,13 +103,18 @@
       "publicClient": false,
       "secret": "dev-secret-scanner",
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
-      "redirectUris": ["http://localhost:3002/api/auth/callback/keycloak"],
-      "webOrigins": ["http://localhost:3002"],
-      "attributes": { "pkce.code.challenge.method": "S256" }
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:3002/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "http://localhost:3002"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
     }
   ],
-
   "users": [
     {
       "username": "superadmin",
@@ -94,8 +123,16 @@
       "lastName": "Admin",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "superadmin", "temporary": false }],
-      "realmRoles": ["SUPER_ADMIN"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "superadmin",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "SUPER_ADMIN"
+      ]
     },
     {
       "username": "organizer",
@@ -104,8 +141,16 @@
       "lastName": "Tổ chức",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "organizer", "temporary": false }],
-      "realmRoles": ["ORG_MEMBER"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "organizer",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ORG_MEMBER"
+      ]
     },
     {
       "username": "staff",
@@ -114,8 +159,16 @@
       "lastName": "Soát vé",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "staff", "temporary": false }],
-      "realmRoles": ["ORG_MEMBER"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "staff",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ORG_MEMBER"
+      ]
     },
     {
       "username": "customer",
@@ -124,8 +177,17 @@
       "lastName": "Hàng",
       "enabled": true,
       "emailVerified": true,
-      "credentials": [{ "type": "password", "value": "customer", "temporary": false }],
-      "realmRoles": ["CUSTOMER"]
+      "credentials": [
+        {
+          "type": "password",
+          "value": "customer",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "CUSTOMER"
+      ]
     }
-  ]
+  ],
+  "registrationEmailAsUsername": true
 }

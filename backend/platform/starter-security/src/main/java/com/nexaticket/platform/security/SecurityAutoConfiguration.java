@@ -9,18 +9,37 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.client.RestClient;
 
-@AutoConfiguration
-@ConditionalOnWebApplication
+/**
+ * PHẢI khai <b>before</b> auto-configuration bảo mật của Spring Boot.
+ *
+ * <p>Cả hai bên đều khai {@code SecurityFilterChain} với {@code @ConditionalOnMissingBean}, nên bên
+ * nào được đánh giá trước thì bên đó thắng — và nếu không nói rõ, thứ tự đó là ngẫu nhiên theo môi
+ * trường. Khi chuỗi mặc định của Boot thắng, {@code TenantFilter} không nằm trong chuỗi nào cả:
+ * JWT vẫn được xác thực, request vẫn tới controller, nhưng {@code TenantContext} luôn rỗng và
+ * <b>mọi</b> endpoint cần đăng nhập đều trả 401.
+ *
+ * <p>Lỗi này từng xanh ở test mà đỏ ở runtime, vì {@code @AutoConfigureMockMvc} làm đổi thứ tự
+ * đánh giá. Khai tường minh để nó không còn phụ thuộc vào may rủi.
+ */
+@AutoConfiguration(before = org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class)
+// CHỈ áp cho ứng dụng servlet.
+//
+// Toàn bộ lớp này là servlet: HttpSecurity, OncePerRequestFilter, SecurityFilterChain. api-gateway
+// là WebFlux, và nếu auto-config này được nạp ở đó thì hạ tầng bảo mật servlet và reactive cùng
+// đăng ký một bean tên conversionServicePostProcessor — app không khởi động nổi. Gateway có
+// GatewaySecurityConfig riêng theo kiểu reactive.
+@ConditionalOnWebApplication(type = Type.SERVLET)
 @EnableConfigurationProperties(IdentityServiceProperties.class)
 public class SecurityAutoConfiguration {
 
@@ -67,7 +86,15 @@ public class SecurityAutoConfiguration {
                         .anyRequest()
                         .authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
-                .addFilterAfter(tenantFilter, UsernamePasswordAuthenticationFilter.class);
+                // PHẢI đặt sau BearerTokenAuthenticationFilter, không phải sau
+                // UsernamePasswordAuthenticationFilter.
+                //
+                // Trong thứ tự filter của Spring Security, BearerTokenAuthenticationFilter nằm SAU
+                // UsernamePasswordAuthenticationFilter. Đặt nhầm mốc thì TenantFilter chạy khi JWT
+                // chưa được đưa vào SecurityContext: nó luôn thấy authentication == null, luôn dựng
+                // TenantScope rỗng, và MỌI request đã đăng nhập đều nhận 401 UNAUTHENTICATED —
+                // kể cả khi token hoàn toàn hợp lệ và người dùng có đủ quyền.
+                .addFilterAfter(tenantFilter, BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 }

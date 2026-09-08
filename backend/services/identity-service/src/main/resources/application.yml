@@ -29,13 +29,22 @@ spring:
   jackson:
     default-property-inclusion: non_null
 
+nexaticket:
+  identity:
+    # Email duoc cap quyen SUPER_ADMIN o lan dang nhap dau tien.
+    #
+    # Khong co danh sach nay thi he thong khong khoi dong duoc tu trang thai rong:
+    # is_super_admin mac dinh false, va POST /v1/platform/organizations — cua vao duy nhat
+    # cua toan bo luong onboarding — se luon tra 403.
+    #
+    # O production dat bang bien moi truong, khong commit vao repo.
+    super-admin-emails: ${SUPER_ADMIN_EMAILS:superadmin@nexaticket.local}
+  outbox:
+    publish-interval-ms: 500
+
 server:
   port: ${PORT:8090}
   shutdown: graceful
-
-nexaticket:
-  outbox:
-    publish-interval-ms: 500
 
 management:
   endpoints:
