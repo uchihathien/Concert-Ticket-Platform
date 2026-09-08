@@ -62,7 +62,8 @@ public final class SeatingPlan {
      *   <li>{@code SET_TIER} — đổi hạng vé cho riêng chỗ đó.
      * </ol>
      */
-    public SeatManifest materialize(SeatManifest.ResolvedPurchaseLimits limits) {
+    public SeatManifest materialize(
+            SeatManifest.ResolvedPurchaseLimits limits, java.time.Instant salesOpenAt, java.time.Instant salesCloseAt) {
         Map<String, SeatOverride> overrideIndex = new HashMap<>();
         for (SeatOverride override : overrides) {
             overrideIndex.put(override.zoneId() + "|" + override.seatCode(), override);
@@ -115,7 +116,8 @@ public final class SeatingPlan {
             }
         }
 
-        return new SeatManifest(eventSessionId, eventId, organizationId, seats, standing, limits);
+        return new SeatManifest(
+                eventSessionId, eventId, organizationId, salesOpenAt, salesCloseAt, seats, standing, limits);
     }
 
     /**

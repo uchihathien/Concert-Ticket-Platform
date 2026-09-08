@@ -10,6 +10,8 @@ import com.nexaticket.catalog.domain.model.SeatingPlan;
 import com.nexaticket.catalog.domain.model.Zone;
 import com.nexaticket.catalog.domain.model.ZoneKind;
 import com.nexaticket.catalog.domain.model.ZoneUsage;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +29,9 @@ class SeatingPlanTest {
     private static final SeatManifest.ResolvedPurchaseLimits LIMITS =
             new SeatManifest.ResolvedPurchaseLimits(8, 10, 10, 10);
 
+    private static final Instant SALES_OPEN = Instant.parse("2026-09-08T10:00:00Z");
+    private static final Instant SALES_CLOSE = SALES_OPEN.plus(30, ChronoUnit.DAYS);
+
     private static final UUID SEATED_TIER = UUID.randomUUID();
     private static final UUID STANDING_TIER = UUID.randomUUID();
     private static final UUID VIP_TIER = UUID.randomUUID();
@@ -37,7 +42,7 @@ class SeatingPlanTest {
         Zone khanDai = seatedZone("A", "Khan dai A", ZoneKind.FIXED, 10);
 
         var manifest = plan(List.of(khanDai), List.of(include(khanDai, SEATED_TIER)), List.of())
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(manifest.seats()).hasSize(10);
         assertThat(manifest.standingBlocks()).isEmpty();
@@ -52,7 +57,7 @@ class SeatingPlanTest {
         Zone sanDung = standingZone("GA", 3_000);
 
         var manifest = plan(List.of(sanDung), List.of(include(sanDung, STANDING_TIER)), List.of())
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(manifest.seats()).isEmpty();
         assertThat(manifest.standingBlocks()).hasSize(1);
@@ -70,7 +75,7 @@ class SeatingPlanTest {
                         List.of(khanDai, sanDung),
                         List.of(include(khanDai, SEATED_TIER), include(sanDung, STANDING_TIER)),
                         List.of())
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(manifest.totalSeatedCount()).isEqualTo(5);
         assertThat(manifest.totalStandingCount()).isEqualTo(200);
@@ -87,7 +92,7 @@ class SeatingPlanTest {
                         List.of(khanDai, khanDaiB),
                         List.of(include(khanDai, SEATED_TIER), exclude(khanDaiB)),
                         List.of())
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(manifest.seats()).hasSize(10);
         assertThat(manifest.seats()).allMatch(seat -> seat.zoneCode().equals("A"));
@@ -106,7 +111,7 @@ class SeatingPlanTest {
                         List.of(
                                 new SeatOverride(khanDai.id(), "A-1", SeatOverride.Action.REMOVE, null),
                                 new SeatOverride(khanDai.id(), "A-2", SeatOverride.Action.BLOCK, null)))
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(manifest.seats()).hasSize(4);
         assertThat(manifest.seats()).filteredOn(SeatManifest.SeatLine::blocked).hasSize(1);
@@ -122,7 +127,7 @@ class SeatingPlanTest {
                         List.of(khanDai),
                         List.of(include(khanDai, SEATED_TIER)),
                         List.of(new SeatOverride(khanDai.id(), "A-1", SeatOverride.Action.SET_TIER, VIP_TIER)))
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(manifest.seats())
                 .filteredOn(seat -> seat.priceVnd() == 5_000_000L)
@@ -140,9 +145,9 @@ class SeatingPlanTest {
         Zone sanDung = standingZone("GA", 200);
 
         var itHon = plan(List.of(sanDung), List.of(includeStanding(sanDung, STANDING_TIER, 150)), List.of())
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
         var nhieuHon = plan(List.of(sanDung), List.of(includeStanding(sanDung, STANDING_TIER, 500)), List.of())
-                .materialize(LIMITS);
+                .materialize(LIMITS, SALES_OPEN, SALES_CLOSE);
 
         assertThat(itHon.totalStandingCount()).isEqualTo(150);
         assertThat(nhieuHon.totalStandingCount()).isEqualTo(200);

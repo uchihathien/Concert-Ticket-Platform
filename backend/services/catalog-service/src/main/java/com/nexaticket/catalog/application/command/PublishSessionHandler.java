@@ -72,7 +72,7 @@ public class PublishSessionHandler {
                 limits.organizationDefaults(timing.organizationId()),
                 limits.platformCeiling());
 
-        SeatManifest manifest = plan.materialize(resolved);
+        SeatManifest manifest = plan.materialize(resolved, timing.salesOpenAt(), timing.salesCloseAt());
         plans.markMaterialized(eventSessionId, clock.instant());
         outbox.sessionPublished(manifest);
 
