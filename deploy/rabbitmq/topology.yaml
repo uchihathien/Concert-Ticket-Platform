@@ -41,6 +41,11 @@ queues:
     exchange: nexaticket.payment
     routing_key: payment.confirmed
 
+  # --- G1: publish sự kiện. Inventory dựng tồn kho từ danh sách chỗ trong message ---
+  - name: inventory.catalog.session-published
+    exchange: nexaticket.catalog
+    routing_key: session.published
+
   # --- G3+: đơn đã trả tiền, nhiều consumer độc lập trên cùng sự kiện ---
   - name: inventory.ordering.paid
     exchange: nexaticket.ordering
@@ -51,6 +56,16 @@ queues:
   - name: notification.ordering.paid
     exchange: nexaticket.ordering
     routing_key: order.paid
+  - name: notification.ordering.expired
+    exchange: nexaticket.ordering
+    routing_key: order.expired
+
+  # Analytics nghe MỌI sự kiện của ordering bằng một queue: read model cần cả đơn hết hạn
+  # và đơn huỷ, không chỉ đơn đã trả tiền. Một queue "#" thay vì ba queue rời cũng giữ cho
+  # thứ tự nhận trong cùng một aggregate không bị xáo thêm bởi chính topology.
+  - name: analytics.ordering.all
+    exchange: nexaticket.ordering
+    routing_key: "#"
 
 defaults:
   queue_type: quorum
