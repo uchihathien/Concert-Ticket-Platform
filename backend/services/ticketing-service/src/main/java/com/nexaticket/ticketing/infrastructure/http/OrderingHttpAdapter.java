@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 /** Anti-Corruption Layer sang ordering-service. Không kiểu nào của Ordering đi quá lớp này. */
@@ -39,7 +40,21 @@ public class OrderingHttpAdapter implements OrderingPort {
             return response.toDomain();
         } catch (OrderingUnavailableException e) {
             throw e;
+        } catch (HttpClientErrorException.NotFound e) {
+            // 404 là câu trả lời DỨT KHOÁT, không phải sự cố tạm thời. Gói nó chung với lỗi mạng
+            // sẽ khiến consumer giao lại mãi một message không bao giờ xử lý được, và chặn cả
+            // hàng đợi phía sau.
+            throw new OrderNotFoundException("Ordering nói không có đơn " + orderId, e);
+        } catch (HttpClientErrorException e) {
+            // Mọi 4xx khác cũng vậy: request của ta sai, hỏi lại y hệt thì vẫn sai. Riêng 429 là
+            // ngoại lệ — đó là "chậm lại", tức là thử lại được.
+            if (e.getStatusCode().value() == 429) {
+                throw new OrderingUnavailableException("Ordering đang giới hạn tần suất, đơn " + orderId, e);
+            }
+            throw new OrderNotFoundException(
+                    "Ordering từ chối yêu cầu cho đơn " + orderId + ": " + e.getStatusCode(), e);
         } catch (RuntimeException e) {
+            // Còn lại là 5xx, timeout, mạng đứt — thử lại có nghĩa.
             throw new OrderingUnavailableException("Không đọc được đơn " + orderId, e);
         }
     }
