@@ -1,0 +1,10 @@
+# Bối cảnh build là gốc repo. Không loại những thứ này thì mỗi lần build phải đẩy vài GB sang
+# daemon — chậm hơn nhiều so với chính việc biên dịch.
+**/target/
+**/node_modules/
+**/.next/
+frontend/
+.git/
+docs/
+**/.env
+**/.env.local

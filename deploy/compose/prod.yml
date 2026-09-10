@@ -1,0 +1,509 @@
+# Compose cho môi trường thật — chạy CẢ ứng dụng, không chỉ hạ tầng như `infra.yml`.
+#
+#   cp prod.env.example .env      # rồi điền secret thật, KHÔNG commit .env
+#   docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --wait
+#
+# BA NGUYÊN TẮC ĐỌC ĐƯỢC TỪ FILE NÀY
+#
+# 1. Không giá trị nhạy cảm nào có mặc định. `${X:?...}` làm compose từ chối chạy khi thiếu, kèm
+#    tên biến. Mặc định "cho tiện" là cách một mật khẩu dev đi lên production mà không ai thấy.
+#
+# 2. Chỉ gateway và bốn app Next mở cổng ra host. Mười hai service backend KHÔNG publish gì —
+#    kể cả cổng quản trị 9090. Đó chính là thứ làm cho `/actuator/prometheus` không cần token mà
+#    vẫn không lộ ra internet.
+#
+# 3. Mỗi service một user database riêng (ADR-1002). Dùng chung một user thì test cô lập đỏ, và
+#    một lỗ hổng ở service nhỏ nhất đọc được sổ cái.
+name: nexaticket-prod
+
+# --- Mảnh dùng lại -----------------------------------------------------------
+x-service-env: &service-env
+  SPRING_PROFILES_ACTIVE: prod
+  # Bí mật cho /internal/**. Trống thì ProductionHardening CHẶN khởi động — không phải cảnh báo.
+  NEXATICKET_INTERNAL_SHAREDSECRET: ${INTERNAL_SHARED_SECRET:?can INTERNAL_SHARED_SECRET}
+  OIDC_ISSUER: ${OIDC_ISSUER:?can OIDC_ISSUER, vi du https://auth.example.com/realms/nexaticket}
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_USER: ${RABBITMQ_USER:?can RABBITMQ_USER}
+  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?can RABBITMQ_PASSWORD}
+  REDIS_HOST: redis
+  IDENTITY_URL: http://identity-service:8080
+  CATALOG_URL: http://catalog-service:8080
+  INVENTORY_URL: http://inventory-service:8080
+  ANALYTICS_URL: http://analytics-service:8080
+  # Dữ liệu mẫu TẮT ở mọi service. ProductionHardening cũng chặn, nhưng khai ở đây để người đọc
+  # compose không phải đi tra mặc định trong application.yml là gì.
+  CATALOG_DEMO_DATA: "false"
+  IDENTITY_DEMO_DATA: "false"
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Trace TẮT mặc định. Bật khi đã có collector nghe ở OTEL_ENDPOINT — không có ai nhận thì
+  # exporter lấp đầy log bằng lỗi kết nối. `--profile tracing` dựng sẵn một collector cục bộ.
+  TRACING_ENABLED: ${TRACING_ENABLED:-false}
+  OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4318/v1/traces}
+  OTEL_SAMPLE_RATE: ${OTEL_SAMPLE_RATE:-0.1}
+
+x-service-base: &service-base
+  restart: unless-stopped
+  depends_on:
+    postgres: {condition: service_healthy}
+    rabbitmq: {condition: service_healthy}
+  # Đi cùng `-XX:MaxRAMPercentage=75` trong ảnh: JVM đọc đúng giới hạn này thay vì bộ nhớ của cả
+  # máy chủ. Thiếu giới hạn ở đây thì tham số kia vô nghĩa.
+  mem_limit: ${SERVICE_MEMORY:-768m}
+  logging:
+    driver: json-file
+    options: {max-size: "20m", max-file: "5"}
+
+services:
+  identity-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/identity-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: identity-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/identity_db
+      DB_USER: identity
+      DB_PASSWORD: ${DB_PASSWORD_IDENTITY:?can DB_PASSWORD_IDENTITY}
+      SUPER_ADMIN_EMAILS: ${SUPER_ADMIN_EMAILS:?can SUPER_ADMIN_EMAILS - khong co thi khong ai tao duoc to chuc dau tien}
+      OIDC_BASE_URL: ${OIDC_BASE_URL:?can OIDC_BASE_URL}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KC_SECRET_IDENTITY_ADMIN:?can KC_SECRET_IDENTITY_ADMIN}
+      PASSWORD_RESET_REDIRECT_URI: ${WEB_ADMIN_URL:?}/login
+
+  catalog-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/catalog-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: catalog-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/catalog_db
+      DB_USER: catalog
+      DB_PASSWORD: ${DB_PASSWORD_CATALOG:?can DB_PASSWORD_CATALOG}
+
+  inventory-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/inventory-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: inventory-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/inventory_db
+      DB_USER: inventory
+      DB_PASSWORD: ${DB_PASSWORD_INVENTORY:?can DB_PASSWORD_INVENTORY}
+      INVENTORY_DEMO_OCCUPANCY: "0"
+
+  ordering-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/ordering-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: ordering-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/ordering_db
+      DB_USER: ordering
+      DB_PASSWORD: ${DB_PASSWORD_ORDERING:?can DB_PASSWORD_ORDERING}
+
+  payment-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/payment-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: payment-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/payment_db
+      DB_USER: payment
+      DB_PASSWORD: ${DB_PASSWORD_PAYMENT:?can DB_PASSWORD_PAYMENT}
+      PAYOS_CLIENT_ID: ${PAYOS_CLIENT_ID:?can PAYOS_CLIENT_ID}
+      PAYOS_API_KEY: ${PAYOS_API_KEY:?can PAYOS_API_KEY}
+      # Khoa nay ky va kiem chu ky webhook. Sai khoa = moi khoan tien phai xac nhan tay.
+      PAYOS_CHECKSUM_KEY: ${PAYOS_CHECKSUM_KEY:?can PAYOS_CHECKSUM_KEY}
+      PAYOS_WEBHOOK_URL: ${PUBLIC_API_BASE_URL:?}/api/billing/bank/webhook
+      PAYMENT_SANDBOX: "false"
+
+  ledger-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/ledger-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: ledger-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/ledger_db
+      DB_USER: ledger
+      DB_PASSWORD: ${DB_PASSWORD_LEDGER:?can DB_PASSWORD_LEDGER}
+
+  payout-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/payout-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: payout-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/payout_db
+      DB_USER: payout
+      DB_PASSWORD: ${DB_PASSWORD_PAYOUT:?can DB_PASSWORD_PAYOUT}
+
+  ticketing-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/ticketing-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: ticketing-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/ticketing_db
+      DB_USER: ticketing
+      DB_PASSWORD: ${DB_PASSWORD_TICKETING:?can DB_PASSWORD_TICKETING}
+
+  notification-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/notification-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: notification-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/notification_db
+      DB_USER: notification
+      DB_PASSWORD: ${DB_PASSWORD_NOTIFICATION:?can DB_PASSWORD_NOTIFICATION}
+      SMTP_HOST: ${SMTP_HOST:?can SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      MAIL_FROM: ${SMTP_FROM:?can SMTP_FROM}
+      WEB_BASE_URL: ${WEB_CUSTOMER_URL:?}
+
+  analytics-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/analytics-service:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: analytics-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/analytics_db
+      DB_USER: analytics
+      DB_PASSWORD: ${DB_PASSWORD_ANALYTICS:?can DB_PASSWORD_ANALYTICS}
+
+  # Realtime không có database: nó chỉ đẩy sự kiện từ RabbitMQ xuống WebSocket.
+  realtime-gateway:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/realtime-gateway:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: realtime-gateway}
+    environment:
+      <<: *service-env
+      # WebSocket KHÔNG đi qua CORS như fetch: trình duyệt vẫn gửi `Origin`, nhưng không có
+      # preflight nào để chặn. Nên danh sách này là chốt chặn duy nhất, và mặc định của nó là
+      # localhost — để nguyên ở production nghĩa là mọi trang web đều mở được socket tới đây.
+      NEXATICKET_REALTIME_ALLOWEDORIGINS: ${WEB_CUSTOMER_URL:?},${WEB_ADMIN_URL:?},${WEB_SCANNER_URL:?}
+    depends_on:
+      rabbitmq: {condition: service_healthy}
+
+  # Cửa DUY NHẤT từ internet vào backend.
+  api-gateway:
+    restart: unless-stopped
+    image: ${REGISTRY:-nexaticket}/api-gateway:${TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: api-gateway}
+    ports: ["${GATEWAY_PORT:-8080}:8080"]
+    mem_limit: ${SERVICE_MEMORY:-768m}
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      NEXATICKET_INTERNAL_SHAREDSECRET: ${INTERNAL_SHARED_SECRET:?}
+      OIDC_ISSUER: ${OIDC_ISSUER:?}
+      REDIS_HOST: redis
+      # Liệt kê tường minh bốn origin. `*` cộng với `allowCredentials` bị trình duyệt từ chối
+      # thẳng, nên "mở hết cho xong" ở đây còn hỏng nhanh hơn là nguy hiểm — nhưng vẫn không làm.
+      NEXATICKET_GATEWAY_ALLOWEDORIGINS: ${WEB_CUSTOMER_URL:?},${WEB_ADMIN_URL:?},${WEB_SCANNER_URL:?},${WEB_PLATFORM_URL:?}
+      # Số proxy tin cậy đứng TRƯỚC gateway (ingress, CDN…). Sai số này thì rate limit hoặc vô
+      # hiệu (kẻ tấn công tự khai X-Forwarded-For), hoặc dồn cả internet vào chung một hạn mức
+      # (mọi IP nhìn ra như IP của proxy). Xem RateLimitConfig.
+      NEXATICKET_GATEWAY_TRUSTEDPROXYCOUNT: ${TRUSTED_PROXY_COUNT:-1}
+      IDENTITY_URL: http://identity-service:8080
+      CATALOG_URL: http://catalog-service:8080
+      INVENTORY_URL: http://inventory-service:8080
+      ORDERING_URL: http://ordering-service:8080
+      TICKETING_URL: http://ticketing-service:8080
+      ANALYTICS_URL: http://analytics-service:8080
+      LEDGER_URL: http://ledger-service:8080
+      PAYMENT_URL: http://payment-service:8080
+      TRACING_ENABLED: ${TRACING_ENABLED:-false}
+      OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      OTEL_SAMPLE_RATE: ${OTEL_SAMPLE_RATE:-0.1}
+    depends_on:
+      redis: {condition: service_healthy}
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+
+  # --- Bốn app Next.js ---------------------------------------------------
+  #
+  # `REDIS_URL` KHÔNG phải tuỳ chọn. Phiên đăng nhập nằm ở store phía server, và bản in-memory chỉ
+  # sống trong một tiến trình: nhiều instance không thấy phiên của nhau, còn Next thì tái tạo tiến
+  # trình bất cứ lúc nào. Thiếu biến này thì app TỪ CHỐI khởi động thay vì âm thầm đăng xuất người
+  # dùng ngẫu nhiên — xem `defaultRefreshTokenStore`.
+  #
+  # `AUTH_SECRET` mỗi app một giá trị: dùng chung thì cookie phiên của app này giải mã được ở app
+  # kia, và ranh giới giữa app khách với app quản trị chỉ còn là quy ước.
+  web-customer:
+    restart: unless-stopped
+    image: ${REGISTRY:-nexaticket}/web-customer:${TAG:-latest}
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP: web-customer
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
+    ports: ["3000:3000"]
+    mem_limit: ${APP_MEMORY:-512m}
+    environment:
+      AUTH_URL: ${WEB_CUSTOMER_URL:?}
+      AUTH_SECRET: ${AUTH_SECRET_WEB_CUSTOMER:?moi app mot secret rieng}
+      KEYCLOAK_ISSUER: ${OIDC_ISSUER:?}
+      KEYCLOAK_CLIENT_ID: web-customer
+      KEYCLOAK_CLIENT_SECRET: ${KC_SECRET_WEB_CUSTOMER:?can secret client web-customer}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+    depends_on:
+      redis: {condition: service_healthy}
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+
+  web-admin:
+    restart: unless-stopped
+    image: ${REGISTRY:-nexaticket}/web-admin:${TAG:-latest}
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP: web-admin
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
+    ports: ["3001:3000"]
+    mem_limit: ${APP_MEMORY:-512m}
+    environment:
+      AUTH_URL: ${WEB_ADMIN_URL:?}
+      AUTH_SECRET: ${AUTH_SECRET_WEB_ADMIN:?moi app mot secret rieng}
+      KEYCLOAK_ISSUER: ${OIDC_ISSUER:?}
+      KEYCLOAK_CLIENT_ID: web-admin
+      KEYCLOAK_CLIENT_SECRET: ${KC_SECRET_WEB_ADMIN:?can secret client web-admin}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+    depends_on:
+      redis: {condition: service_healthy}
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+
+  web-scanner:
+    restart: unless-stopped
+    image: ${REGISTRY:-nexaticket}/web-scanner:${TAG:-latest}
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP: web-scanner
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
+    ports: ["3002:3000"]
+    mem_limit: ${APP_MEMORY:-512m}
+    environment:
+      AUTH_URL: ${WEB_SCANNER_URL:?}
+      AUTH_SECRET: ${AUTH_SECRET_WEB_SCANNER:?moi app mot secret rieng}
+      KEYCLOAK_ISSUER: ${OIDC_ISSUER:?}
+      KEYCLOAK_CLIENT_ID: web-scanner
+      KEYCLOAK_CLIENT_SECRET: ${KC_SECRET_WEB_SCANNER:?can secret client web-scanner}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+    depends_on:
+      redis: {condition: service_healthy}
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+
+  web-platform:
+    restart: unless-stopped
+    image: ${REGISTRY:-nexaticket}/web-platform:${TAG:-latest}
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        APP: web-platform
+        NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
+    ports: ["3003:3000"]
+    mem_limit: ${APP_MEMORY:-512m}
+    environment:
+      AUTH_URL: ${WEB_PLATFORM_URL:?}
+      AUTH_SECRET: ${AUTH_SECRET_WEB_PLATFORM:?moi app mot secret rieng}
+      KEYCLOAK_ISSUER: ${OIDC_ISSUER:?}
+      KEYCLOAK_CLIENT_ID: web-platform
+      KEYCLOAK_CLIENT_SECRET: ${KC_SECRET_WEB_PLATFORM:?can secret client web-platform}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
+    depends_on:
+      redis: {condition: service_healthy}
+    logging:
+      driver: json-file
+      options: {max-size: "20m", max-file: "5"}
+
+  # --- Hạ tầng ---------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # 200 = 11 service x 10 kết nối, cộng chỗ trống cho psql và công cụ sao lưu. Mặc định 100
+    # KHÔNG đủ: service khởi động sau chết với "remaining connection slots are reserved", một
+    # thông báo không hề gợi ý rằng nguyên nhân nằm ở cấu hình pool của service khác.
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?can POSTGRES_SUPERUSER_PASSWORD}
+      # Mật khẩu của từng user service, đọc bởi initdb-prod/01-databases.sh.
+      DB_PASSWORD_IDENTITY: ${DB_PASSWORD_IDENTITY:?}
+      DB_PASSWORD_CATALOG: ${DB_PASSWORD_CATALOG:?}
+      DB_PASSWORD_INVENTORY: ${DB_PASSWORD_INVENTORY:?}
+      DB_PASSWORD_ORDERING: ${DB_PASSWORD_ORDERING:?}
+      DB_PASSWORD_PAYMENT: ${DB_PASSWORD_PAYMENT:?}
+      DB_PASSWORD_LEDGER: ${DB_PASSWORD_LEDGER:?}
+      DB_PASSWORD_PAYOUT: ${DB_PASSWORD_PAYOUT:?}
+      DB_PASSWORD_TICKETING: ${DB_PASSWORD_TICKETING:?}
+      DB_PASSWORD_NOTIFICATION: ${DB_PASSWORD_NOTIFICATION:?}
+      DB_PASSWORD_ANALYTICS: ${DB_PASSWORD_ANALYTICS:?}
+      DB_PASSWORD_KEYCLOAK: ${DB_PASSWORD_KEYCLOAK:?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Bản prod, KHÔNG phải `./initdb`: bản kia đặt mật khẩu bằng chính tên service.
+      - ./initdb-prod:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # `appendonly yes` — KHÁC bản dev, và đây là điểm quan trọng nhất của service này.
+    #
+    # Phiên đăng nhập của cả bốn app nằm trong Redis. Bản dev chạy `--appendonly no --save ""`
+    # (thuần bộ nhớ) vì mất phiên lúc phát triển chẳng sao. Giữ nguyên cấu hình đó ở production
+    # nghĩa là MỌI người dùng bị đăng xuất cùng lúc sau một lần khởi động lại Redis — kể cả lần
+    # khởi động lại theo lịch để vá bảo mật.
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?can REDIS_PASSWORD}"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    # Image tự dựng để bật plugin delayed message — cần cho retry backoff (ADR-1009).
+    build: {context: ../rabbitmq}
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+    volumes:
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    # `start`, KHÔNG phải `start-dev`.
+    #
+    # `start-dev` giữ database trong chính filesystem của container: recreate container là mất
+    # sạch tài khoản. Hậu quả không nhìn ra được từ phía Keycloak — identity_db nhận diện người
+    # dùng theo `idp_subject`, nên sau một lần recreate mọi tài khoản cũ đều lệch, đăng nhập vẫn
+    # qua nhưng MỌI lời gọi API trả 401/403 trong khi giao diện hiển thị là đã đăng nhập.
+    command: ["start", "--import-realm"]
+    # Keycloak PHẢI với tới được từ trình duyệt: vòng đăng nhập là một chuỗi chuyển hướng của
+    # chính trình duyệt, không phải lời gọi server-to-server. Ingress đầu vào TLS trỏ
+    # `KEYCLOAK_HOSTNAME` về cổng này.
+    ports: ["${KEYCLOAK_PORT:-8081}:8080"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${DB_PASSWORD_KEYCLOAK:?}
+      KC_HOSTNAME: ${KEYCLOAK_HOSTNAME:?can KEYCLOAK_HOSTNAME, vi du https://auth.example.com}
+      # TLS kết thúc ở ingress phía trước. Thiếu `KC_PROXY_HEADERS` thì Keycloak dựng redirect URI
+      # bằng http:// nội bộ, và vòng đăng nhập gãy ở bước quay về với lỗi không nói rõ lý do.
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      # Từ Keycloak 25, /health/* nằm ở cổng 9000 và mặc định TẮT. Thiếu biến này thì healthcheck
+      # không bao giờ xanh và `up --wait` treo tới hết giờ, dù Keycloak phục vụ bình thường.
+      KC_HEALTH_ENABLED: "true"
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:?}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?}
+      # Realm production đọc từng biến dưới đây. Không cái nào có mặc định — secret của client
+      # nằm trong repo là secret đã lộ.
+      KC_SECRET_WEB_CUSTOMER: ${KC_SECRET_WEB_CUSTOMER:?}
+      KC_SECRET_WEB_ADMIN: ${KC_SECRET_WEB_ADMIN:?}
+      KC_SECRET_WEB_SCANNER: ${KC_SECRET_WEB_SCANNER:?}
+      KC_SECRET_WEB_PLATFORM: ${KC_SECRET_WEB_PLATFORM:?}
+      KC_SECRET_IDENTITY_ADMIN: ${KC_SECRET_IDENTITY_ADMIN:?}
+      WEB_CUSTOMER_URL: ${WEB_CUSTOMER_URL:?}
+      WEB_ADMIN_URL: ${WEB_ADMIN_URL:?}
+      WEB_SCANNER_URL: ${WEB_SCANNER_URL:?}
+      WEB_PLATFORM_URL: ${WEB_PLATFORM_URL:?}
+      SMTP_HOST: ${SMTP_HOST:?}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:?}
+      SMTP_USER: ${SMTP_USER:?}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?}
+    volumes:
+      # CHỈ bản .prod.json. Bản dev có bốn tài khoản mật khẩu bằng tên đăng nhập và
+      # `registrationAllowed: true` cho mọi client.
+      - ../keycloak/nexaticket-realm.prod.json:/opt/keycloak/data/import/realm.json:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1
+
+Host: x
+
+Connection: close
+
+
+
+' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  # Bộ thu trace. Chỉ chạy khi bật hồ sơ: `docker compose --profile tracing up -d`.
+  #
+  # Cấu hình mặc định của ảnh này nhận OTLP ở 4317 (gRPC) và 4318 (HTTP) rồi ghi ra log của chính
+  # nó. Đủ để xem trace có tới nơi không; đưa vào Tempo/Jaeger thì thêm exporter trong file cấu
+  # hình riêng. Cố ý KHÔNG dựng sẵn kho lưu trữ: chọn kho là quyết định vận hành, và một Tempo
+  # không ai cấu hình lưu giữ sẽ âm thầm đầy đĩa.
+  otel-collector:
+    profiles: ["tracing"]
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    restart: unless-stopped
+    mem_limit: 256m
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitdata:

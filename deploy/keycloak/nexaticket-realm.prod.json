@@ -1,0 +1,153 @@
+{
+  "realm": "nexaticket",
+  "enabled": true,
+  "displayName": "NexaTicket",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 2592000,
+  "ssoSessionMaxLifespan": 2592000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "roles": {
+    "realm": [
+      {
+        "name": "SUPER_ADMIN",
+        "description": "Nền tảng: tạo/khoá tổ chức, toàn quyền trên tiền (ADR-1010)"
+      },
+      {
+        "name": "ORG_MEMBER",
+        "description": "Thuộc ít nhất một tổ chức; vai trò cụ thể lấy từ identity-service"
+      },
+      {
+        "name": "CUSTOMER",
+        "description": "Khách mua vé"
+      }
+    ]
+  },
+  "requiredActions": [
+    {
+      "alias": "CONFIGURE_TOTP",
+      "name": "Configure OTP",
+      "providerId": "CONFIGURE_TOTP",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 10,
+      "config": {}
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "web-customer",
+      "name": "NexaTicket — Khách hàng",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KC_SECRET_WEB_CUSTOMER}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "${WEB_CUSTOMER_URL}/api/auth/callback/keycloak",
+        "${WEB_CUSTOMER_URL}/api/auth/callback/keycloak-register"
+      ],
+      "webOrigins": [
+        "${WEB_CUSTOMER_URL}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##${WEB_CUSTOMER_URL}/##${WEB_CUSTOMER_URL}/login"
+      }
+    },
+    {
+      "clientId": "web-admin",
+      "name": "NexaTicket — Tổ chức",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KC_SECRET_WEB_ADMIN}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "${WEB_ADMIN_URL}/api/auth/callback/keycloak",
+        "${WEB_ADMIN_URL}/login"
+      ],
+      "webOrigins": [
+        "${WEB_ADMIN_URL}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##${WEB_ADMIN_URL}/##${WEB_ADMIN_URL}/login"
+      }
+    },
+    {
+      "clientId": "web-platform",
+      "name": "NexaTicket — Superadmin",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KC_SECRET_WEB_PLATFORM}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "${WEB_PLATFORM_URL}/api/auth/callback/keycloak",
+        "${WEB_PLATFORM_URL}/login"
+      ],
+      "webOrigins": [
+        "${WEB_PLATFORM_URL}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##${WEB_PLATFORM_URL}/##${WEB_PLATFORM_URL}/login"
+      }
+    },
+    {
+      "clientId": "web-scanner",
+      "name": "NexaTicket — Soát vé",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KC_SECRET_WEB_SCANNER}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "${WEB_SCANNER_URL}/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "${WEB_SCANNER_URL}"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "+##${WEB_SCANNER_URL}/##${WEB_SCANNER_URL}/login"
+      }
+    },
+    {
+      "clientId": "identity-admin",
+      "name": "identity-service — Admin API",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${KC_SECRET_IDENTITY_ADMIN}",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
+    }
+  ],
+  "users": [],
+  "registrationEmailAsUsername": true,
+  "smtpServer": {
+    "host": "${SMTP_HOST}",
+    "port": "${SMTP_PORT}",
+    "from": "${SMTP_FROM}",
+    "fromDisplayName": "NexaTicket",
+    "ssl": "false",
+    "starttls": "true",
+    "auth": "true",
+    "user": "${SMTP_USER}",
+    "password": "${SMTP_PASSWORD}"
+  },
+  "actionTokenGeneratedByUserLifespan": 900,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10
+}

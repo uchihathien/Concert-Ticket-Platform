@@ -16,5 +16,6 @@
 | [ADR-1012](ADR-1012-standing-admission-inventory.md) | **Vé đứng: đơn vị tồn kho ảo + `SKIP LOCKED`** | — (mới) |
 | [ADR-1013](ADR-1013-venue-schedule-conflict-warning.md) | **Trùng lịch địa điểm: cảnh báo, không chặn** | — (mới) |
 | [ADR-1014](ADR-1014-configurable-purchase-limits.md) | **Trần mua vé cấu hình theo tổ chức** | — (mới) |
+| [ADR-1015](ADR-1015-redis-fail-mode.md) | **Redis chết: giữ chỗ ĐÓNG, rate limit MỞ, phiên ĐÓNG** | Mở rộng ADR-0004 |
 
 Vẫn hiệu lực từ v1: ADR-0002, 0004, 0005, **0006 (RabbitMQ — khôi phục)**, 0007, 0009, 0010, 0011, 0012, 0014, 0015, 0016.

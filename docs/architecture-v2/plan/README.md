@@ -7,6 +7,7 @@
 | Tài liệu này | Monorepo, thư viện dùng chung, RabbitMQ topology, môi trường, CI/CD, branching |
 | [backend.md](backend.md) | 11 service Spring Boot + gateway |
 | [frontend.md](frontend.md) | 4 app Next.js + packages |
+| [production-checklist.md](production-checklist.md) | Những gì KHÁC giữa máy phát triển và production. Đích của thông báo lỗi khi service từ chối khởi động ở profile `prod`. |
 
 > Thay thế [`docs/plan/`](../../plan/README.md) — bộ đó viết cho modular monolith v1, không còn dùng.
 
