@@ -43,11 +43,34 @@ public class GlobalExceptionHandler {
                         Map.of("fields", fields)));
     }
 
+    /**
+     * Vi phạm ràng buộc trên tham số của method (@code @RequestParam}, {@code @PathVariable}).
+     *
+     * <p>Phẳng hoá thành {@code {trường: thông điệp}} giống {@link #handleBeanValidation} ngay bên
+     * trên, thay vì trả {@code ex.getMessage()}.
+     *
+     * <p>Thông điệp mặc định của {@code ConstraintViolationException} ghép cả <b>đường dẫn thuộc
+     * tính nội bộ</b> lẫn <b>giá trị người dùng vừa gửi</b> — ví dụ
+     * {@code auditLogs.limit: must be less than or equal to 200}. Tên method và tên tham số là chi
+     * tiết cài đặt; lộ chúng ra không giúp gì cho người gọi mà lại vẽ sẵn bản đồ bề mặt API cho
+     * người dò. Hai bộ xử lý validation trả về hai hình dạng khác nhau cũng là thứ frontend phải
+     * viết hai nhánh để đọc.
+     */
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ApiError> handleConstraint(ConstraintViolationException ex) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        ex.getConstraintViolations().forEach(violation -> {
+            // Chỉ giữ đoạn cuối của đường dẫn thuộc tính: `auditLogs.limit` -> `limit`.
+            String path = violation.getPropertyPath().toString();
+            String field = path.substring(path.lastIndexOf('.') + 1);
+            fields.putIfAbsent(field, violation.getMessage());
+        });
         return ResponseEntity.badRequest()
                 .body(ApiError.of(
-                        ErrorCode.Common.VALIDATION_FAILED, ex.getMessage(), CorrelationContext.current(), Map.of()));
+                        ErrorCode.Common.VALIDATION_FAILED,
+                        "Request validation failed",
+                        CorrelationContext.current(),
+                        Map.of("fields", fields)));
     }
 
     /**
