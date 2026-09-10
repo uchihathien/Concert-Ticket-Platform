@@ -7,6 +7,7 @@ import com.nexaticket.inventory.domain.model.SessionInventory;
 import com.nexaticket.inventory.domain.port.SeatRepository;
 import com.nexaticket.inventory.domain.port.SessionInventoryRepository;
 import com.nexaticket.platform.web.error.ApiException;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,5 +68,31 @@ public class SeatQueries {
 
         return new SeatMapView(
                 eventSessionId, sessions.currentAvailabilityVersion(eventSessionId), seatRows, zones, allowance);
+    }
+
+    /**
+     * Tồn kho gộp theo zone và trạng thái, cho màn hình quản trị của ban tổ chức.
+     *
+     * <p>Ném {@code SESSION_NOT_FOUND} khi suất chưa được dựng tồn kho. Với sự kiện còn nháp thì đó
+     * là trạng thái bình thường, không phải sự cố — bên gọi (bảng điều khiển của catalog) hiểu 404
+     * đúng như vậy và hiện "chưa lên bán" thay vì báo lỗi.
+     */
+    @Transactional(readOnly = true)
+    public SeatStatusView seatStatus(UUID eventSessionId) {
+        sessions.findBySessionId(eventSessionId)
+                .orElseThrow(() -> new ApiException(InventoryErrorCode.SESSION_NOT_FOUND, "Event session not found"));
+
+        List<SeatStatusView.ZoneStatus> zones = seats.zoneStatusCounts(eventSessionId).stream()
+                .map(row -> new SeatStatusView.ZoneStatus(
+                        row.zoneCode(),
+                        row.admissionType(),
+                        row.available(),
+                        row.held(),
+                        row.reserved(),
+                        row.sold(),
+                        row.blocked()))
+                .toList();
+
+        return new SeatStatusView(eventSessionId, sessions.currentAvailabilityVersion(eventSessionId), zones);
     }
 }

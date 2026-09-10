@@ -53,6 +53,21 @@ nexaticket:
       enabled: true
       interval: 10s
 
+    demo:
+      # Bán sẵn một phần chỗ của những suất diễn thuộc tổ chức mẫu, ngay lúc dựng tồn kho.
+      #
+      # BẬT mặc định vì một sơ đồ chỗ trống trơn không cho thấy màn hình chọn ghế làm được gì:
+      # không có màu "đã bán", không có ghế lẻ, và câu hỏi thật sự khó — "còn hai ghế cạnh nhau
+      # ở đâu?" — không có gì để trả lời.
+      #
+      # ĐẶT false Ở PRODUCTION.
+      occupancy: ${INVENTORY_DEMO_OCCUPANCY:true}
+
+      # Chốt chặn thứ hai, quan trọng hơn cả cờ trên: chỉ suất của ĐÚNG tổ chức này bị đụng tới.
+      # Phải khớp nexaticket.catalog.demo-organization-id bên catalog-service; lệch nhau thì
+      # không có gì được đánh dấu — hướng sai an toàn.
+      organization-id: ${INVENTORY_DEMO_ORG_ID:00000000-0000-4000-a000-000000000001}
+
 management:
   endpoints:
     web:

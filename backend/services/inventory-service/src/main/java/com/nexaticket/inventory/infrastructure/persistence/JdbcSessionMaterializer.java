@@ -32,17 +32,39 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
         this.jdbc = jdbc;
     }
 
+    /**
+     * Dựng tồn kho cho một suất, và <b>đồng bộ lại cấu hình</b> nếu suất đã có.
+     *
+     * <p>Bản trước dùng {@code ON CONFLICT DO NOTHING} cho cả dòng suất, nên cửa bán và các trần
+     * mua vé chỉ được ghi đúng MỘT LẦN — lúc publish đầu tiên. Ban tổ chức sửa giờ mở bán rồi
+     * publish lại thì Catalog đổi, màn hình quản trị nói đã đổi, còn Inventory — chỗ thật sự chặn
+     * khách — vẫn giữ giá trị cũ vĩnh viễn. Không có lỗi nào hiện ra ở đâu cả.
+     *
+     * <p>{@code RETURNING (xmax = 0)} phân biệt INSERT với UPDATE, và phân biệt đó là BẮT BUỘC:
+     * người gọi dùng kết quả {@code > 0} để biết "suất vừa dựng xong" rồi mới chạy bộ dữ liệu mẫu.
+     * Trả 1 cho một lần UPDATE sẽ khiến bộ dữ liệu mẫu bán thêm một mớ ghế ngẫu nhiên vào một suất
+     * có thể đã bán vé thật.
+     */
     @Override
     public int materialize(SessionManifest manifest) {
-        int created = jdbc.update(
+        Boolean inserted = jdbc.queryForObject(
                 """
                 INSERT INTO session_inventory (
                     id, event_session_id, event_id, organization_id, sales_open_at, sales_close_at,
                     max_seated_per_hold, max_standing_per_hold, max_units_per_hold,
                     max_tickets_per_customer, materialized_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (event_session_id) DO NOTHING
+                ON CONFLICT (event_session_id) DO UPDATE SET
+                    sales_open_at            = EXCLUDED.sales_open_at,
+                    sales_close_at           = EXCLUDED.sales_close_at,
+                    max_seated_per_hold      = EXCLUDED.max_seated_per_hold,
+                    max_standing_per_hold    = EXCLUDED.max_standing_per_hold,
+                    max_units_per_hold       = EXCLUDED.max_units_per_hold,
+                    max_tickets_per_customer = EXCLUDED.max_tickets_per_customer,
+                    materialized_at          = EXCLUDED.materialized_at
+                RETURNING (xmax = 0)
                 """,
+                Boolean.class,
                 UUID.randomUUID(),
                 manifest.eventSessionId(),
                 manifest.eventId(),
@@ -55,8 +77,10 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
                 manifest.maxTicketsPerCustomer(),
                 Timestamp.from(Instant.now()));
 
-        if (created == 0) {
-            log.info("Suất {} đã có tồn kho, bỏ qua materialize lặp", manifest.eventSessionId());
+        if (!Boolean.TRUE.equals(inserted)) {
+            log.info(
+                    "Suất {} đã có tồn kho: đã đồng bộ lại cửa bán và trần mua vé, không dựng lại chỗ",
+                    manifest.eventSessionId());
             return 0;
         }
 
