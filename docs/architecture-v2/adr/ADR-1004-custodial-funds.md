@@ -8,7 +8,7 @@ ADR-0013 và tài liệu pháp lý v1 thiết kế có chủ đích để tiền
 
 ## Decision
 
-Khách chuyển khoản vào **tài khoản ký quỹ của NexaTicket** qua VietQR sinh từ tài khoản cấp nền tảng. SePay xác nhận. Ledger ghi nhận công nợ phải trả cho tổ chức và tách hoa hồng ngay tại thời điểm ghi nhận.
+Khách trả tiền qua **payOS**, vào tài khoản ảo payOS cấp cho từng link thanh toán và đối soát về **tài khoản ký quỹ của NexaTicket** (ADR-0016). payOS xác nhận bằng webhook đã ký. Ledger ghi nhận công nợ phải trả cho tổ chức và tách hoa hồng ngay tại thời điểm ghi nhận.
 
 Tiền bị giữ tới sau khi sự kiện kết thúc cộng kỳ giữ tiền (mặc định 3 ngày làm việc), trừ dự phòng hoàn tiền (mặc định 5%), rồi mới chuyển sang số dư khả dụng để tổ chức yêu cầu chi trả.
 

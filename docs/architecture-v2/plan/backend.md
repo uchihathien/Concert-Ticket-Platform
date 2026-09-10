@@ -74,7 +74,7 @@ Filter dựng scope từ JWT `sub` → gọi `identity-service` `/internal/membe
 Ba tầng như v1 giữ nguyên: filter → Hibernate `@Filter` tự động trên entity có `organization_id` → bộ IDOR test tự sinh cho mọi route org-scoped.
 
 Hai annotation ngoại lệ, cả hai đều ghi audit:
-- `@PublicEndpoint` — catalog công khai, webhook SePay.
+- `@PublicEndpoint` — catalog công khai, webhook payOS.
 - `@CrossTenantQuery(reason = …)` — **chỉ một chỗ dùng**: phát hiện trùng lịch địa điểm ([ADR-1013](../adr/ADR-1013-venue-schedule-conflict-warning.md)).
 
 ### 3.2 `starter-idempotency`
@@ -153,7 +153,7 @@ Mỗi service một `flyway_schema_history` riêng. Bảng nền tảng (`outbox
 
 1. **Spike hold, 3 ngày.** Redis Lua + `session_seats` seed tay + endpoint hold + k6 500 VU. Chỉ để đo p95 và chứng minh không oversell. Không auth, không UI.
 2. **Spike sổ cái, 2 ngày.** `journal_entries` + `postings` + constraint trigger cân + 1.000 bút toán đồng thời. Xác nhận trigger `DEFERRABLE` hoạt động như kỳ vọng.
-3. **Spike webhook, 1 ngày.** Nhận payload SePay mẫu, verify, ghi `webhook_events`. Xác nhận cơ chế xác thực của SePay là thứ ta hiểu đúng.
+3. **Spike webhook, 1 ngày.** Nhận payload payOS mẫu, kiểm chữ ký HMAC-SHA256 trên trường `data`, ghi `bank_webhook_log`. Xác nhận cách canonicalize của payOS là thứ ta hiểu đúng — sai một chi tiết ở đó thì hệ thống từ chối 100% webhook thật, và triệu chứng giống hệt sai checksum key.
 
 **Exit gate:** deploy dev xanh; tạo tổ chức E2E; trace xuyên service; không secret trong git; ba spike có báo cáo.
 
@@ -292,7 +292,7 @@ Checkout saga đồng bộ + bù trừ ([sagas.md §2](../sagas.md)). Timeout 2 
 - VietQR: dựng TLV theo EMVCo + CRC-16/CCITT-FALSE, trả **chuỗi payload**, frontend tự render QR.
 - `payment_reference`: `NT` + 8 ký tự Crockford Base32 (bỏ I, L, O, U), unique index.
 - Webhook: `webhook_events` dedupe trước, `SELECT … FOR UPDATE` trên order, phân loại 8 nhánh. Nguyên tắc: **`REJECTED` chỉ khi chắc chắn không có tiền vào tài khoản ta; có tiền mà không khớp thì luôn `MANUAL_REVIEW`.**
-- ACL: không trường nào tên theo SePay đi quá `SePayPayloadTranslator`.
+- ACL: không trường nào tên theo payOS đi quá `infrastructure/payos`.
 
 Test bắt buộc: duplicate tuần tự, duplicate **song song**, sai reference, thiếu tiền, thừa tiền, sai tài khoản nhận, đến sau expiry, **đến đúng lúc expiry worker chạy**, payload rác, auth sai.
 
@@ -381,7 +381,8 @@ nexaticket:
   limits: { seated-per-hold: 8, standing-per-hold: 10, units-per-hold: 10,
             tickets-per-customer: 10 }          # trần cứng nền tảng
   ledger: { hold-period-days: 3, refund-reserve-bps: 500, reserve-days: 30 }
-  sepay:  { webhook-secret: ${SEPAY_WEBHOOK_SECRET} }
+  payos:  { client-id: ${PAYOS_CLIENT_ID}, api-key: ${PAYOS_API_KEY},
+            checksum-key: ${PAYOS_CHECKSUM_KEY} }   # checksum-key KHÔNG gửi đi đâu
   qr:     { signing-key: ${TICKET_QR_SIGNING_KEY}, kid: v1 }
 ```
 

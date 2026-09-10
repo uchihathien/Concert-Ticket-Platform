@@ -3,7 +3,7 @@ sequenceDiagram
   participant A as NexaTicket API
   participant V as VietQR
   participant B as Bank account
-  participant S as SePay
+  participant S as payOS
   participant T as Tickets
   C->>A: POST /orders from ACTIVE hold
   A->>A: seats RESERVED 15m + payment_reference
@@ -11,7 +11,7 @@ sequenceDiagram
   V-->>C: QR payment instruction
   C->>B: transfer with reference
   B->>S: transaction notification
-  S->>A: POST /api/billing/bank/webhook/sepay
+  S->>A: POST /api/billing/bank/webhook/payos
   A->>A: verify, dedupe, match amount/reference/window
   alt within payment window
     A->>T: PAID + issue tickets

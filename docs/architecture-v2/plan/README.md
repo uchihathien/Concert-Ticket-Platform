@@ -177,10 +177,10 @@ Seed dữ liệu: `deploy/compose/seed/` tạo sẵn 1 superadmin, 2 tổ chức
 | --- | --- | --- |
 | local | Compose | 4 deployable |
 | dev | K8s nhỏ | Nơi đầu tiên chạy đủ 11 service tách rời |
-| staging | Giống prod thu nhỏ; SePay sandbox; Redis có replica | Nơi load test và diễn tập đối soát |
+| staging | Giống prod thu nhỏ; Redis có replica | Nơi load test và diễn tập đối soát. **payOS không có sandbox** — staging dùng credential payOS thật với số tiền nhỏ, hoặc `PAYMENT_SANDBOX=true` |
 | production | Soft launch | `ledger_db` tách instance vật lý |
 
-**Secrets** không bao giờ trong git: `DB_PASSWORD_*` (11 bộ), `REDIS_PASSWORD`, `RABBITMQ_PASSWORD`, `KEYCLOAK_CLIENT_SECRET_*` (4 client), `SEPAY_WEBHOOK_SECRET`, `TICKET_QR_SIGNING_KEY`, `BANK_ACCOUNT_ENCRYPTION_KEY`, `NEXTAUTH_SECRET_*`.
+**Secrets** không bao giờ trong git: `DB_PASSWORD_*` (11 bộ), `REDIS_PASSWORD`, `RABBITMQ_PASSWORD`, `KEYCLOAK_CLIENT_SECRET_*` (4 client), `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY` (nặng nhất — lộ nó là giả được webhook "đã trả tiền"), `TICKET_QR_SIGNING_KEY`, `BANK_ACCOUNT_ENCRYPTION_KEY`, `NEXTAUTH_SECRET_*`.
 
 **Quyền database:** mỗi service một user riêng chỉ thấy schema của mình ([ADR-1002](../adr/ADR-1002-database-per-service.md)). `ledger_db` thêm `REVOKE UPDATE, DELETE ON postings, journal_entries`.
 

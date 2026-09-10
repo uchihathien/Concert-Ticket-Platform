@@ -64,7 +64,7 @@ class TicketCheckinIT extends TicketingTestBase {
     @Test
     @DisplayName("Phát hành hai lần cho cùng một đơn: lần hai không tạo vé nào")
     void phat_hanh_idempotent() {
-        // order.paid có thể đến hai lần: webhook SePay retry, consumer chạy lại, RabbitMQ
+        // order.paid có thể đến hai lần: webhook payOS retry, consumer chạy lại, RabbitMQ
         // giao lại. Cả ba đường đều phải dừng ở tickets.order_item_id UNIQUE.
         var command = issueCommand(3);
 

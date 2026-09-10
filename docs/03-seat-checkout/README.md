@@ -2,7 +2,7 @@
 
 ## Mục tiêu
 
-Chọn ghế realtime, hold TTL, order + VietQR/SePay, phát hành ticket; gate load 10k.
+Chọn ghế realtime, hold TTL, order + thanh toán payOS, phát hành ticket; gate load 10k.
 
 ## Artifacts
 
@@ -11,8 +11,9 @@ Chọn ghế realtime, hold TTL, order + VietQR/SePay, phát hành ticket; gate 
 | Hold/payment windows | [ADR-0015](adr/ADR-0015-hold-and-payment-windows.md) |
 | Hold consistency | [ADR-0004](adr/ADR-0004-seat-hold-consistency.md) |
 | Realtime versioning | [ADR-0010](adr/ADR-0010-realtime-seat-versioning.md) |
-| VietQR/SePay | [ADR-0013](adr/ADR-0013-vietqr-sepay-bank-transfer.md) |
-| SePay webhook | [api/sepay-webhook.md](api/sepay-webhook.md) |
+| Cổng thanh toán payOS | [ADR-0016](adr/ADR-0016-payos-payment-gateway.md) |
+| payOS webhook | [api/payos-webhook.md](api/payos-webhook.md) |
+| ~~VietQR/SePay~~ (superseded) | [ADR-0013](adr/ADR-0013-vietqr-sepay-bank-transfer.md) |
 | Hold/Order API | [api/hold-order.md](api/hold-order.md) |
 | State machines | [state-machines.md](state-machines.md) |
 | Sequences | diagrams/*.mmd |
@@ -35,7 +36,7 @@ Chọn ghế realtime, hold TTL, order + VietQR/SePay, phát hành ticket; gate 
 
 ### Tuần 9
 
-- SePay webhook adapter đầy đủ (duplicate, wrong amount, late).
+- payOS webhook adapter đầy đủ (chữ ký sai, duplicate, wrong amount, late).
 - Issue tickets + My Tickets UI.
 - Notification email PAID.
 

@@ -29,15 +29,17 @@ public class JdbcOrderRepository implements OrderRepository {
         try {
             jdbc.update(
                     """
-                    INSERT INTO orders (id, order_number, event_session_id, organization_id, user_id,
-                                        hold_id, status, subtotal_vnd, discount_vnd, total_vnd,
+                    INSERT INTO orders (id, order_number, event_session_id, event_id, organization_id,
+                                        user_id, hold_id, status, subtotal_vnd, discount_vnd, total_vnd,
                                         commission_bps, commission_vnd, promotion_code,
-                                        payment_reference, vietqr_payload, payment_expires_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        payment_reference, vietqr_payload, checkout_url,
+                                        payment_expires_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     order.id(),
                     order.orderNumber().value(),
                     order.eventSessionId(),
+                    order.eventId(),
                     order.organizationId(),
                     order.userId(),
                     order.holdId(),
@@ -50,6 +52,7 @@ public class JdbcOrderRepository implements OrderRepository {
                     order.promotionCode(),
                     order.paymentReference(),
                     order.vietQrPayload(),
+                    order.checkoutUrl(),
                     Timestamp.from(order.paymentExpiresAt()));
         } catch (DuplicateKeyException e) {
             // uq orders.hold_id — hai request song song cùng một lần giữ chỗ.
@@ -148,9 +151,9 @@ public class JdbcOrderRepository implements OrderRepository {
     private Optional<Order> queryOne(String where, Object arg) {
         List<Order> found = jdbc.query(
                 """
-                SELECT id, order_number, event_session_id, organization_id, user_id, hold_id,
-                       status, promotion_code, payment_reference, vietqr_payload,
-                       payment_expires_at, paid_at
+                SELECT id, order_number, event_session_id, event_id, organization_id, user_id,
+                       hold_id, status, promotion_code, payment_reference, vietqr_payload,
+                       checkout_url, payment_expires_at, paid_at
                   FROM orders
                 """
                         + where,
@@ -161,6 +164,7 @@ public class JdbcOrderRepository implements OrderRepository {
                             id,
                             rs.getString("order_number"),
                             rs.getObject("event_session_id", UUID.class),
+                            rs.getObject("event_id", UUID.class),
                             rs.getObject("organization_id", UUID.class),
                             rs.getObject("user_id", UUID.class),
                             rs.getObject("hold_id", UUID.class),
@@ -170,6 +174,7 @@ public class JdbcOrderRepository implements OrderRepository {
                             OrderStatus.valueOf(rs.getString("status")),
                             rs.getString("payment_reference"),
                             rs.getString("vietqr_payload"),
+                            rs.getString("checkout_url"),
                             paidAt == null ? null : paidAt.toInstant());
                 },
                 arg);

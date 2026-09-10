@@ -89,7 +89,7 @@ public class InventoryHttpAdapter implements InventoryPort {
     }
 
     /** Hình dạng JSON của Inventory — chỉ tồn tại trong lớp này. */
-    record ReserveResponse(UUID orderId, UUID eventSessionId, UUID organizationId, List<SeatDto> seats) {
+    record ReserveResponse(UUID orderId, UUID eventSessionId, UUID eventId, UUID organizationId, List<SeatDto> seats) {
 
         record SeatDto(
                 UUID sessionSeatId,
@@ -104,6 +104,7 @@ public class InventoryHttpAdapter implements InventoryPort {
         Reservation toDomain() {
             return new Reservation(
                     eventSessionId,
+                    eventId,
                     organizationId,
                     seats.stream()
                             .map(s -> new Seat(

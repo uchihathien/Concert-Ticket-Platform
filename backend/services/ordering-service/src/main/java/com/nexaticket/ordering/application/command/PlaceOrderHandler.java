@@ -79,7 +79,8 @@ public class PlaceOrderHandler {
     public record Command(UUID holdId, UUID userId, String promotionCode) {}
 
     /**
-     * @param vietQrPayload chuỗi EMVCo; frontend tự render QR
+     * @param vietQrPayload chuỗi EMVCo payOS sinh; frontend tự render QR
+     * @param checkoutUrl trang thanh toán payOS host — đường chính cho khách, QR là đường phụ
      */
     public record Result(
             UUID orderId,
@@ -87,6 +88,7 @@ public class PlaceOrderHandler {
             long totalVnd,
             String paymentReference,
             String vietQrPayload,
+            String checkoutUrl,
             Instant paymentExpiresAt) {}
 
     public Result handle(Command cmd) {
@@ -152,6 +154,7 @@ public class PlaceOrderHandler {
         Order order = Order.awaitingPayment(
                 orderId,
                 reservation.eventSessionId(),
+                reservation.eventId(),
                 reservation.organizationId(),
                 cmd.userId(),
                 cmd.holdId(),
@@ -173,15 +176,17 @@ public class PlaceOrderHandler {
             compensate(saga, e.toString());
             throw new ApiException(OrderingErrorCode.CHECKOUT_UNAVAILABLE, "Payment unavailable, please retry");
         }
-        order.attachPayment(intent.paymentReference(), intent.vietQrPayload());
+        order.attachPayment(intent.paymentReference(), intent.vietQrPayload(), intent.checkoutUrl());
 
         // ---- Bước 8: ghi đơn + outbox, một transaction ----
         try {
             tx.persistOrder(order, saga);
         } catch (OrderRepository.DuplicateHoldException e) {
-            // Hai request song song cùng holdId cùng chạy hết saga. Request thua cuộc bù trừ
-            // phần của mình rồi trả lại đơn của request thắng — với khách, cả hai lần bấm
-            // đều thành công và chỉ có một đơn.
+            // Lưới cuối, và trong thực tế gần như không chạm tới: hai request song song cùng
+            // holdId thì request thứ hai đã bị Inventory từ chối bằng HOLD_EXPIRED từ trước —
+            // lần giữ chỗ đã sang CONVERTED nên không đặt chỗ lần thứ hai được. Chỉ còn đường
+            // duy nhất tới đây là một đơn cũ cùng holdId xuất hiện giữa chừng. Bù trừ phần của
+            // mình rồi trả lại đơn đang có, để với khách cả hai lần bấm đều thành công.
             log.info("Đơn cho lần giữ chỗ {} đã tồn tại, bù trừ saga {}", cmd.holdId(), orderId);
             compensate(saga, "Đơn trùng cho cùng một lần giữ chỗ");
             return orders.findByHoldId(cmd.holdId())
@@ -260,10 +265,10 @@ public class PlaceOrderHandler {
     }
 
     /**
-     * Trả lại đơn đã có, kèm đúng mã QR khách đang nhìn.
+     * Trả lại đơn đã có, kèm đúng mã QR và link thanh toán khách đang nhìn.
      *
-     * <p>Đọc từ snapshot trong đơn chứ không gọi lại payment-service: mã QR đã hiện cho khách
-     * không được đổi, và việc mở lại trang đơn hàng không nên phụ thuộc payment-service còn sống.
+     * <p>Đọc từ snapshot trong đơn chứ không gọi lại payment-service: mã QR đã hiện cho khách không
+     * được đổi, và việc mở lại trang đơn hàng không nên phụ thuộc payment-service còn sống.
      */
     private Result resultOf(Order order) {
         return new Result(
@@ -272,6 +277,7 @@ public class PlaceOrderHandler {
                 order.total().amountVnd(),
                 order.paymentReference(),
                 order.vietQrPayload(),
+                order.checkoutUrl(),
                 order.paymentExpiresAt());
     }
 

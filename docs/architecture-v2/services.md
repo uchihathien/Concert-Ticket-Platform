@@ -317,7 +317,7 @@ GET  /internal/orders/{id}          # Ledger/Payout tra chứng từ gốc
 | --- | --- |
 | **Aggregate** | `PaymentIntent` (gồm `PaymentAttempt`), `WebhookEvent` |
 | **Database** | `payment_db` |
-| **Ngoài** | SePay (ACL), VietQR (sinh payload nội bộ) |
+| **Ngoài** | payOS (ACL) — tạo/huỷ/tra link thanh toán, nhận webhook đã ký (ADR-0016) |
 | **Quyền quản trị** | **Chỉ `SUPER_ADMIN`** |
 
 VietQR trỏ về **tài khoản ký quỹ của NexaTicket**, cấu hình cấp nền tảng do superadmin quản lý. Tổ chức không cấu hình tài khoản nhận tiền — khái niệm đó không còn tồn tại phía tổ chức.
@@ -337,7 +337,7 @@ PaymentIntent {
 ```
 POST /internal/payment-intents                    # Ordering gọi
 GET  /v1/orders/{orderId}/payment                  # khách poll trạng thái đơn của mình
-POST /api/billing/bank/webhook/sepay               # SePay — ngoài /v1, không auth người dùng
+POST /api/billing/bank/webhook/payos               # payOS — ngoài /v1, xác thực bằng chữ ký HMAC
 
 # SUPER_ADMIN
 GET  /v1/platform/escrow-accounts                  # + POST|PATCH
@@ -352,12 +352,12 @@ Khi `CONFIRMED`, payment-service **không** tự phát hành vé — nó chỉ p
 ### Anti-Corruption Layer
 
 ```
-infrastructure/sepay/SePayWebhookPayload.java      ← hình dạng của SePay
-infrastructure/sepay/SePayPayloadTranslator.java   ← dịch sang domain
+infrastructure/payos/PayosHttpGateway.java         ← hình dạng JSON của payOS, dịch sang domain
+infrastructure/payos/PayosSignature.java           ← HMAC-SHA256: ký request, kiểm webhook
 domain/BankTransferReceived.java                   ← ngôn ngữ của ta
 ```
 
-Không một trường nào tên theo SePay được phép đi quá `SePayPayloadTranslator`. Đổi nhà cung cấp = viết translator mới, domain không đổi một dòng.
+Không một trường nào tên theo payOS được phép đi quá `infrastructure/payos`. `PayosGateway` là port ở domain và nó nói bằng từ vựng của ta — không có `code`, `desc`, `signature` nào lọt vào. Đổi nhà cung cấp = viết adapter mới, domain không đổi một dòng.
 
 ### Event phát ra
 `PaymentIntentCreated`, `PaymentConfirmed`, `PaymentRejected`, `PaymentUnmatched`, `PaymentManualReviewOpened`, `PaymentResolved`

@@ -45,6 +45,7 @@ public class OrderController {
     public record PlaceOrderRequest(@NotNull UUID holdId, String promotionCode) {}
 
     /**
+     * @param checkoutUrl trang thanh toán payOS host — đường chính cho khách (ADR-0016)
      * @param vietQrPayload chuỗi EMVCo — frontend tự render thành QR, nhẹ hơn trả ảnh và không
      *     phụ thuộc dịch vụ ngoài
      */
@@ -54,6 +55,7 @@ public class OrderController {
             long totalVnd,
             String paymentReference,
             String vietQrPayload,
+            String checkoutUrl,
             Instant paymentExpiresAt) {}
 
     @PostMapping("/orders")
@@ -68,6 +70,7 @@ public class OrderController {
                 result.totalVnd(),
                 result.paymentReference(),
                 result.vietQrPayload(),
+                result.checkoutUrl(),
                 result.paymentExpiresAt());
     }
 

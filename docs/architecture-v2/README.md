@@ -76,7 +76,7 @@ flowchart TB
   end
   GW --> finance
 
-  SEPAY[SePay] -->|webhook| PAY
+  PAYOS[payOS] -->|webhook| PAY
   PAY -->|VietQR TK ký quỹ| BANK[(Tài khoản ký quỹ<br/>NexaTicket)]
   PO -->|chi trả theo kỳ| ORGBANK[(TK ngân hàng<br/>tổ chức)]
 
@@ -211,7 +211,7 @@ Tài liệu này **thiết kế đầy đủ 11 service**. Chọn A hay B chỉ 
 | G0 Nền | 1–4 | K8s/compose, RabbitMQ (quorum queue, DLX, delayed exchange), gateway, identity + Keycloak, **superadmin tạo tổ chức**, tenant guard, OTel xuyên service |
 | G1 Catalog | 5–9 | catalog-service: **địa điểm dùng chung + riêng, zone cố định/linh hoạt, ngồi/đứng** ([venue-seating-model](venue-seating-model.md)), thiết kế chỗ ngồi theo sự kiện, cảnh báo trùng lịch, hạng vé; mời nhân viên + mã truy cập soát vé; publish qua saga |
 | G2 Inventory | 9–12 | inventory-service + realtime-gateway, hold Redis Lua, WS fan-out, load test sớm |
-| G3 Checkout | 13–16 | ordering-service, checkout saga, payment-service + VietQR (**TK ký quỹ**), SePay ACL |
+| G3 Checkout | 13–16 | ordering-service, checkout saga, payment-service + payOS ACL (ADR-0016) |
 | G4 **Sổ cái** | 17–20 | ledger-service, chart of accounts, ghi sổ tự động, đối soát ngân hàng hằng ngày |
 | G5 Chi trả | 21–23 | payout-service (chỉ superadmin), hold period, dự phòng, lô chi trả bốn mắt, bảng kê thanh toán |
 | G6 Vận hành | 24–27 | ticketing + check-in, báo cáo `sales-summary` cho tổ chức, refund, runbook, drill |

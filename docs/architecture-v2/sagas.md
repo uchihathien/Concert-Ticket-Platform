@@ -83,7 +83,7 @@ Khách đã rời đi. Không ai đang chờ. Ở đây eventual consistency là
 ```mermaid
 sequenceDiagram
   autonumber
-  participant SP as SePay
+  participant SP as payOS
   participant PAY as payment-service
   participant MQ as RabbitMQ
   participant ORD as ordering-service
@@ -293,7 +293,7 @@ RabbitMQ bảo đảm at-least-once (kết hợp publisher confirms + manual ack
 
 ### Truyền ngữ cảnh
 
-`correlationId` và `causationId` đi trong AMQP message headers và HTTP headers, được OTel truyền tự động. Một sự cố tra được từ webhook SePay tới email gửi cho khách bằng một `correlationId`.
+`correlationId` và `causationId` đi trong AMQP message headers và HTTP headers, được OTel truyền tự động. Một sự cố tra được từ webhook payOS tới email gửi cho khách bằng một `correlationId`.
 
 ---
 

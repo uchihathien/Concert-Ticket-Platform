@@ -16,12 +16,24 @@ import java.util.UUID;
 public record OrderView(
         UUID id,
         String orderNumber,
+        /**
+         * Suất diễn của đơn.
+         *
+         * <p>Thiếu trường này, client không có cách nào biết đơn thuộc sự kiện nào. Trang thanh
+         * toán từng phải hiện "Đơn NT-… · Khán đài A · ghế 20" mà không nói được khách đang trả
+         * 1.800.000đ cho sự kiện gì — và trang đơn hàng phải bắc cầu qua ví vé, cách chỉ chạy được
+         * với đơn ĐÃ thanh toán (đơn chưa trả tiền thì chưa có vé nào).
+         */
+        UUID eventSessionId,
+        /** Sự kiện của suất. Null với đơn tạo trước migration V0102. */
+        UUID eventId,
         String status,
         long subtotalVnd,
         long discountVnd,
         long totalVnd,
         String paymentReference,
         String vietQrPayload,
+        String checkoutUrl,
         Instant paymentExpiresAt,
         Instant paidAt,
         List<Item> items) {
@@ -39,12 +51,15 @@ public record OrderView(
         return new OrderView(
                 order.id(),
                 order.orderNumber().value(),
+                order.eventSessionId(),
+                order.eventId(),
                 order.status().name(),
                 order.subtotal().amountVnd(),
                 order.discount().amountVnd(),
                 order.total().amountVnd(),
                 order.paymentReference(),
                 order.vietQrPayload(),
+                order.checkoutUrl(),
                 order.paymentExpiresAt(),
                 order.paidAt(),
                 order.items().stream()

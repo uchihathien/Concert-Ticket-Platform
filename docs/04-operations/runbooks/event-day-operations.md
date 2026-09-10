@@ -2,7 +2,7 @@
 
 ## Trước giờ mở cửa (−2h)
 
-1. Health check API, WS, DB, Redis; xác nhận SePay không trong maintenance.
+1. Health check API, WS, DB, Redis; xác nhận payOS không trong maintenance và URL webhook còn đăng ký.
 2. Xác nhận scanner có mạng và login role `CHECKIN_STAFF`.
 3. Smoke: quét 1 vé test `VALID` → `CHECKED_IN`; vé test khác rescan → `ALREADY_CHECKED_IN`.
 4. Dashboard mở: check-in rate, rejection spike alert.

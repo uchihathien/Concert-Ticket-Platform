@@ -76,8 +76,14 @@ class CheckoutSagaIT extends OrderingTestBase {
         assertThat(result.totalVnd()).isEqualTo(3_000_000);
         assertThat(result.paymentReference()).startsWith("NT");
         assertThat(result.vietQrPayload()).isNotBlank();
+        // Đường chính để khách trả tiền (ADR-0016). Thiếu nó thì màn hình thanh toán chỉ còn mã QR, và
+        // phần lớn khách không đi tiếp được — một lỗi im lặng ở đúng bước cuối của luồng mua vé.
+        assertThat(result.checkoutUrl()).startsWith("https://pay.payos.vn/");
 
         var order = orders.findById(result.orderId()).orElseThrow();
+        // Đọc lại từ database, không chỉ từ Result: cột checkout_url của V0101 phải thật sự được ghi và
+        // đọc lại được. Một tên cột sai chỉ đổ ở runtime.
+        assertThat(order.checkoutUrl()).isEqualTo(result.checkoutUrl());
         assertThat(order.items()).hasSize(2);
         assertThat(order.commission().amountVnd()).isEqualTo(150_000);
         assertThat(sagas.findByOrderId(result.orderId()).orElseThrow().status()).isEqualTo(SagaStatus.COMPLETED);
@@ -183,6 +189,10 @@ class CheckoutSagaIT extends OrderingTestBase {
 
         assertThat(second.orderId()).isEqualTo(first.orderId());
         assertThat(second.vietQrPayload()).isEqualTo(first.vietQrPayload());
+        // Link payOS cũng phải là link CŨ, không phải link mới. Với payOS mỗi link có một tài khoản ảo
+        // riêng, nên sinh lại không chỉ đổi URL mà đổi cả tài khoản nhận tiền — và tiền đã chuyển vào
+        // tài khoản cũ sẽ không khớp đơn nào.
+        assertThat(second.checkoutUrl()).isEqualTo(first.checkoutUrl());
         // Lần thứ hai không được gọi lại Inventory: nó sẽ đặt chỗ thêm một lần nữa.
         assertThat(inventory.reserveCalls.get()).isEqualTo(1);
     }

@@ -45,15 +45,21 @@ spring:
             # `/v1/me/tickets` và `/v1/me/orders` đều rơi vào identity. Triệu chứng là 500 từ một
             # service không liên quan, và người ta đi soi ordering-service đang chạy hoàn toàn tốt.
             #
-            # Bốn cặp chồng lấn hiện có, hẹp trước rộng sau:
-            #   /v1/organizations/*/events/**  <  /v1/organizations/**   (catalog trước identity)
-            #   /v1/me/tickets, /v1/me/orders  <  /v1/me/**              (ticketing, ordering trước identity)
-            #   /v1/orders/*/tickets           <  /v1/orders/**          (ticketing trước ordering)
-            #   /v1/sessions/*/checkins        <  /v1/sessions/**        (ticketing trước inventory)
+            # Năm cặp chồng lấn hiện có, hẹp trước rộng sau:
+            #   /v1/organizations/*/events/**       <  /v1/organizations/**            (catalog trước identity)
+            #   /v1/organizations/*/concert-templates/**, /v1/organizations/*/dashboard  <  cùng mẫu trên
+            #   /v1/me/tickets, /v1/me/orders       <  /v1/me/**                       (ticketing, ordering trước identity)
+            #   /v1/orders/*/tickets                <  /v1/orders/**                   (ticketing trước ordering)
+            #   /v1/sessions/*/checkins             <  /v1/sessions/**                 (ticketing trước inventory)
+            #   /v1/platform/organizations/*/balance <  /v1/platform/organizations/**  (ledger trước identity)
+            # `/v1/platform/concert-templates/**` KHÔNG chồng với `/v1/platform/organizations/**`
+            # của identity, nên thứ tự giữa hai cái đó không quan trọng. Nhưng nó vẫn phải có mặt:
+            # thiếu route thì khu vực khung concert của Tổng công ty nhận 404 của chính gateway, và
+            # người ta sẽ đi soi catalog-service đang chạy hoàn toàn tốt.
             - id: catalog
               uri: ${CATALOG_URL:http://localhost:8091}
               predicates:
-                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**
+                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**,/v1/organizations/*/concert-templates/**,/v1/organizations/*/dashboard,/v1/platform/concert-templates/**
             - id: ticketing
               uri: ${TICKETING_URL:http://localhost:8097}
               predicates:
@@ -66,11 +72,38 @@ spring:
               uri: ${INVENTORY_URL:http://localhost:8092}
               predicates:
                 - Path=/v1/sessions/**,/v1/holds/**
+            # Doanh thu của ban tổ chức. `/v1/admin/**` không chồng với mẫu nào khác, nhưng trước
+            # đây KHÔNG CÓ route nào — nên trang Doanh thu nhận 404 của chính gateway, và không ai
+            # đi tìm ở đúng chỗ.
+            - id: analytics
+              uri: ${ANALYTICS_URL:http://localhost:8099}
+              predicates:
+                - Path=/v1/admin/**
+            # Sổ cái: HẸP hơn `/v1/platform/organizations/**` của identity nên phải đứng TRƯỚC.
+            # Đảo thứ tự thì `/v1/platform/organizations/{id}/balance` rơi vào identity và trả 404
+            # của một service không liên quan.
+            - id: ledger
+              uri: ${LEDGER_URL:http://localhost:8094}
+              predicates:
+                - Path=/v1/platform/trial-balance,/v1/platform/organizations/*/balance
+            # Webhook payOS. Đây là đường DUY NHẤT từ internet vào payment-service, và không có nó
+            # thì mọi khoản tiền phải xác nhận tay bằng lệnh reconcile.
+            #
+            # `GatewaySecurityConfig` đã mở sẵn đường này (payOS không có JWT của ta); lớp xác thực
+            # là chữ ký HMAC-SHA256 kiểm trong chính endpoint đó. Bộ giới hạn tần suất mặc định vẫn
+            # áp — payOS gọi từ vài IP với lưu lượng thấp, nên ngưỡng 50 rps là dư.
+            - id: payment-webhook
+              uri: ${PAYMENT_URL:http://localhost:8095}
+              predicates:
+                - Path=/api/billing/bank/webhook/**
             # Rộng nhất, nên đứng cuối: `/v1/organizations/**` và `/v1/me/**` bao trùm mọi mẫu trên.
+            # `/v1/roles`, `/v1/platform/users/**` và `/v1/platform/audit-logs` KHÔNG khớp mẫu nào
+            # ở trên, nên thiếu chúng ở đây là 404 của chính gateway — và người ta sẽ đi soi
+            # identity-service đang chạy hoàn toàn tốt. Đúng vết xe của route analytics trước đây.
             - id: identity
               uri: ${IDENTITY_URL:http://localhost:8090}
               predicates:
-                - Path=/v1/platform/organizations/**,/v1/organizations/**,/v1/me,/v1/me/**,/v1/invitations/**
+                - Path=/v1/platform/organizations/**,/v1/platform/users/**,/v1/platform/audit-logs,/v1/organizations/**,/v1/roles,/v1/me,/v1/me/**,/v1/invitations/**
             # Các service khác thêm vào đây khi tới giai đoạn của chúng (G1+).
             # /internal/** CỐ Ý không có route: Open Host Service chỉ gọi được trong mạng nội bộ.
             # Riêng với inventory điều đó là bắt buộc: /internal/reservations đổi trạng thái tồn kho

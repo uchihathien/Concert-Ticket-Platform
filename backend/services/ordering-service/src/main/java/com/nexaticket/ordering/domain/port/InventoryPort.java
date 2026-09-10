@@ -21,8 +21,14 @@ public interface InventoryPort {
     /** Bù trừ: nhả chỗ. Phải idempotent — job quét có thể gọi lại nhiều lần. */
     void cancelReservation(UUID orderId);
 
-    /** Chi tiết chỗ đã đặt, đủ để dựng dòng đơn hàng mà không cần gọi thêm lần nữa. */
-    record Reservation(UUID eventSessionId, UUID organizationId, List<Seat> seats) {}
+    /**
+     * Chi tiết chỗ đã đặt, đủ để dựng dòng đơn hàng mà không cần gọi thêm lần nữa.
+     *
+     * @param eventId sự kiện của suất diễn. Ordering không dùng, nhưng nó phải đi kèm mọi sự kiện
+     *     {@code order.*} để read model doanh thu ghi được — và Inventory là chỗ duy nhất trên
+     *     đường checkout đã sẵn có giá trị này.
+     */
+    record Reservation(UUID eventSessionId, UUID eventId, UUID organizationId, List<Seat> seats) {}
 
     record Seat(
             UUID sessionSeatId,

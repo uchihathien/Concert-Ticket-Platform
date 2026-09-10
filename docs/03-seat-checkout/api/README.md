@@ -1,11 +1,12 @@
 # API contracts index
 
-HTTP APIs phiên bản `/v1` trừ webhook SePay external.
+HTTP APIs phiên bản `/v1` trừ webhook payOS external.
 
 | Contract | Mục đích |
 | --- | --- |
 | [hold-order.md](hold-order.md) | Seats, holds, orders, WS, tickets |
-| [sepay-webhook.md](sepay-webhook.md) | Xác nhận bank transfer |
+| [payos-webhook.md](payos-webhook.md) | Xác nhận thanh toán payOS (ADR-0016) |
 | [../../02-catalog-admin/api.md](../../02-catalog-admin/api.md) | Catalog & admin |
 
-Mutation yêu cầu `Idempotency-Key`. Webhook dedupe theo `sepay_transaction_id`.
+Mutation yêu cầu `Idempotency-Key`. Webhook dedupe theo `provider` + mã giao dịch ngân hàng
+(`data.reference` của payOS), chốt bằng unique index `uq_provider_txn`.

@@ -17,7 +17,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * Nhận lại hoặc sinh {@code X-Correlation-Id} ở biên HTTP, đặt vào {@link CorrelationContext} và
  * MDC.
  *
- * <p>Một sự cố phải tra được từ webhook SePay tới email gửi cho khách bằng một mã duy nhất, xuyên
+ * <p>Một sự cố phải tra được từ webhook payOS tới email gửi cho khách bằng một mã duy nhất, xuyên
  * qua HTTP nội bộ và AMQP header.
  *
  * <p>Chỗ <b>giữ</b> mã nằm ở shared-kernel, không nằm trong lớp này — outbox và audit cũng cần đọc
