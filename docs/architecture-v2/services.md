@@ -1,6 +1,6 @@
 # Danh mục service
 
-11 service nghiệp vụ + 1 gateway. Mỗi service = 1 bounded context = 1 database = 1 pipeline.
+12 service nghiệp vụ + 1 gateway. Mỗi service = 1 bounded context = 1 database = 1 pipeline.
 
 Quy ước chung:
 - Stack: Java 21, Spring Boot 3.5, PostgreSQL riêng, Flyway riêng.
@@ -506,6 +506,19 @@ Consumer thuần → `analytics_db` theo taxonomy `05-ai-scale/event-taxonomy.md
 
 ---
 
+## 13. ai-chatbox-service
+
+Trợ lý AI cho khách hàng — `ai_chatbox_db` (PostgreSQL + **pgvector**). Hai nguồn thông tin, hai cơ chế:
+
+- **Tri thức chung** (giá vé, quy định, sơ đồ chỗ): RAG. Kho tri thức là dữ liệu của chính context này, do đội vận hành soạn và nhúng vào `event_knowledge_embeddings`. Không đọc `catalog_db`.
+- **Thông tin cá nhân** (trạng thái đơn, vé): tool call sang ordering-service.
+
+**Tool call đi bằng access token của chính khách, không phải `X-Internal-Token`.** `/internal/orders/{id}` là Open Host Service cho ledger và payout: nó **không kiểm chủ sở hữu** và bản trả về có hoa hồng nền tảng. Agent gọi nó bằng bí mật nội bộ thì mọi mã đơn đều tra được — khách chỉ cần đọc lên một UUID không phải của mình, và mô hình, vốn không có cách nào biết ai sở hữu đơn nào, sẽ trả lời. Đi bằng token của khách thì ordering-service quyết định quyền, đúng chỗ nó vẫn quyết định cho mọi client khác. Mô hình không bao giờ được giao việc phân quyền.
+
+Vòng ReAct nằm ở tầng application, không ở adapter LLM: số vòng tối đa, tool nào được phép, hỏng thì nói gì với khách — đều là quyết định nghiệp vụ. Trần vòng lặp là chốt chặn **chi phí**, vì mỗi vòng là một lần gọi API có tính tiền.
+
+---
+
 ## Bảng tổng hợp
 
 | Service | Loại | DB | Ai truy cập | Ưu tiên |
@@ -522,5 +535,6 @@ Consumer thuần → `analytics_db` theo taxonomy `05-ai-scale/event-taxonomy.md
 | ticketing | Supporting | `ticketing_db` | khách + staff org | Cao |
 | notification | Generic | `notification_db` | — | Thấp |
 | analytics | Generic | `analytics_db` | — | Thấp |
+| ai-chatbox | Generic | `ai_chatbox_db` | khách | Thấp |
 
 Ba service `payment`, `ledger`, `payout` gộp thành deployable `finance`, tách mạng và tách quyền khỏi phần còn lại. Đây là ranh giới bảo mật quan trọng nhất của hệ thống.

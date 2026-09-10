@@ -25,6 +25,7 @@
     <spring-cloud.version>2025.0.0</spring-cloud.version>
     <!-- Testcontainers do spring-boot-dependencies quan ly (BOM khai truoc thi thang).
          Khong khai lai o day: se tao ao giac dieu khien duoc phien ban. -->
+    <anthropic.version>2.34.0</anthropic.version>
     <archunit.version>1.3.0</archunit.version>
     <assertj.version>3.27.2</assertj.version>
     <spotless.version>2.44.2</spotless.version>
@@ -91,6 +92,12 @@
         <artifactId>starter-test</artifactId>
         <version>${project.version}</version>
         <scope>test</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>com.anthropic</groupId>
+        <artifactId>anthropic-java</artifactId>
+        <version>${anthropic.version}</version>
       </dependency>
 
       <dependency>

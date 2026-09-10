@@ -1,0 +1,83 @@
+spring:
+  application:
+    name: ai-chatbox-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ai_chatbox_db}
+    username: ${DB_USER:ai_chatbox}
+    password: ${DB_PASSWORD:ai_chatbox}
+    hikari:
+      # 10 như mọi service khác: mười ba service dùng chung một cụm PostgreSQL cho 100 kết nối
+      # (ADR-1002). Xem ghi chú dài ở analytics-service.
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      pool-name: ai-chatbox-pool
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/platform,classpath:db/migration/aichatbox
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+
+server:
+  port: ${PORT:8101}
+  shutdown: graceful
+
+nexaticket:
+  aichatbox:
+    agent:
+      # Mô hình mặc định. Đổi model là đổi cả hành vi lẫn giá — nên nó nằm ở cấu hình, không nằm
+      # trong mã nguồn.
+      model: ${AGENT_MODEL:claude-opus-5}
+      # Trần số vòng ReAct. Chốt chặn chi phí: mỗi vòng là một lần gọi API có tính tiền.
+      max-tool-iterations: ${AGENT_MAX_TOOL_ITERATIONS:4}
+      history-turns: ${AGENT_HISTORY_TURNS:10}
+      retrieval-top-k: ${AGENT_RETRIEVAL_TOP_K:5}
+      # Ngưỡng khoảng cách cosine. pgvector luôn trả đủ top-k kể cả khi không có gì liên quan;
+      # không cắt thì đoạn lạc đề đi thẳng vào prompt.
+      max-retrieval-distance: ${AGENT_MAX_RETRIEVAL_DISTANCE:0.55}
+    anthropic:
+      # KHÔNG có mặc định. Thiếu khoá thì service từ chối khởi động, và đó là điều đúng: một agent
+      # không gọi được mô hình chỉ trả 503 cho mọi request.
+      api-key: ${ANTHROPIC_API_KEY:}
+      max-tokens: ${ANTHROPIC_MAX_TOKENS:8000}
+      # low | medium | high | xhigh | max. Chat hỗ trợ thường đủ ở mức thấp; mỗi nấc cao hơn là
+      # thêm token suy luận phải trả tiền cho từng câu hỏi.
+      effort: ${ANTHROPIC_EFFORT:medium}
+      # Mặc định của SDK là 10 phút — quá dài cho người đang nhìn màn hình chat, và đủ để một sự
+      # cố phía nhà cung cấp chiếm hết luồng của Tomcat.
+      timeout: ${ANTHROPIC_TIMEOUT:60s}
+    embedding:
+      # Claude không có endpoint nhúng. Voyage là nhà cung cấp Anthropic khuyến nghị đi kèm.
+      api-key: ${VOYAGE_API_KEY:}
+      model: ${EMBEDDING_MODEL:voyage-3.5}
+      # PHẢI khớp vector(n) trong V0100. Đổi mô hình ⇒ đổi cột ⇒ nhúng lại toàn bộ kho tri thức.
+      dimensions: ${EMBEDDING_DIMENSIONS:1024}
+      timeout: ${EMBEDDING_TIMEOUT:10s}
+    services:
+      ordering-url: ${ORDERING_URL:http://localhost:8093}
+      # Ngắn hơn hạn của mô hình: lời gọi này nằm bên trong một lượt chat mà khách đang chờ.
+      timeout: ${AICHATBOX_REMOTE_TIMEOUT:3s}
+
+management:
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${OTEL_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"

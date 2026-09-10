@@ -20,7 +20,7 @@ need() {
   [ -n "$v" ] || { echo "THIEU bien moi truong $1" >&2; exit 1; }
 }
 
-for s in IDENTITY CATALOG INVENTORY ORDERING PAYMENT LEDGER_OWNER LEDGER_APP PAYOUT TICKETING NOTIFICATION ANALYTICS KEYCLOAK; do
+for s in IDENTITY CATALOG INVENTORY ORDERING PAYMENT LEDGER_OWNER LEDGER_APP PAYOUT TICKETING NOTIFICATION ANALYTICS AI_CHATBOX KEYCLOAK; do
   need "DB_PASSWORD_$s"
 done
 
@@ -55,6 +55,13 @@ create payout       PAYOUT
 create ticketing    TICKETING
 create notification NOTIFICATION
 create analytics    ANALYTICS
+create ai_chatbox   AI_CHATBOX
+
+# pgvector cho ai_chatbox_db. Chạy bằng superuser vì extension này không "trusted" — chủ database
+# tự tạo không được. Ảnh postgres phải là bản có pgvector; xem deploy/compose/prod.yml.
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname ai_chatbox_db <<SQL
+CREATE EXTENSION IF NOT EXISTS vector;
+SQL
 
 # Keycloak giữ realm, user và session trong Postgres ở production.
 #

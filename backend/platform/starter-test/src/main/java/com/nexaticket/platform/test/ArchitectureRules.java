@@ -36,7 +36,8 @@ public final class ArchitectureRules {
             "payout",
             "ticketing",
             "notification",
-            "analytics");
+            "analytics",
+            "aichatbox");
 
     private ArchitectureRules() {}
 

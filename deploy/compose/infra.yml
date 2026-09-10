@@ -4,7 +4,16 @@ name: nexaticket-infra
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector, KHÔNG phải postgres:16-alpine.
+    #
+    # ai-chatbox-service lưu vector nhúng và tìm láng giềng gần nhất bằng pgvector. Extension đó
+    # không có sẵn trong ảnh chính thức, và `CREATE EXTENSION vector` khi đó chết với "could not
+    # open extension control file" — một thông báo trỏ vào filesystem trong khi nguyên nhân là
+    # chọn sai ảnh. Ảnh này là postgres upstream cộng đúng extension đó.
+    #
+    # ĐÃ CHẠY TỪ TRƯỚC thì đổi dòng này KHÔNG đủ: volume pgdata giữ nguyên dữ liệu cũ và initdb
+    # không chạy lại. Xem ghi chú cuối initdb/01-databases.sql.
+    image: pgvector/pgvector:pg16
     # Mặc định của Postgres là 100 kết nối. Ở MVP, mười một service dùng chung cụm này (ADR-1002),
     # nên 100 không đủ cho cả hệ thống chạy cùng lúc — service khởi động sau chết với
     # "remaining connection slots are reserved for roles with the SUPERUSER attribute", một thông
