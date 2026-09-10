@@ -66,6 +66,30 @@ Luật cứng:
 3. RSC / Server Action đọc token từ session phía server.
 4. Role lấy từ session, không từ payload client gửi.
 
+### Hai bản auth trong mỗi app: `auth.ts` (Node) và `auth.edge.ts` (Edge)
+
+`middleware.ts` của Next.js chạy trong **Edge runtime** — một realm JavaScript riêng, không có
+`net`, `tls`, `node:diagnostics_channel`. Store phiên thì dựa trên `ioredis`, vốn cần cả ba.
+
+Chỉ cần middleware **import** file có store là webpack kéo `ioredis` vào bundle Edge và
+`next build` hỏng với `UnhandledSchemeError: Reading from "node:diagnostics_channel"` — thông báo
+không nói gì về nguyên nhân thật, và hỏng lúc **build** nên không có gì để mà gỡ.
+
+| File | Runtime | Có store? | Ai import |
+| --- | --- | --- | --- |
+| `src/auth.edge.ts` | Edge | Không — chạm vào thì ném lỗi | `middleware.ts` |
+| `src/auth.ts` | Node | Có (`RedisRefreshTokenStore`) | route handler, server component |
+
+Tuỳ chọn dùng chung (`app`, `signInPage`) khai **một lần** trong `auth.edge.ts` và `auth.ts` import
+lại. Tên app quyết định tên cookie phiên; khai hai chỗ rồi lệch nhau thì middleware đi tìm một
+cookie không tồn tại, và người dùng đăng nhập xong lại bị đá về trang đăng nhập.
+
+Bỏ store khỏi bản Edge **không phải là né tránh**: middleware chỉ trả lời "có phiên hay không", và
+câu đó nằm trong cookie. Callback `jwt` vốn đã cố ý không chạm store ở các request sau, vì store
+in-memory ở realm Edge luôn rỗng — hỏi nó thì middleware giết một phiên hoàn toàn khoẻ mạnh ngay ở
+lần điều hướng đầu tiên.
+
+
 Bốn client Keycloak riêng: `web-customer`, `web-admin`, `web-platform`, `web-scanner`. MFA ép ở phía Keycloak cho `web-admin` (role `ORG_ADMIN`+) và `web-platform` (`SUPER_ADMIN`) — không ép ở app.
 
 **Scanner có đường đăng nhập thứ hai:** mã truy cập theo suất diễn ([ADR-1008](../adr/ADR-1008-scanner-access-codes.md)). Nhân viên nhập mã 8 ký tự → nhận token phạm vi hẹp, lưu `sessionStorage`, hết hạn theo giờ sự kiện. Đường này **không** qua Keycloak.

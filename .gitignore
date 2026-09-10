@@ -32,3 +32,7 @@ logs/
 # Frontend có repo riêng: github.com/uchihathien/Concert-Ticket-Frontend
 # Giữ ở đây để chạy local, nhưng KHÔNG version ở repo này (tránh hai lịch sử phân kỳ).
 /frontend/
+
+# Bản sao lưu database. Chúng chứa dữ liệu người dùng thật và mỗi file hàng chục MB — không có
+# thứ gì trong đó thuộc về lịch sử mã nguồn.
+/deploy/compose/backups/
