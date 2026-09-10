@@ -6,6 +6,18 @@ spring:
     port: ${RABBITMQ_PORT:5672}
     username: ${RABBITMQ_USER:nexaticket}
     password: ${RABBITMQ_PASSWORD:nexaticket}
+    listener:
+      simple:
+        # Message không đọc được thì VỨT, không giao lại.
+        #
+        # Mặc định là requeue, và với queue này nó thành một vòng lặp kín: message hỏng quay lại đầu
+        # hàng đợi, lỗi lại, quay lại — suốt TTL 30 giây của nó. Một message sai định dạng đã sinh ra
+        # 281.631 dòng lỗi ở môi trường dev và đốt CPU của cả instance.
+        #
+        # Vứt là đúng với chính triết lý của queue này (xem AvailabilityTopology): dữ liệu khả dụng
+        # ghế cũ vô giá trị, client thấy version nhảy sẽ tự fetch lại. Không có DLX vì queue là tạm
+        # và tự xoá theo instance.
+        default-requeue-rejected: false
   security:
     oauth2:
       resourceserver:
