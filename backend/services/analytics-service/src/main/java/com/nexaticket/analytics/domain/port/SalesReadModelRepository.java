@@ -24,6 +24,15 @@ public interface SalesReadModelRepository {
     List<SessionSales> byOrganization(UUID organizationId);
 
     /**
+     * Số liệu của mọi suất thuộc một sự kiện.
+     *
+     * <p>Có index riêng ({@code idx_sales_event}) chứ không lọc trong bộ nhớ từ
+     * {@link #byOrganization}: một tổ chức lớn có hàng trăm suất, và màn hình master data chỉ cần
+     * vài suất của một sự kiện.
+     */
+    List<SessionSales> byEvent(UUID eventId);
+
+    /**
      * Số liệu bán hàng của một suất diễn, <b>như tổ chức được phép thấy</b>.
      *
      * <p>Không có hoa hồng, không có số dư, không có lịch chi trả (ADR-1010).

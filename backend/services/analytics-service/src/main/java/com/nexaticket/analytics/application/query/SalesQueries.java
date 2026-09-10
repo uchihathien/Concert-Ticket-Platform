@@ -40,6 +40,27 @@ public class SalesQueries {
     public record OrganizationSummary(
             UUID organizationId, int totalTicketsSold, long totalGrossVnd, List<SessionSalesView> sessions) {}
 
+    /**
+     * Số liệu theo từng suất của một sự kiện.
+     *
+     * <p>Không có tổng cộng dồn ở đây, khác {@link #forOrganization}: người gọi duy nhất là bảng
+     * điều khiển của catalog, và nó cộng lại theo cách riêng của nó — cộng sẵn ở đây là một tổng
+     * không ai dùng, và một tổng không ai dùng là một tổng không ai phát hiện ra khi nó sai.
+     */
+    @Transactional(readOnly = true)
+    public List<SessionSalesView> forEvent(UUID eventId) {
+        return readModel.byEvent(eventId).stream()
+                .map(row -> new SessionSalesView(
+                        row.eventSessionId(),
+                        row.eventId(),
+                        row.ticketsSold(),
+                        row.grossVnd(),
+                        row.ordersPaid(),
+                        row.ordersExpired(),
+                        row.ordersCancelled()))
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public OrganizationSummary forOrganization(UUID organizationId) {
         List<SessionSalesView> sessions = readModel.byOrganization(organizationId).stream()

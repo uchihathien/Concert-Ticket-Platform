@@ -77,6 +77,14 @@ public class JdbcSalesReadModelRepository implements SalesReadModelRepository {
                 organizationId);
     }
 
+    @Override
+    public List<SessionSales> byEvent(UUID eventId) {
+        return jdbc.query(
+                "SELECT " + COLUMNS + " FROM session_sales WHERE event_id = ? ORDER BY updated_at DESC",
+                JdbcSalesReadModelRepository::map,
+                eventId);
+    }
+
     private static final String COLUMNS =
             """
             event_session_id, event_id, organization_id, tickets_sold, gross_vnd,

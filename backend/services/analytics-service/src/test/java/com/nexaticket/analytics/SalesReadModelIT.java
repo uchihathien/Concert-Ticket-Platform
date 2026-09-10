@@ -145,6 +145,40 @@ class SalesReadModelIT {
         assertThat(commissionColumns).isZero();
     }
 
+    @Test
+    @DisplayName("Đọc theo sự kiện: gom mọi suất của nó, và chỉ của nó")
+    void doc_theo_su_kien() {
+        // Đường đọc của bảng điều khiển tổ chức bên catalog. Lọc theo event_id chứ không lọc trong
+        // bộ nhớ từ danh sách của cả tổ chức: một tổ chức lớn có hàng trăm suất, còn màn hình
+        // master data chỉ cần vài suất của một sự kiện.
+        apply.handle(UUID.randomUUID(), "order.paid", paid(2, 3_000_000L));
+
+        UUID suatKhac = UUID.randomUUID();
+        apply.handle(
+                UUID.randomUUID(),
+                "order.paid",
+                SalesDelta.orderPaid(suatKhac, eventId, organizationId, 1, 1_000_000L));
+
+        // Suất của một sự kiện KHÁC, cùng tổ chức — không được lọt vào.
+        apply.handle(
+                UUID.randomUUID(),
+                "order.paid",
+                SalesDelta.orderPaid(UUID.randomUUID(), UUID.randomUUID(), organizationId, 9, 9_000_000L));
+
+        var rows = queries.forEvent(eventId);
+
+        assertThat(rows).hasSize(2);
+        assertThat(rows.stream()
+                        .mapToInt(SalesQueries.SessionSalesView::ticketsSold)
+                        .sum())
+                .isEqualTo(3);
+        assertThat(rows.stream()
+                        .mapToLong(SalesQueries.SessionSalesView::grossVnd)
+                        .sum())
+                .isEqualTo(4_000_000L);
+        assertThat(rows).allMatch(row -> row.eventId().equals(eventId));
+    }
+
     private SalesDelta paid(int tickets, long grossVnd) {
         return SalesDelta.orderPaid(sessionId, eventId, organizationId, tickets, grossVnd);
     }

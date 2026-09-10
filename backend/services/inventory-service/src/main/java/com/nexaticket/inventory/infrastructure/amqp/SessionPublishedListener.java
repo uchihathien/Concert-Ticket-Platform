@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.inventory.application.command.MaterializeSessionHandler;
 import com.nexaticket.inventory.domain.port.SessionMaterializer;
+import com.nexaticket.inventory.infrastructure.seed.DemoOccupancy;
 import com.nexaticket.platform.idempotency.ConsumedEvent;
 import com.nexaticket.platform.idempotency.ProcessedEvents;
 import java.math.BigDecimal;
@@ -45,12 +46,17 @@ public class SessionPublishedListener {
 
     private final MaterializeSessionHandler materialize;
     private final ProcessedEvents processedEvents;
+    private final DemoOccupancy demoOccupancy;
     private final ObjectMapper json;
 
     public SessionPublishedListener(
-            MaterializeSessionHandler materialize, ProcessedEvents processedEvents, ObjectMapper json) {
+            MaterializeSessionHandler materialize,
+            ProcessedEvents processedEvents,
+            DemoOccupancy demoOccupancy,
+            ObjectMapper json) {
         this.materialize = materialize;
         this.processedEvents = processedEvents;
+        this.demoOccupancy = demoOccupancy;
         this.json = json;
     }
 
@@ -71,7 +77,13 @@ public class SessionPublishedListener {
         }
 
         try {
-            materialize.handle(toManifest(event.payload()));
+            SessionMaterializer.SessionManifest manifest = toManifest(event.payload());
+            if (materialize.handle(manifest) > 0) {
+                // Chỉ chạy cho suất VỪA dựng xong. Suất đã có tồn kho từ trước có thể đã bán vé
+                // thật, và bán thêm một mớ chỗ nữa vào đó là làm hỏng dữ liệu chứ không phải làm
+                // đẹp sơ đồ.
+                demoOccupancy.applyTo(manifest.eventSessionId(), manifest.organizationId());
+            }
         } catch (RuntimeException e) {
             // Ném lại để transaction rollback, kéo theo cả dấu processed_events — message sẽ
             // được giao lại. Nuốt lỗi ở đây sẽ để lại một suất diễn không có chỗ nào bán được

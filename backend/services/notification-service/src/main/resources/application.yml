@@ -39,6 +39,10 @@ spring:
 nexaticket:
   notification:
     from: ${MAIL_FROM:no-reply@nexaticket.vn}
+
+    # Sự kiện mang userId chứ không mang email — dữ liệu cá nhân không nằm rải trong hàng đợi.
+    # Địa chỉ nhận thư tra ở đây, đúng lúc sắp gửi.
+    identity-url: ${IDENTITY_URL:http://localhost:8090}
     workers:
       enabled: true
       interval: 10s
@@ -56,6 +60,19 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    mail:
+      # TẮT. Health indicator của mail mở một kết nối SMTP THẬT mỗi lần bị hỏi, và với SMTP không
+      # phản hồi ngay thì nó chờ hết 5 giây timeout mặc định. Đo được: /actuator/health mất 5,014s.
+      #
+      # Hậu quả không dừng ở việc chậm. dev-up.sh chờ health với --max-time 3 nên luôn kết luận
+      # notification-service "KHÔNG lên" dù nó đang chạy hoàn hảo. Ở production thì tệ hơn: liveness
+      # probe của Kubernetes thường timeout 1-3 giây, và một service khoẻ mạnh sẽ bị giết đi giết
+      # lại — cộng thêm một kết nối SMTP mở ra cho mỗi lần probe.
+      #
+      # SMTP hỏng vốn đã có tín hiệu đúng chỗ hơn: DispatchNotificationsJob đánh dấu thư FAILED
+      # trong bảng notifications, và đó là thứ đáng báo động, không phải một cú bắt tay TCP.
+      enabled: false
 
 logging:
   pattern:

@@ -49,7 +49,7 @@ public class RecordPaymentHandler {
         }
 
         Money gross = command.grossAmount();
-        Money commission = gross.percentOf(command.commissionBps());
+        Money commission = command.commission();
         Money organizerShare = gross.minus(commission);
 
         JournalEntry.Builder builder = JournalEntry.builder()
@@ -76,25 +76,52 @@ public class RecordPaymentHandler {
         return entry.id();
     }
 
+    /**
+     * @param commission số tiền hoa hồng <b>đã chốt</b>, không tính lại ở đây
+     * @param commissionBps tỷ lệ đã áp, chỉ để đối soát và hiển thị
+     */
     public record Command(
             UUID paymentAttemptId,
             UUID organizationId,
             Money grossAmount,
+            Money commission,
             int commissionBps,
             java.time.Instant occurredAt,
             String idempotencyKey,
             String memo) {
 
+        /** Hoa hồng suy ra từ tỷ lệ trên tổng. Dùng khi người gọi không có sẵn số tiền đã chốt. */
         public static Command of(
                 UUID paymentAttemptId, UUID organizationId, Money grossAmount, int commissionBps, Clock clock) {
             return new Command(
                     paymentAttemptId,
                     organizationId,
                     grossAmount,
+                    grossAmount.percentOf(commissionBps),
                     commissionBps,
                     clock.instant(),
                     "payment:" + paymentAttemptId,
                     null);
+        }
+
+        /**
+         * Hoa hồng lấy nguyên từ đơn hàng.
+         *
+         * <p>Ordering cộng hoa hồng <b>từ từng dòng</b> rồi gửi kèm sự kiện {@code order.paid}, và
+         * con số đó mới là con số đã ghi vào {@code orders.commission_vnd}. Tính lại ở đây bằng
+         * {@code percentOf} trên tổng cho ra kết quả lệch tới một đồng khi làm tròn — 3 dòng
+         * 333.333đ ở 5% cho 16.666×3 = 49.998, còn tính trên tổng 999.999 cho 49.999. Sổ cái phải
+         * khớp chứng từ gốc, nên nó nhận số của chứng từ chứ không tự tính lại.
+         */
+        public static Command ofOrder(
+                UUID orderId,
+                UUID organizationId,
+                Money grossAmount,
+                Money commission,
+                int commissionBps,
+                java.time.Instant paidAt) {
+            return new Command(
+                    orderId, organizationId, grossAmount, commission, commissionBps, paidAt, "order:" + orderId, null);
         }
     }
 }

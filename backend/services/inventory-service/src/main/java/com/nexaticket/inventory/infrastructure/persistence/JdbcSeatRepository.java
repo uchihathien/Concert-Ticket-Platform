@@ -143,6 +143,31 @@ public class JdbcSeatRepository implements SeatRepository {
     }
 
     @Override
+    public List<ReservedSeatRow> detailsOf(List<UUID> seatIds) {
+        if (seatIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.query(
+                """
+                SELECT id, seat_code, zone_code, admission_type, seat_label,
+                       ticket_type_id, ticket_type_name, price_vnd
+                  FROM session_seats
+                 WHERE id = ANY(?)
+                 ORDER BY seat_code
+                """,
+                ps -> ps.setArray(1, UuidArrays.of(ps, seatIds)),
+                (rs, i) -> new ReservedSeatRow(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("seat_code"),
+                        rs.getString("zone_code"),
+                        rs.getString("admission_type"),
+                        rs.getString("seat_label"),
+                        rs.getObject("ticket_type_id", UUID.class),
+                        rs.getString("ticket_type_name"),
+                        rs.getLong("price_vnd")));
+    }
+
+    @Override
     public List<SeatRow> seatedRows(UUID eventSessionId) {
         return jdbc.query(
                 """
@@ -189,6 +214,37 @@ public class JdbcSeatRepository implements SeatRepository {
                         rs.getLong("price_vnd"),
                         rs.getInt("available"),
                         rs.getInt("capacity")),
+                eventSessionId);
+    }
+
+    @Override
+    public List<ZoneStatusRow> zoneStatusCounts(UUID eventSessionId) {
+        // Một lần quét cho cả năm con số. COUNT(*) FILTER là cách Postgres diễn đạt "đếm có điều
+        // kiện" mà không phải quét lại tập hàng cho từng trạng thái.
+        //
+        // Quét theo idx_seat_session_status: cùng index mà đường giữ chỗ đang dùng, nên câu này
+        // không kéo thêm cấu trúc nào vào đường ghi nóng.
+        return jdbc.query(
+                """
+                SELECT zone_code, admission_type,
+                       COUNT(*) FILTER (WHERE status = 'AVAILABLE') AS available,
+                       COUNT(*) FILTER (WHERE status = 'HELD')      AS held,
+                       COUNT(*) FILTER (WHERE status = 'RESERVED')  AS reserved,
+                       COUNT(*) FILTER (WHERE status = 'SOLD')      AS sold,
+                       COUNT(*) FILTER (WHERE status = 'BLOCKED')   AS blocked
+                  FROM session_seats
+                 WHERE event_session_id = ?
+                 GROUP BY zone_code, admission_type
+                 ORDER BY zone_code
+                """,
+                (rs, i) -> new ZoneStatusRow(
+                        rs.getString("zone_code"),
+                        rs.getString("admission_type"),
+                        rs.getInt("available"),
+                        rs.getInt("held"),
+                        rs.getInt("reserved"),
+                        rs.getInt("sold"),
+                        rs.getInt("blocked")),
                 eventSessionId);
     }
 }

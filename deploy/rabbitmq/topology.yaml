@@ -28,11 +28,20 @@ queues:
   - name: notification.identity.member-invited
     exchange: nexaticket.identity
     routing_key: member.invited
+  # CHƯA CÓ CONSUMER, và đó là chuyện có chủ đích: read model của analytics chỉ có doanh thu theo
+  # suất diễn (ADR-1010), không có gì để ghi từ sự kiện của identity. Giữ queue lại vì nó là chỗ
+  # đậu sẵn cho báo cáo tăng trưởng tổ chức sau này — nhưng cho tới lúc đó nó chỉ tích message.
+  # Ai thấy nó đầy thì đây là lý do, không phải một consumer chết.
   - name: analytics.identity.all
     exchange: nexaticket.identity
     routing_key: "#"
 
   # --- G3+: thanh toán. ledger chạy TUẦN TỰ (ADR-1009 §4) ---
+  #
+  # Hai queue dưới đây bind vào nexaticket.payment và KHÔNG có ai phát vào đó: payment-service báo
+  # sang Ordering bằng HTTP đồng bộ (nó đang đứng trong một webhook mà payOS sẽ giao lại nếu không
+  # nhận 2xx — một cơ chế retry sẵn có, tốt hơn outbox). Giữ lại vì ADR-1009 vẫn mô tả đường này và
+  # một cổng thanh toán thứ hai sẽ cần tới nó; sổ cái thì nghe order.paid, xem ledger.ordering.paid.
   - name: ledger.payment.confirmed
     exchange: nexaticket.payment
     routing_key: payment.confirmed
@@ -56,9 +65,31 @@ queues:
   - name: notification.ordering.paid
     exchange: nexaticket.ordering
     routing_key: order.paid
+  # Sổ cái ghi bút toán N1 từ order.paid: Ordering đã gửi kèm commissionBps, commissionVnd và
+  # paidAt — đúng ba số bút toán cần, nên không phải gọi ngược lại để lấy. TUẦN TỰ (ADR-1009 §4).
+  - name: ledger.ordering.paid
+    exchange: nexaticket.ordering
+    routing_key: order.paid
+    consumers: 1
   - name: notification.ordering.expired
     exchange: nexaticket.ordering
     routing_key: order.expired
+
+  # --- Đơn đóng mà chưa trả tiền: nhả ghế. ---
+  #
+  # ĐÂY LÀ ĐƯỜNG CHẮC CHẮN mà javadoc của ExpireOrdersJob và CloseOrderHandler vẫn nhắc tới. Lời gọi
+  # HTTP thẳng từ Ordering chỉ để nhả ghế NGAY; nó "cố gắng hết sức" và hỏng thì thôi. Không có queue
+  # này thì một lần Inventory chậm đúng lúc là ghế nằm mãi ở RESERVED — không bán lại được, và khách
+  # đó vẫn bị tính vào trần max_tickets_per_customer của suất diễn (ADR-1014 §2).
+  #
+  # Một queue, hai binding: với Inventory thì "hết hạn" và "khách huỷ" là cùng một việc. Chỗ cần
+  # phân biệt hai cái đó là notification và analytics.
+  - name: inventory.ordering.closed
+    exchange: nexaticket.ordering
+    routing_key: order.expired
+  - name: inventory.ordering.closed
+    exchange: nexaticket.ordering
+    routing_key: order.cancelled
 
   # Analytics nghe MỌI sự kiện của ordering bằng một queue: read model cần cả đơn hết hạn
   # và đơn huỷ, không chỉ đơn đã trả tiền. Một queue "#" thay vì ba queue rời cũng giữ cho

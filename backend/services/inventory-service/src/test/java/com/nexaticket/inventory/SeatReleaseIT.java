@@ -124,8 +124,22 @@ class SeatReleaseIT extends InventoryTestBase {
         var first = reserveSeats.handle(new ReserveSeatsHandler.Command(orderId, hold.holdId(), user));
         var second = reserveSeats.handle(new ReserveSeatsHandler.Command(orderId, hold.holdId(), user));
 
-        assertThat(second.seatIds()).containsExactlyInAnyOrderElementsOf(first.seatIds());
+        // So sánh cả bản ghi chứ không chỉ id: lần gọi thứ hai phải trả về đúng GIÁ và NHÃN của
+        // lần đầu, vì Ordering cộng tổng tiền từ chính những giá đó.
+        assertThat(second.seats()).containsExactlyInAnyOrderElementsOf(first.seats());
+        assertThat(second.organizationId()).isEqualTo(first.organizationId());
         assertThat(fixture.countByStatus(session.id(), "RESERVED")).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("Không có đặt chỗ nào: bù trừ trả false chứ không ném")
+    void bu_tru_don_khong_co_dat_cho() {
+        // Saga ghi cờ "đã đặt chỗ" TRƯỚC khi gọi Inventory, nên nó bù trừ được một việc chưa từng
+        // xảy ra. Ném ở đây đẩy saga vào COMPENSATION_PENDING vĩnh viễn — và với consumer message
+        // thì còn tệ hơn: exception qua ranh giới @Transactional lồng nhau làm transaction thành
+        // rollback-only, message bị giao lại mãi.
+        assertThat(settleReservation.cancel(UUID.randomUUID())).isFalse();
+        assertThat(settleReservation.settle(UUID.randomUUID())).isFalse();
     }
 
     @Test
@@ -137,8 +151,8 @@ class SeatReleaseIT extends InventoryTestBase {
         UUID orderId = UUID.randomUUID();
         reserveSeats.handle(new ReserveSeatsHandler.Command(orderId, hold.holdId(), user));
 
-        settleReservation.settle(orderId);
-        settleReservation.settle(orderId);
+        assertThat(settleReservation.settle(orderId)).isTrue();
+        assertThat(settleReservation.settle(orderId)).isFalse();
 
         assertThat(fixture.countByStatus(session.id(), "SOLD")).isEqualTo(2);
     }

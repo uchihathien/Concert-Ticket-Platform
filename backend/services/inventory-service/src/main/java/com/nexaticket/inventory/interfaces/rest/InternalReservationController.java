@@ -39,23 +39,75 @@ public class InternalReservationController {
 
     public record ReserveRequest(@NotNull UUID orderId, @NotNull UUID holdId, @NotNull UUID userId) {}
 
-    public record ReserveResponse(UUID orderId, UUID eventSessionId, List<UUID> seatIds) {}
+    /**
+     * Hình dạng JSON là <b>hợp đồng với ordering-service</b>, viết ra tường minh ở đây chứ không
+     * trả thẳng record của tầng application.
+     *
+     * <p>Từng có lúc bên này trả {@code seatIds} còn bên kia đọc {@code seats} kèm giá. Cả hai đều
+     * biên dịch được, cả hai bộ test đều xanh — vì integration test của Ordering thay Inventory
+     * bằng hàng giả thay vì gọi HTTP thật — và checkout hỏng ở runtime với một
+     * NullPointerException không gợi ý gì về nguyên nhân. Tên field ở đây phải khớp
+     * {@code InventoryHttpAdapter.ReserveResponse}.
+     */
+    public record ReserveResponse(
+            UUID orderId, UUID eventSessionId, UUID eventId, UUID organizationId, List<SeatDto> seats) {
+
+        record SeatDto(
+                UUID sessionSeatId,
+                String seatCode,
+                String zoneCode,
+                String admissionType,
+                String seatLabel,
+                UUID ticketTypeId,
+                String ticketTypeName,
+                long priceVnd) {
+
+            static SeatDto from(ReserveSeatsHandler.ReservedSeat row) {
+                return new SeatDto(
+                        row.sessionSeatId(),
+                        row.seatCode(),
+                        row.zoneCode(),
+                        row.admissionType(),
+                        row.seatLabel(),
+                        row.ticketTypeId(),
+                        row.ticketTypeName(),
+                        row.priceVnd());
+            }
+        }
+    }
 
     @PostMapping
     public ReserveResponse reserve(@RequestBody ReserveRequest request) {
         var result = reserveSeats.handle(
                 new ReserveSeatsHandler.Command(request.orderId(), request.holdId(), request.userId()));
-        return new ReserveResponse(result.orderId(), result.eventSessionId(), result.seatIds());
+
+        return new ReserveResponse(
+                result.orderId(),
+                result.eventSessionId(),
+                result.eventId(),
+                result.organizationId(),
+                result.seats().stream().map(ReserveResponse.SeatDto::from).toList());
     }
 
-    /** Bù trừ khi saga hỏng: chỗ về AVAILABLE, hạn mức của khách được trả lại. */
+    /**
+     * Bù trừ khi saga hỏng: chỗ về AVAILABLE, hạn mức của khách được trả lại.
+     *
+     * <p>Không có đặt chỗ nào cũng trả 204. Saga ghi cờ "đã đặt chỗ" TRƯỚC khi gọi, nên nó bù trừ
+     * được một việc chưa từng xảy ra — trả 404 ở đó sẽ đẩy saga vào {@code COMPENSATION_PENDING}
+     * vĩnh viễn vì một việc vốn không cần làm.
+     */
     @DeleteMapping("/{orderId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void cancel(@PathVariable UUID orderId) {
         settleReservation.cancel(orderId);
     }
 
-    /** RESERVED → SOLD sau khi thanh toán được xác nhận. */
+    /**
+     * RESERVED → SOLD sau khi thanh toán được xác nhận.
+     *
+     * <p>Đường thường là consumer {@code order.paid} bên trong service này; endpoint giữ lại cho
+     * vận hành chốt tay một đơn khi message thất lạc. Idempotent, nên gọi thừa là vô hại.
+     */
     @PostMapping("/{orderId}/settle")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void settle(@PathVariable UUID orderId) {

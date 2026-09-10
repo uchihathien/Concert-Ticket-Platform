@@ -95,6 +95,46 @@ class MaterializeSessionIT extends InventoryTestBase {
     }
 
     @Test
+    @DisplayName("Publish lại sau khi sửa cửa bán: chỗ giữ nguyên, nhưng cấu hình được đồng bộ")
+    void publish_lai_thi_dong_bo_cua_ban() {
+        var first = manifest(10, 0);
+        materialize.handle(first);
+
+        // Ban tổ chức gỡ bán, dời giờ mở bán và siết trần, rồi publish lại.
+        Instant moved = Instant.now().plus(3, ChronoUnit.DAYS);
+        var edited = new SessionMaterializer.SessionManifest(
+                first.eventSessionId(),
+                first.eventId(),
+                first.organizationId(),
+                moved,
+                moved.plus(10, ChronoUnit.DAYS),
+                2,
+                2,
+                2,
+                2,
+                first.seats(),
+                first.standingBlocks());
+
+        // Vẫn trả 0: KHÔNG dựng lại chỗ. Ghế đã bán không được đụng tới, và người gọi dùng chính
+        // con số này để biết có nên chạy bộ dữ liệu mẫu hay không.
+        assertThat(materialize.handle(edited)).isZero();
+        assertThat(seatCount(first.eventSessionId())).isEqualTo(10);
+
+        // Nhưng cấu hình thì phải đổi. Trước bản sửa này, Inventory giữ cửa bán CŨ vĩnh viễn —
+        // Catalog nói đã sửa, màn hình quản trị nói đã sửa, còn chỗ thật sự chặn khách thì không.
+        assertThat(jdbc.queryForObject(
+                        "SELECT max_tickets_per_customer FROM session_inventory WHERE event_session_id = ?",
+                        Integer.class,
+                        first.eventSessionId()))
+                .isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                        "SELECT sales_open_at > now() FROM session_inventory WHERE event_session_id = ?",
+                        Boolean.class,
+                        first.eventSessionId()))
+                .isTrue();
+    }
+
+    @Test
     @DisplayName("Tồn kho vừa dựng dùng được ngay cho đường giữ chỗ")
     void ton_kho_dung_duoc_ngay() {
         // Kiểm nối thật giữa hai mắt xích: nếu materialize ghi thiếu một cột mà đường giữ chỗ
