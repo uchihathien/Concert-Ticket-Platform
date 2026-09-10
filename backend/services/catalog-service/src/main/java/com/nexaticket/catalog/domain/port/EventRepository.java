@@ -49,4 +49,13 @@ public interface EventRepository {
 
     /** Suất diễn thuộc tổ chức nào — dùng để kiểm quyền trước khi thêm hạng vé. */
     Optional<UUID> organizationOfSession(UUID sessionId);
+
+    /**
+     * Địa điểm này có sự kiện nào đã từng lên bán không.
+     *
+     * <p>"Đã từng" chứ không phải "đang": một sự kiện đã rút xuống vẫn để lại tồn kho và có thể cả
+     * vé đã bán ở inventory-service, dựng từ đúng những mã khu này. Sửa sơ đồ khi đó là làm mồ côi
+     * dữ liệu ở service khác.
+     */
+    boolean hasNonDraftEventAtVenue(UUID venueId);
 }

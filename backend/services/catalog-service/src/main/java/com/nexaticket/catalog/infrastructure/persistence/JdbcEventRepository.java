@@ -202,6 +202,13 @@ public class JdbcEventRepository implements EventRepository {
                 .findFirst();
     }
 
+    @Override
+    public boolean hasNonDraftEventAtVenue(UUID venueId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT count(*) FROM events WHERE venue_id = ? AND status <> 'DRAFT'", Integer.class, venueId);
+        return count != null && count > 0;
+    }
+
     /** Sự kiện chưa gắn suất diễn — dựng xong mới nạp thêm. */
     private static Event shell(ResultSet rs) throws SQLException {
         Timestamp publishedAt = rs.getTimestamp("published_at");

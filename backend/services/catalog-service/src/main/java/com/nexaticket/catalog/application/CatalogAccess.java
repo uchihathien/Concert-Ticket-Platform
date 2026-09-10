@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.application;
 
-import com.nexaticket.kernel.access.Role;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.platform.security.tenant.TenantContext;
-import com.nexaticket.platform.security.tenant.TenantScope;
-import com.nexaticket.platform.web.error.ApiException;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
 
@@ -27,16 +25,13 @@ public class CatalogAccess {
      * <p>{@code EVENT_MANAGER} đủ để dựng và publish sự kiện — đó chính là công việc của vai trò
      * này. Những thứ động tới tiền (tài khoản ngân hàng, đối soát) mới cần {@code ORG_ADMIN}, và
      * chúng không nằm ở service này.
+     *
+     * <p>Hỏi {@link Permission#CATALOG_MANAGE} chứ không liệt kê tên vai trò: danh sách vai trò nào
+     * được phép là việc của ma trận trong {@code Role}, và một service không nên có ý kiến riêng
+     * về nó. Thêm vai trò thứ bảy thì chỗ này không phải sửa.
      */
     public UUID requireCatalogManager(UUID organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return organizationId;
-        }
-        Role role = scope.roleIn(TenantId.of(organizationId));
-        if (role == null || !role.canManageCatalog()) {
-            throw ApiException.forbidden("Requires EVENT_MANAGER or above");
-        }
+        TenantContext.requirePermission(Permission.CATALOG_MANAGE, TenantId.of(organizationId));
         return organizationId;
     }
 }

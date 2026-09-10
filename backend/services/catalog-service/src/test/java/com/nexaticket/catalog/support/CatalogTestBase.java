@@ -82,9 +82,37 @@ public abstract class CatalogTestBase {
 
         @Bean
         MembershipLookup stubMemberships() {
+            // Đọc cờ mỗi lần gọi, không chụp giá trị lúc tạo bean: context của Spring được cache
+            // giữa các lớp test, nên bean này sống lâu hơn bất kỳ ca test nào.
             return claims -> new MembershipLookup.Principal(
-                    UserId.of(USER), Map.of(TenantId.of(ORG), Role.EVENT_MANAGER), false);
+                    UserId.of(USER), Map.of(TenantId.of(ORG), Role.EVENT_MANAGER), SUPER_ADMIN.get());
         }
+    }
+
+    /**
+     * Người dùng trong test có phải superadmin không.
+     *
+     * <p>Cờ tĩnh chứ không phải hai bean khác nhau: hai bean nghĩa là hai context Spring, và context
+     * thứ hai làm mọi lớp test phải khởi động lại cả ứng dụng. {@link #resetCatalog()} đặt lại về
+     * {@code false} trước mỗi ca, nên không có ca nào thừa hưởng quyền của ca trước.
+     */
+    private static final java.util.concurrent.atomic.AtomicBoolean SUPER_ADMIN =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /** Chạy phần còn lại của ca test với tư cách Tổng công ty. Tự tắt ở ca sau. */
+    protected static void actAsSuperAdmin() {
+        SUPER_ADMIN.set(true);
+    }
+
+    /**
+     * Quay lại tư cách EVENT_MANAGER của {@link #ORG}.
+     *
+     * <p>Gọi sau khi dựng xong dữ liệu bằng quyền nền tảng. Không có bước này thì phần khẳng định
+     * của ca test chạy với quyền cao hơn quyền thật của người dùng — và một cửa quyền hỏng sẽ
+     * không bị bắt, vì superadmin đi qua được mọi cửa.
+     */
+    protected static void actAsOrganizer() {
+        SUPER_ADMIN.set(false);
     }
 
     @Autowired
@@ -99,6 +127,8 @@ public abstract class CatalogTestBase {
      */
     @BeforeEach
     void resetCatalog() {
-        jdbc.update("TRUNCATE ticket_types, event_sessions, events, venue_zones, venues, outbox CASCADE");
+        SUPER_ADMIN.set(false);
+        jdbc.update("TRUNCATE ticket_types, event_sessions, events, venue_zones, venues, "
+                + "concert_template_zones, concert_templates, outbox CASCADE");
     }
 }

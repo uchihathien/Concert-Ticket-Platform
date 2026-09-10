@@ -26,6 +26,13 @@ public class JdbcCatalogQueries implements CatalogQueries {
         this.jdbc = jdbc;
     }
 
+    @Override
+    public boolean sessionExists(UUID eventSessionId) {
+        Integer count =
+                jdbc.queryForObject("SELECT count(*) FROM event_sessions WHERE id = ?", Integer.class, eventSessionId);
+        return count != null && count > 0;
+    }
+
     /**
      * Danh sách sự kiện đang bán.
      *

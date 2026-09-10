@@ -9,6 +9,10 @@ import java.util.UUID;
  * <p>Khu ngồi khai hình chữ nhật {@code rowCount × seatsPerRow} thay vì liệt kê từng ghế. Khu hình
  * dạng lạ thì tách thành nhiều khu chữ nhật — vẫn tả được, mà màn hình nhập liệu không phải biến
  * thành một trình vẽ.
+ *
+ * @param sourceTemplateZoneId khu này được chép từ khu nào của khung nền tảng; {@code null} nghĩa
+ *     là tổ chức tự dựng. Khác {@code null} là chỗ câu "khu vực cố định, không thay đổi được"
+ *     được thực thi — {@link #isFixed()} chặn đường sửa sơ đồ.
  */
 public record VenueZone(
         UUID id,
@@ -19,7 +23,22 @@ public record VenueZone(
         Integer rowCount,
         Integer seatsPerRow,
         Integer capacity,
-        int sortOrder) {
+        int sortOrder,
+        UUID sourceTemplateZoneId) {
+
+    /** Khu tổ chức tự dựng: không đến từ khung nào. */
+    public VenueZone(
+            UUID id,
+            UUID venueId,
+            String zoneCode,
+            String name,
+            AdmissionKind kind,
+            Integer rowCount,
+            Integer seatsPerRow,
+            Integer capacity,
+            int sortOrder) {
+        this(id, venueId, zoneCode, name, kind, rowCount, seatsPerRow, capacity, sortOrder, null);
+    }
 
     public VenueZone {
         if (zoneCode == null || zoneCode.isBlank()) {
@@ -37,6 +56,11 @@ public record VenueZone(
             rowCount = null;
             seatsPerRow = null;
         }
+    }
+
+    /** Khu đến từ khung của nền tảng, nên tổ chức không sửa được hình dạng của nó. */
+    public boolean isFixed() {
+        return sourceTemplateZoneId != null;
     }
 
     /** Số chỗ bán được của khu. Dùng để hiện tổng sức chứa trước khi publish. */

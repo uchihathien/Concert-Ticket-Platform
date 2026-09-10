@@ -146,7 +146,7 @@ public class DemoCatalogSeeder implements ApplicationRunner {
                     spec.summary(),
                     spec.description(),
                     spec.category(),
-                    null,
+                    spec.posterUrl(),
                     com.nexaticket.catalog.domain.model.EventStatus.DRAFT,
                     null,
                     List.of());
@@ -175,11 +175,38 @@ public class DemoCatalogSeeder implements ApplicationRunner {
             // đối tượng `event` ở trên.
             Event complete =
                     events.findByIdForOrganization(organizationId, event.id()).orElseThrow();
-            if (spec.publish()) {
-                publish.apply(complete, venue);
-            }
+            applyStatus(complete, venue, spec.status());
             return true;
         }));
+    }
+
+    /**
+     * Đưa sự kiện vừa dựng về đúng trạng thái mẫu.
+     *
+     * <p>{@code UNPUBLISHED} và {@code CANCELLED} đều đi qua publish trước rồi mới rút xuống, chứ
+     * không đặt thẳng trạng thái vào cột. Có vậy Inventory mới nhận được {@code session.published}
+     * và dựng tồn kho — y như một sự kiện thật từng lên bán rồi mới bị gỡ. Đặt thẳng trạng thái sẽ
+     * cho ra một sự kiện "đã từng bán" mà không có chỗ nào, tức là một trạng thái không tồn tại
+     * trong hệ thống thật, và mọi thứ dựng trên nó sẽ dạy sai người đọc.
+     */
+    private void applyStatus(Event event, Venue venue, SeedStatus status) {
+        if (status == SeedStatus.DRAFT) {
+            return;
+        }
+        Event published = publish.apply(event, venue);
+        switch (status) {
+            case UNPUBLISHED -> {
+                published.unpublish();
+                events.update(published);
+            }
+            case CANCELLED -> {
+                published.cancel();
+                events.update(published);
+            }
+            default -> {
+                /* PUBLISHED: publish.apply đã ghi xong. */
+            }
+        }
     }
 
     /**
@@ -240,6 +267,21 @@ public class DemoCatalogSeeder implements ApplicationRunner {
         }
     }
 
+    /**
+     * Trạng thái mà một sự kiện mẫu phải dừng lại ở đó sau khi dựng xong.
+     *
+     * <p>Không dùng chung {@code EventStatus} của domain: đây là <b>ý định của dữ liệu mẫu</b>
+     * ("dựng xong thì để ở đâu"), còn {@code EventStatus} là trạng thái hiện thời của một aggregate.
+     * Hai thứ trùng tên nhưng khác vai — gộp lại là mở đường cho bộ dựng đặt thẳng trạng thái thay
+     * vì đi qua đúng các bước nghiệp vụ.
+     */
+    enum SeedStatus {
+        DRAFT,
+        PUBLISHED,
+        UNPUBLISHED,
+        CANCELLED
+    }
+
     record EventSpec(
             String slug,
             String title,
@@ -247,6 +289,8 @@ public class DemoCatalogSeeder implements ApplicationRunner {
             String description,
             String category,
             String venueKey,
-            boolean publish,
+            /** URL ảnh bìa; {@code null} thì thẻ sự kiện rơi về nền màu. */
+            String posterUrl,
+            SeedStatus status,
             List<SessionSpec> sessions) {}
 }
