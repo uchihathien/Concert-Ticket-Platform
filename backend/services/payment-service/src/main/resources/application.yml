@@ -97,6 +97,32 @@ server:
   shutdown: graceful
 
 management:
+  # Cổng quản trị riêng, KHÔNG publish ra ngoài.
+  #
+  # /actuator/prometheus lộ tên endpoint, số lượng request và độ trễ của từng đường — đủ để vẽ lại
+  # bề mặt API và đoán được lúc nào hệ thống đang tải nặng. Trước đây nó nằm chung cổng ứng dụng và
+  # được `anyRequest().authenticated()` bảo vệ, nên Prometheus không scrape nổi nếu không có JWT —
+  # tức là hoặc không có metric, hoặc phải cấp token cho một scraper.
+  #
+  # Tách cổng giải quyết cả hai: bên trong cụm thì gọi thẳng 9090, còn ingress chỉ mở 8080.
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+  # Trace phân tán — TẮT mặc định.
+  #
+  # Bật bằng TRACING_ENABLED=true, và chỉ bật khi thật sự có collector nghe ở OTEL_ENDPOINT: không
+  # có ai nhận thì exporter vẫn thử gửi mỗi vài giây và lấp đầy log bằng lỗi kết nối, che mất
+  # những dòng đáng đọc.
+  #
+  # `probability` là tỷ lệ MẪU, không phải công tắc. 1.0 ở lưu lượng thật là rất nhiều dữ liệu và
+  # rất nhiều tiền lưu trữ; 0.1 đủ để thấy hình dạng của độ trễ. Lỗi thì không cần lấy mẫu — chúng
+  # đã có log kèm correlationId, và correlationId nay đi xuyên mọi service (CorrelationPropagation).
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${OTEL_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
@@ -108,4 +134,4 @@ management:
 
 logging:
   pattern:
-    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{36} - %msg%n"

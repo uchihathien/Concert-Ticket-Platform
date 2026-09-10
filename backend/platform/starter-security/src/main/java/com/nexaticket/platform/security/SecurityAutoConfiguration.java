@@ -2,6 +2,7 @@
 package com.nexaticket.platform.security;
 
 import com.nexaticket.platform.security.tenant.HttpMembershipLookup;
+import com.nexaticket.platform.security.tenant.InternalApiFilter;
 import com.nexaticket.platform.security.tenant.MembershipLookup;
 import com.nexaticket.platform.security.tenant.TenantFilter;
 import org.slf4j.Logger;
@@ -13,6 +14,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -41,7 +43,7 @@ import org.springframework.web.client.RestClient;
 // đăng ký một bean tên conversionServicePostProcessor — app không khởi động nổi. Gateway có
 // GatewaySecurityConfig riêng theo kiểu reactive.
 @ConditionalOnWebApplication(type = Type.SERVLET)
-@EnableConfigurationProperties(IdentityServiceProperties.class)
+@EnableConfigurationProperties({IdentityServiceProperties.class, InternalApiProperties.class})
 public class SecurityAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityAutoConfiguration.class);
@@ -54,13 +56,34 @@ public class SecurityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(MembershipLookup.class)
-    public MembershipLookup httpMembershipLookup(IdentityServiceProperties properties) {
+    public MembershipLookup httpMembershipLookup(
+            IdentityServiceProperties properties, InternalApiProperties internal, RestClient.Builder builder) {
         // KHÔNG còn @ConditionalOnProperty. Trước đây bean này chỉ tồn tại khi service tự khai
         // `nexaticket.identity.base-url`, và mười trên mười một service đã quên — khiến mọi
         // endpoint cần đăng nhập trả 401 dù token hợp lệ. Xem IdentityServiceProperties.
         log.info("MembershipLookup gọi identity-service tại {}", properties.baseUrl());
         return new HttpMembershipLookup(
-                RestClient.builder().baseUrl(properties.baseUrl()).build());
+                // Builder ĐƯỢC TIÊM, không phải RestClient.builder() tĩnh: chỉ bản này mang theo
+                // correlation id và trace span sang service được gọi.
+                builder.baseUrl(properties.baseUrl()).build(),
+                internal.sharedSecret(),
+                properties.membershipCacheTtl());
+    }
+
+    /**
+     * Cắm {@link PermissionGuard} vào chuỗi MVC.
+     *
+     * <p>Đăng ký cho <b>mọi</b> đường dẫn: interceptor tự bỏ qua handler không mang
+     * {@code @RequiresPermission}, nên lọc trước ở đây chỉ tạo thêm một danh sách phải nhớ cập nhật.
+     */
+    @Bean
+    public org.springframework.web.servlet.config.annotation.WebMvcConfigurer permissionGuardRegistration() {
+        return new org.springframework.web.servlet.config.annotation.WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(org.springframework.web.servlet.config.annotation.InterceptorRegistry reg) {
+                reg.addInterceptor(new PermissionGuard());
+            }
+        };
     }
 
     @Bean
@@ -84,17 +107,41 @@ public class SecurityAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(SecurityFilterChain.class)
-    public SecurityFilterChain filterChain(HttpSecurity http, TenantFilter tenantFilter) throws Exception {
+    public SecurityFilterChain filterChain(
+            HttpSecurity http, TenantFilter tenantFilter, InternalApiProperties internal, Environment environment)
+            throws Exception {
+        // Cổng quản trị: actuator nghe ở đây, ingress không mở nó ra ngoài.
+        //
+        // Điều kiện là CỔNG NHẬN REQUEST, không phải đường dẫn. Mở theo đường dẫn sẽ để
+        // /actuator/prometheus lọt ra cổng ứng dụng nếu ai đó bỏ `management.server.port` — đúng
+        // kiểu hỏng âm thầm mà việc tách cổng sinh ra để tránh.
+        //
+        // Và nó nằm TRONG chuỗi này, không phải một bean SecurityFilterChain thứ hai: bean thứ hai
+        // làm @ConditionalOnMissingBean của chính chuỗi này thành false, nên chuỗi chính không được
+        // tạo, không request nào khớp chuỗi nào, và MỌI endpoint thành công khai. Đã xảy ra thật —
+        // 41 test đỏ cùng lúc, tất cả vì trả 200 ở chỗ đáng ra 401.
+        int managementPort = environment.getProperty("management.server.port", Integer.class, -1);
+        int serverPort = environment.getProperty("server.port", Integer.class, -1);
+
         http.csrf(csrf -> csrf.disable()) // API không dùng cookie session; token ở Authorization header
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.requestMatchers("/actuator/health/**", "/actuator/info")
+                .authorizeHttpRequests(auth -> auth.requestMatchers(request -> managementPort > 0
+                                && managementPort != serverPort
+                                && request.getLocalPort() == managementPort)
+                        .permitAll()
+                        .requestMatchers("/actuator/health/**", "/actuator/info")
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/events/**")
                         .permitAll() // catalog công khai — @PublicEndpoint
                         .requestMatchers("/api/billing/bank/webhook/**")
-                        .permitAll() // webhook SePay tự xác thực bằng cơ chế riêng
+                        // Webhook payOS tự xác thực bằng chữ ký HMAC-SHA256 trên payload (ADR-0016).
+                        // payOS không có JWT của ta, nên không có cách nào khác — và nghĩa là toàn bộ
+                        // trách nhiệm xác thực nằm ở PayosWebhookController, không ở đây.
+                        .permitAll()
                         .requestMatchers("/internal/**")
-                        .permitAll() // chỉ lộ trong mạng nội bộ, gateway không route ra ngoài
+                        // Không mang JWT của người dùng: người gọi là một service, và nó tự xưng
+                        // bằng InternalApiFilter ngay bên dưới chứ không bằng token OIDC.
+                        .permitAll()
                         .anyRequest()
                         .authenticated())
                 .oauth2ResourceServer(oauth -> oauth.jwt(Customizer.withDefaults()))
@@ -107,6 +154,16 @@ public class SecurityAutoConfiguration {
                 // TenantScope rỗng, và MỌI request đã đăng nhập đều nhận 401 UNAUTHENTICATED —
                 // kể cả khi token hoàn toàn hợp lệ và người dùng có đủ quyền.
                 .addFilterAfter(tenantFilter, BearerTokenAuthenticationFilter.class);
+
+        if (internal.enforced()) {
+            // Đặt TRƯỚC bước xác thực: người gọi Open Host Service là một service, không mang JWT
+            // nào, nên nó phải được chặn hoặc cho qua trước khi Spring Security đi tìm token.
+            http.addFilterBefore(new InternalApiFilter(internal.sharedSecret()), BearerTokenAuthenticationFilter.class);
+        } else {
+            log.warn("nexaticket.internal.shared-secret chưa khai: /internal/** mở cho bất kỳ ai gọi "
+                    + "được tới service này trong mạng nội bộ. Chấp nhận được ở dev; ở production thì "
+                    + "không, vì /internal/memberships tạo được người dùng với email tuỳ ý.");
+        }
         return http.build();
     }
 }
