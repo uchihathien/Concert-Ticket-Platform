@@ -224,6 +224,49 @@ Deploy: push `main` → build image các service đã đổi → deploy dev → 
 
 **Smoke test sau deploy:** health mọi service, đăng nhập OIDC, Flyway version khớp, RabbitMQ topology khớp `topology.yaml`, một `GET /v1/events` trả 200.
 
+### 8.1. Cài đặt thực tế
+
+Bảng trên là đích. Đang có:
+
+| File | Repo | Làm gì |
+| --- | --- | --- |
+| `.github/workflows/backend.yml` | backend | spotless → unit + ArchUnit → integration → gitleaks |
+| `.github/workflows/release.yml` | backend | 12 ảnh → GHCR → deploy → smoke |
+| `.github/workflows/e2e.yml` | backend | nightly, **thân job vẫn là placeholder** |
+| `.github/workflows/ci.yml` | frontend | typecheck, lint, build, test, gitleaks |
+| `.github/workflows/release.yml` | frontend | 4 ảnh → GHCR |
+| `deploy/scripts/smoke.sh` | backend | chạy trên máy chủ sau `up --wait` |
+
+Còn thiếu so với bảng: path filter theo từng service (hiện build cả reactor mỗi PR), `contract-check`,
+`ledger-invariants`, và thân của `e2e`.
+
+**Hai repo ⇒ hai tag ảnh.** `prod.yml` dùng `BACKEND_TAG` và `FRONTEND_TAG` riêng, vì một commit ở
+repo này không có SHA tương ứng ở repo kia. Deploy backend mặc định giữ frontend ở tag `main`; muốn
+ghim một bản frontend cụ thể thì chạy `Release` bằng tay với `frontend_tag` là SHA của nó.
+
+**Secret và biến cần khai** (Settings → Secrets and variables):
+
+| Tên | Repo | Nội dung |
+| --- | --- | --- |
+| `DEPLOY_SSH_KEY` | backend | khoá riêng ed25519, public key nằm trong `~/.ssh/authorized_keys` của máy chủ |
+| `DEPLOY_HOST_KEY` | backend | `ssh-keyscan -H <host>` — ghim vân tay, đừng dùng `StrictHostKeyChecking=no` |
+| `DEPLOY_TARGET` | backend | `user@host` |
+| `PUBLIC_API_BASE_URL` | frontend (**variable**, không phải secret) | nhúng vào bundle lúc build |
+
+`GITHUB_TOKEN` đủ để đẩy ảnh lên GHCR của chính tổ chức — không cần PAT.
+
+**Chuẩn bị máy chủ một lần:**
+
+```bash
+git clone <repo backend> /srv/nexaticket && cd /srv/nexaticket
+cp deploy/compose/prod.env.example deploy/compose/.env   # rồi điền secret thật
+echo "REGISTRY=ghcr.io/<owner>" >> deploy/compose/.env
+echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u <owner> --password-stdin   # nếu package private
+```
+
+Deploy chạy `git checkout --detach <sha>` chứ không `git pull`: `prod.yml` và `smoke.sh` phải là
+đúng bản đã sinh ra ảnh đang chạy. Rollback vì vậy chỉ là chạy lại `Release` với SHA cũ.
+
 ## 9. Chiến lược test theo tầng
 
 ```

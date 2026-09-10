@@ -1,0 +1,133 @@
+# Đường từ một commit trên `main` tới hệ thống đang chạy.
+#
+# `backend.yml` chứng minh mã nguồn đúng; file này biến nó thành ảnh container và đưa lên máy chủ.
+# Hai việc tách làm hai workflow vì chúng hỏng vì những lý do khác nhau và cần chạy lại độc lập:
+# test đỏ là lỗi mã nguồn, push ảnh hỏng thường là lỗi registry hoặc mạng.
+#
+# Frontend KHÔNG nằm ở đây. Nó là repo riêng, có `release.yml` của chính nó, và đẩy ảnh vào cùng
+# một registry. Deploy ở dưới chỉ kéo ảnh xuống, nên nó không cần mã nguồn frontend — điều này đã
+# kiểm bằng `docker compose config` với một build context không tồn tại: compose chỉ đọc context
+# khi thực sự build.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: ['backend/**', 'deploy/**', '.github/workflows/release.yml']
+  workflow_dispatch:
+    inputs:
+      frontend_tag:
+        description: 'Tag ảnh frontend để deploy kèm (mặc định: main)'
+        default: 'main'
+
+concurrency:
+  # KHÔNG cancel-in-progress: huỷ giữa chừng một lần deploy để lại cụm ở trạng thái nửa vời —
+  # vài service đã đổi ảnh, vài service chưa. Xếp hàng chậm hơn nhưng luôn tới một trạng thái biết được.
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    strategy:
+      # fail-fast=false: một service hỏng thì vẫn muốn biết 11 cái còn lại có build được không,
+      # thay vì phải chạy lại toàn bộ để tìm ra cái thứ hai.
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway
+          - identity-service
+          - catalog-service
+          - inventory-service
+          - ordering-service
+          - payment-service
+          - ledger-service
+          - payout-service
+          - ticketing-service
+          - notification-service
+          - analytics-service
+          - realtime-gateway
+          - ai-chatbox-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          # Bối cảnh là GỐC repo, không phải `backend/` — Maven multi-module cần cả cây pom.
+          # Đây là yêu cầu của chính Dockerfile, không phải lựa chọn ở đây.
+          context: .
+          file: backend/Dockerfile
+          build-args: SERVICE=${{ matrix.service }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:main
+          # `scope` PHẢI tách theo service. Mặc định cả mười hai job dùng chung một scope, nên
+          # chúng ghi đè cache của nhau và tỷ lệ trúng gần bằng không — CI chậm đi mà không có
+          # dấu hiệu nào ngoài thời gian chạy.
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      # Ảnh mới xuất xưởng luôn tối: chưa ai chạy thử. Kiểm ngay điều rẻ nhất mà cũng hay hỏng
+      # nhất — jar có nằm đúng chỗ ENTRYPOINT trỏ tới không. Sai tên jar là lỗi chỉ lộ ra lúc
+      # chạy, sau khi mọi thứ khác đã xanh.
+      - name: Ảnh chạy được
+        run: |
+          docker run --rm --entrypoint sh \
+            "ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.sha }}" \
+            -c 'test -f /app/application.jar'
+
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    # Environment `production` là chỗ khai người duyệt. Không có nó thì mọi commit vào main đi
+    # thẳng ra người dùng thật — với một hệ thống giữ tiền hộ người khác thì đó là quá nhanh.
+    environment: production
+    steps:
+      - name: Khoá SSH
+        run: |
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/stdin ~/.ssh/id_ed25519 <<< "${{ secrets.DEPLOY_SSH_KEY }}"
+          # ssh-keyscan, không phải StrictHostKeyChecking=no: cái sau chấp nhận BẤT KỲ máy chủ nào
+          # trả lời, kể cả một máy chen vào giữa. Vân tay ghim sẵn trong secret là chốt chặn duy nhất.
+          echo "${{ secrets.DEPLOY_HOST_KEY }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          TARGET: ${{ secrets.DEPLOY_TARGET }}       # dạng user@host
+          FRONTEND_TAG: ${{ inputs.frontend_tag || 'main' }}
+        run: |
+          ssh "$TARGET" bash -euo pipefail <<EOF
+          cd /srv/nexaticket
+
+          # Checkout ĐÚNG commit đã sinh ra ảnh, không phải \`git pull\`. prod.yml và smoke.sh phải
+          # khớp với ảnh đang chạy; kéo nhánh về là lấy bản mới nhất, có thể mới hơn ảnh vài commit.
+          git fetch --depth 1 origin ${{ github.sha }}
+          git checkout --detach ${{ github.sha }}
+
+          export BACKEND_TAG=${{ github.sha }}
+          export FRONTEND_TAG=$FRONTEND_TAG
+          export REGISTRY=ghcr.io/${{ github.repository_owner }}
+
+          compose="docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env"
+
+          \$compose pull
+          # --no-build: trên máy chủ không có mã nguồn frontend. Thiếu cờ này thì compose thấy
+          # thiếu ảnh là đi build, và chết ở một build context không tồn tại.
+          # --wait: trả về khi container HEALTHY, không phải khi đã tạo xong.
+          \$compose up -d --no-build --wait --remove-orphans
+
+          ./deploy/scripts/smoke.sh
+          EOF
