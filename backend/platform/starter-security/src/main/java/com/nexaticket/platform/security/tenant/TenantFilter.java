@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.platform.security.tenant;
 
-import com.nexaticket.kernel.id.TenantId;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -22,8 +19,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * tiết lộ rằng tài nguyên của tổ chức khác tồn tại.
  */
 public class TenantFilter extends OncePerRequestFilter {
-
-    private static final Pattern ORG_IN_PATH = Pattern.compile("/organizations/([0-9a-fA-F-]{36})");
 
     /**
      * Khu vực nền tảng: superadmin thao tác cross-tenant, nên id trên đường dẫn KHÔNG phải là
@@ -59,17 +54,29 @@ public class TenantFilter extends OncePerRequestFilter {
             MembershipLookup.Principal principal = membershipLookup.resolve(claimsOf(jwt));
             if (principal != null) {
                 scope = new TenantScope(principal.userId(), principal.memberships(), null, principal.superAdmin());
-                TenantId fromPath = request.getRequestURI().startsWith(PLATFORM_PREFIX)
-                        ? null
-                        : extractOrganization(request.getRequestURI());
-                if (fromPath != null) {
+                TenantPath.Match fromPath = request.getRequestURI().startsWith(PLATFORM_PREFIX)
+                        ? new TenantPath.Match(false, null)
+                        : TenantPath.organizationOf(request.getRequestURI());
+
+                if (fromPath.malformed()) {
+                    // Đường dẫn CÓ mang đoạn tổ chức nhưng đọc không ra. Phải từ chối, không được
+                    // rơi về nhánh dự phòng bên dưới.
+                    //
+                    // Đây từng là một lỗ hổng có thật: mã hoá phần trăm một ký tự của UUID làm mẫu
+                    // so khớp trượt, filter kết luận "không có tổ chức trên đường dẫn", còn Spring
+                    // vẫn giải mã ra UUID của tổ chức khác cho @PathVariable. GET /members trả 200
+                    // kèm email của toàn bộ thành viên tổ chức đó. Xem TenantPath.
+                    response.sendError(HttpServletResponse.SC_NOT_FOUND);
+                    return;
+                }
+                if (fromPath.present()) {
                     // Superadmin thao tác cross-tenant qua route /v1/platform/**; các route
                     // /organizations/{id} vẫn đòi membership thật.
-                    if (!scope.isMemberOf(fromPath)) {
+                    if (!scope.isMemberOf(fromPath.tenant())) {
                         response.sendError(HttpServletResponse.SC_NOT_FOUND);
                         return;
                     }
-                    scope = scope.withActiveTenant(fromPath);
+                    scope = scope.withActiveTenant(fromPath.tenant());
                 } else if (scope.tenants().size() == 1) {
                     scope = scope.withActiveTenant(scope.tenants().iterator().next());
                 }
@@ -96,11 +103,14 @@ public class TenantFilter extends OncePerRequestFilter {
         if (fullName == null) {
             fullName = jwt.getClaimAsString("preferred_username");
         }
-        return new MembershipLookup.Claims(jwt.getSubject(), jwt.getClaimAsString("email"), fullName);
-    }
-
-    private static TenantId extractOrganization(String uri) {
-        Matcher matcher = ORG_IN_PATH.matcher(uri);
-        return matcher.find() ? TenantId.parse(matcher.group(1)) : null;
+        // `sid` và `iat` đi kèm để identity kiểm được token này đã bị thu hồi chưa. Thiếu chúng
+        // thì việc thu hồi phiên chỉ có hiệu lực khi token hết hạn — tức là tới 15 phút sau khi
+        // một nhân viên bị cho nghỉ.
+        return new MembershipLookup.Claims(
+                jwt.getSubject(),
+                jwt.getClaimAsString("email"),
+                fullName,
+                jwt.getClaimAsString("sid"),
+                jwt.getIssuedAt());
     }
 }
