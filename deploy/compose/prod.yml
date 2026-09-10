@@ -12,7 +12,12 @@
 #    kể cả cổng quản trị 9090. Đó chính là thứ làm cho `/actuator/prometheus` không cần token mà
 #    vẫn không lộ ra internet.
 #
-# 3. Mỗi service một user database riêng (ADR-1002). Dùng chung một user thì test cô lập đỏ, và
+# 3. HAI tag ảnh, không phải một. Backend và frontend là hai repo, nên một commit ở bên này không
+#    có SHA tương ứng ở bên kia. Dùng chung một `${TAG}` nghĩa là mỗi lần deploy backend lại kéo
+#    theo một tag frontend không tồn tại — và compose báo `manifest unknown`, một thông báo không
+#    hề nói ra rằng nguyên nhân là bố cục repo.
+#
+# 4. Mỗi service một user database riêng (ADR-1002). Dùng chung một user thì test cô lập đỏ, và
 #    một lỗ hổng ở service nhỏ nhất đọc được sổ cái.
 name: nexaticket-prod
 
@@ -56,7 +61,7 @@ x-service-base: &service-base
 services:
   identity-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/identity-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/identity-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -73,7 +78,7 @@ services:
 
   catalog-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/catalog-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/catalog-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -86,7 +91,7 @@ services:
 
   inventory-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/inventory-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/inventory-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -100,7 +105,7 @@ services:
 
   ordering-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/ordering-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/ordering-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -113,7 +118,7 @@ services:
 
   payment-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/payment-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/payment-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -132,7 +137,7 @@ services:
 
   ledger-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/ledger-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/ledger-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -150,7 +155,7 @@ services:
 
   payout-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/payout-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/payout-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -163,7 +168,7 @@ services:
 
   ticketing-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/ticketing-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/ticketing-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -176,7 +181,7 @@ services:
 
   notification-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/notification-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/notification-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -193,7 +198,7 @@ services:
 
   analytics-service:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/analytics-service:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/analytics-service:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -207,7 +212,7 @@ services:
   # Realtime không có database: nó chỉ đẩy sự kiện từ RabbitMQ xuống WebSocket.
   realtime-gateway:
     <<: *service-base
-    image: ${REGISTRY:-nexaticket}/realtime-gateway:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/realtime-gateway:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -224,7 +229,7 @@ services:
   # Cửa DUY NHẤT từ internet vào backend.
   api-gateway:
     restart: unless-stopped
-    image: ${REGISTRY:-nexaticket}/api-gateway:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/api-gateway:${BACKEND_TAG:-latest}
     build:
       context: ../..
       dockerfile: backend/Dockerfile
@@ -271,7 +276,7 @@ services:
   # kia, và ranh giới giữa app khách với app quản trị chỉ còn là quy ước.
   web-customer:
     restart: unless-stopped
-    image: ${REGISTRY:-nexaticket}/web-customer:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/web-customer:${FRONTEND_TAG:-latest}
     build:
       context: ../../frontend
       dockerfile: Dockerfile
@@ -295,7 +300,7 @@ services:
 
   web-admin:
     restart: unless-stopped
-    image: ${REGISTRY:-nexaticket}/web-admin:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/web-admin:${FRONTEND_TAG:-latest}
     build:
       context: ../../frontend
       dockerfile: Dockerfile
@@ -319,7 +324,7 @@ services:
 
   web-scanner:
     restart: unless-stopped
-    image: ${REGISTRY:-nexaticket}/web-scanner:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/web-scanner:${FRONTEND_TAG:-latest}
     build:
       context: ../../frontend
       dockerfile: Dockerfile
@@ -343,7 +348,7 @@ services:
 
   web-platform:
     restart: unless-stopped
-    image: ${REGISTRY:-nexaticket}/web-platform:${TAG:-latest}
+    image: ${REGISTRY:-nexaticket}/web-platform:${FRONTEND_TAG:-latest}
     build:
       context: ../../frontend
       dockerfile: Dockerfile
