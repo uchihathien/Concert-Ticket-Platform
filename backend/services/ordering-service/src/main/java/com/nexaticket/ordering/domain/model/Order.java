@@ -17,6 +17,9 @@ public final class Order {
     private final UUID id;
     private final OrderNumber orderNumber;
     private final UUID eventSessionId;
+    /** Sự kiện của suất diễn. Đơn không dùng tới, nhưng consumer đọc read model thì cần. */
+    private final UUID eventId;
+
     private final UUID organizationId;
     private final UUID userId;
     private final UUID holdId;
@@ -27,6 +30,7 @@ public final class Order {
     private OrderStatus status;
     private String paymentReference;
     private String vietQrPayload;
+    private String checkoutUrl;
     private Instant paidAt;
     private Instant closedAt;
     private String closeReason;
@@ -35,6 +39,7 @@ public final class Order {
             UUID id,
             OrderNumber orderNumber,
             UUID eventSessionId,
+            UUID eventId,
             UUID organizationId,
             UUID userId,
             UUID holdId,
@@ -48,6 +53,7 @@ public final class Order {
         this.id = id;
         this.orderNumber = orderNumber;
         this.eventSessionId = eventSessionId;
+        this.eventId = eventId;
         this.organizationId = organizationId;
         this.userId = userId;
         this.holdId = holdId;
@@ -60,6 +66,7 @@ public final class Order {
     public static Order awaitingPayment(
             UUID id,
             UUID eventSessionId,
+            UUID eventId,
             UUID organizationId,
             UUID userId,
             UUID holdId,
@@ -71,6 +78,7 @@ public final class Order {
                 id,
                 OrderNumber.generate(now),
                 eventSessionId,
+                eventId,
                 organizationId,
                 userId,
                 holdId,
@@ -85,6 +93,7 @@ public final class Order {
             UUID id,
             String orderNumber,
             UUID eventSessionId,
+            UUID eventId,
             UUID organizationId,
             UUID userId,
             UUID holdId,
@@ -94,11 +103,13 @@ public final class Order {
             OrderStatus status,
             String paymentReference,
             String vietQrPayload,
+            String checkoutUrl,
             Instant paidAt) {
         Order order = new Order(
                 id,
                 new OrderNumber(orderNumber),
                 eventSessionId,
+                eventId,
                 organizationId,
                 userId,
                 holdId,
@@ -108,6 +119,7 @@ public final class Order {
                 status);
         order.paymentReference = paymentReference;
         order.vietQrPayload = vietQrPayload;
+        order.checkoutUrl = checkoutUrl;
         order.paidAt = paidAt;
         return order;
     }
@@ -148,18 +160,21 @@ public final class Order {
     /**
      * Gắn kết quả của payment-service vào đơn.
      *
-     * <p>Cả hai giá trị là snapshot: mã QR khách đã nhìn thấy không bao giờ được đổi, kể cả khi
-     * nền tảng đổi tài khoản ký quỹ sau đó.
+     * <p>Cả ba giá trị là snapshot: mã QR và link thanh toán khách đã nhìn thấy không bao giờ được đổi,
+     * kể cả khi cấu hình kênh payOS đổi sau đó. Từ ADR-0016 mỗi link có một tài khoản ảo RIÊNG, nên sinh
+     * lại không chỉ đổi hình ảnh trên màn hình mà đổi cả tài khoản nhận tiền — và tiền gửi vào tài khoản
+     * cũ sẽ không khớp gì cả.
      */
-    public void attachPayment(String reference, String vietQrPayload) {
+    public void attachPayment(String reference, String vietQrPayload, String checkoutUrl) {
         this.paymentReference = reference;
         this.vietQrPayload = vietQrPayload;
+        this.checkoutUrl = checkoutUrl;
     }
 
     /**
      * Xác nhận đã nhận tiền.
      *
-     * <p>Idempotent: webhook của SePay có thể đến hai lần, và lần thứ hai không được đổi
+     * <p>Idempotent: webhook của payOS có thể đến hai lần, và lần thứ hai không được đổi
      * {@code paidAt} — mốc thời gian đó đi vào sổ cái và vào hạn giữ tiền.
      *
      * @return true nếu lần gọi này thực sự đổi trạng thái
@@ -173,6 +188,35 @@ public final class Order {
         }
         status = OrderStatus.PAID;
         paidAt = now;
+        return true;
+    }
+
+    /**
+     * Tiền thật đã vào một đơn <b>đã đóng</b> — chuyển sang {@link OrderStatus#MANUAL_REVIEW}.
+     *
+     * <p>Đây là nhánh của một cuộc đua có thật: job hết hạn chạy mỗi 15 giây, còn link payOS sống
+     * tới đúng hạn thanh toán, nên một lần chuyển khoản ở phút chót hoàn toàn có thể được xác nhận
+     * sau khi đơn vừa bị đóng.
+     *
+     * <p>Không chuyển sang PAID, và đó là điểm mấu chốt: ghế đã nhả lúc đóng đơn và có thể đã bán
+     * cho người khác. Phát vé ở đây là hai người cùng một chỗ, tệ hơn hẳn một lần hoàn tiền.
+     *
+     * <p><b>Không đặt {@code paidAt}.</b> Ràng buộc {@code ck_paid_has_timestamp} gắn mốc đó với
+     * riêng trạng thái PAID, và mốc ấy đi vào sổ cái — một đơn chưa được công nhận là đã trả tiền
+     * thì không được mang mốc trả tiền.
+     *
+     * @return true nếu lần gọi này thực sự đổi trạng thái; false nếu đơn đã ở MANUAL_REVIEW
+     */
+    public boolean flagManualReview(Instant now, String note) {
+        if (status == OrderStatus.MANUAL_REVIEW) {
+            return false;
+        }
+        if (status == OrderStatus.AWAITING_PAYMENT || status == OrderStatus.PAID) {
+            throw new IllegalStateException("Đơn ở trạng thái " + status + " không cần đối soát tay");
+        }
+        status = OrderStatus.MANUAL_REVIEW;
+        closedAt = now;
+        closeReason = note;
         return true;
     }
 
@@ -205,6 +249,11 @@ public final class Order {
 
     public UUID eventSessionId() {
         return eventSessionId;
+    }
+
+    /** Null với những đơn tạo trước khi Inventory trả về id sự kiện. */
+    public UUID eventId() {
+        return eventId;
     }
 
     public UUID organizationId() {
@@ -241,6 +290,11 @@ public final class Order {
 
     public String vietQrPayload() {
         return vietQrPayload;
+    }
+
+    /** Trang thanh toán payOS host; null với những đơn mở từ trước ADR-0016. */
+    public String checkoutUrl() {
+        return checkoutUrl;
     }
 
     public Instant paidAt() {

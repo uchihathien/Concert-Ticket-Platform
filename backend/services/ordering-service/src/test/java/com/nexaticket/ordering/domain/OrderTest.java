@@ -126,6 +126,7 @@ class OrderTest {
                 UUID.randomUUID(),
                 UUID.randomUUID(),
                 UUID.randomUUID(),
+                UUID.randomUUID(),
                 items,
                 null,
                 NOW,

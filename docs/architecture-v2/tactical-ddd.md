@@ -21,7 +21,7 @@ com.nexaticket.<context>
 │   ├── persistence/              JPA entity + mapper + repository adapter
 │   ├── messaging/                RabbitMQ producer/consumer, outbox
 │   ├── client/                   HTTP client sang service khác
-│   └── acl/                      anti-corruption layer (SePay, ngân hàng)
+│   └── acl/                      anti-corruption layer (payOS, ngân hàng)
 └── interfaces/
     ├── rest/                     controller (implement interface sinh từ OpenAPI)
     ├── event/                    event listener

@@ -9,6 +9,7 @@ import com.nexaticket.ordering.application.command.ExpireOrdersJob;
 import com.nexaticket.ordering.application.command.PlaceOrderHandler;
 import com.nexaticket.ordering.domain.model.OrderStatus;
 import com.nexaticket.ordering.domain.port.OrderRepository;
+import com.nexaticket.ordering.support.FakeRemoteServices;
 import com.nexaticket.ordering.support.OrderingTestBase;
 import java.util.UUID;
 import org.junit.jupiter.api.DisplayName;
@@ -33,6 +34,12 @@ class OrderLifecycleIT extends OrderingTestBase {
 
     @Autowired
     OrderRepository orders;
+
+    @Autowired
+    FakeRemoteServices.FakeInventory inventory;
+
+    @Autowired
+    FakeRemoteServices.FakePayment payments;
 
     @Autowired
     JdbcTemplate jdbc;
@@ -64,6 +71,8 @@ class OrderLifecycleIT extends OrderingTestBase {
 
         // Đóng một đơn đã nhận tiền nghĩa là khách mất tiền và mất vé cùng lúc.
         assertThat(orders.findById(order).orElseThrow().status()).isEqualTo(OrderStatus.PAID);
+        // Và tuyệt đối không được nhả chỗ của nó: khách đã trả tiền vẫn phải có ghế.
+        assertThat(inventory.cancelledOrders).doesNotContain(order);
     }
 
     @Test
@@ -76,10 +85,50 @@ class OrderLifecycleIT extends OrderingTestBase {
 
         assertThat(orders.findById(order).orElseThrow().status()).isEqualTo(OrderStatus.EXPIRED);
         assertThat(outboxCount(order, "order.expired")).isEqualTo(1);
+        // Link thanh toán phải đóng theo đơn, nếu không nó vẫn nhận được tiền cho tới expiredAt.
+        assertThat(payments.cancelledIntents).contains(order);
+
+        // Chốt chặn cho lỗi rò rỉ tồn kho: lần giữ chỗ đã CONVERTED nên ExpireHoldsJob bên
+        // Inventory không đụng tới nó nữa. Không nhả ở đây thì chỗ kẹt ở RESERVED vĩnh viễn,
+        // và khách bị tính vào trần mua vé của suất đó mãi mãi.
+        assertThat(inventory.cancelledOrders).contains(order);
     }
 
     @Test
-    @DisplayName("Khách huỷ đơn: đóng đơn và nhả chỗ ngay, không chờ outbox")
+    @DisplayName("Tiền vào sau khi đơn hết hạn: MANUAL_REVIEW, không PAID và không phát vé")
+    void tien_vao_sau_khi_don_het_han() {
+        var order = newOrder();
+        expireNow(order);
+        expireOrders.runOnce();
+
+        // Khách chuyển khoản ở phút chót; webhook tới sau khi job vừa đóng đơn.
+        assertThat(confirmPayment.handle(order)).isEqualTo(ConfirmPaymentHandler.Outcome.MANUAL_REVIEW);
+
+        var reloaded = orders.findById(order).orElseThrow();
+        assertThat(reloaded.status()).isEqualTo(OrderStatus.MANUAL_REVIEW);
+        // Ghế đã nhả lúc đóng đơn và có thể đã bán cho người khác — phát vé ở đây là hai người
+        // cùng một chỗ. Không có order.paid nghĩa là ticketing không phát gì.
+        assertThat(outboxCount(order, "order.paid")).isZero();
+        // Và paidAt vẫn trống: mốc đó đi vào sổ cái, một đơn chưa được công nhận đã trả tiền thì
+        // không được mang nó.
+        assertThat(reloaded.paidAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("Xác nhận lần hai trên đơn đã MANUAL_REVIEW vẫn trả lời dứt khoát, không ném")
+    void xac_nhan_trung_tren_don_dang_doi_soat() {
+        var order = newOrder();
+        expireNow(order);
+        expireOrders.runOnce();
+        confirmPayment.handle(order);
+
+        // payOS giao lại webhook cho tới khi nhận 2xx. Ném ở đây là vòng lặp vô tận.
+        assertThat(confirmPayment.handle(order)).isEqualTo(ConfirmPaymentHandler.Outcome.MANUAL_REVIEW);
+        assertThat(orders.findById(order).orElseThrow().status()).isEqualTo(OrderStatus.MANUAL_REVIEW);
+    }
+
+    @Test
+    @DisplayName("Khách huỷ đơn: đóng link thanh toán và nhả chỗ ngay, không chờ outbox")
     void khach_huy_don() {
         UUID user = UUID.randomUUID();
         var result = placeOrder.handle(new PlaceOrderHandler.Command(UUID.randomUUID(), user, null));
@@ -88,6 +137,10 @@ class OrderLifecycleIT extends OrderingTestBase {
 
         assertThat(orders.findById(result.orderId()).orElseThrow().status()).isEqualTo(OrderStatus.CANCELLED);
         assertThat(outboxCount(result.orderId(), "order.cancelled")).isEqualTo(1);
+        assertThat(inventory.cancelledOrders).contains(result.orderId());
+        // Link payOS sống tới hết hạn thanh toán ban đầu. Không đóng nó thì khách mở lại tab cũ,
+        // chuyển tiền, và tiền vào thật một đơn đã huỷ với ghế đã bán cho người khác.
+        assertThat(payments.cancelledIntents).contains(result.orderId());
     }
 
     @Test

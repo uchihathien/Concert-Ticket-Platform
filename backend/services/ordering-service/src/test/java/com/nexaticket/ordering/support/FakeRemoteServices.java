@@ -57,6 +57,7 @@ public class FakeRemoteServices {
         public boolean cancelFails;
 
         public UUID eventSessionId = UUID.randomUUID();
+        public UUID eventId = UUID.randomUUID();
         public UUID organizationId = UUID.randomUUID();
         public long seatPriceVnd = 1_500_000L;
         public int seatCount = 2;
@@ -82,7 +83,7 @@ public class FakeRemoteServices {
                         "Ve ngoi",
                         seatPriceVnd));
             }
-            return new Reservation(eventSessionId, organizationId, seats);
+            return new Reservation(eventSessionId, eventId, organizationId, seats);
         }
 
         @Override
@@ -94,22 +95,54 @@ public class FakeRemoteServices {
         }
     }
 
-    /** Payment giả. */
+    /**
+     * Payment giả.
+     *
+     * <p><b>Idempotent theo orderId</b>, y như bản thật, và đó không phải chi tiết trang trí: saga gọi lại
+     * bước mở intent sau timeout mạng, và test về tính idempotent của checkout chỉ có nghĩa khi fake cũng
+     * trả về đúng link của lần đầu. Một fake sinh giá trị mới mỗi lần gọi sẽ làm test đó xanh vì lý do sai.
+     */
     public static class FakePayment implements PaymentPort {
 
         public final List<UUID> cancelledIntents = new ArrayList<>();
         public boolean openFails;
+
+        /**
+         * Mô phỏng sequence {@code payment_order_code_seq}: trong dải 7 chữ số để reference luôn đúng 9
+         * ký tự, đúng trần trường {@code description} của payOS.
+         *
+         * <p><b>Điểm bắt đầu là ngẫu nhiên, không phải 1.000.000.</b> Container PostgreSQL của test
+         * {@code withReuse(true)} nên nó sống qua nhiều lần build và <b>giữ lại dữ liệu cũ</b>, còn
+         * {@code orders.payment_reference} là {@code UNIQUE}. Một fake đếm lại từ cùng một số ở mỗi JVM
+         * sẽ trùng reference với những đơn của lần build trước — và triệu chứng gây hiểu nhầm hết sức:
+         * {@code JdbcOrderRepository.save} bắt mọi {@code DuplicateKeyException} rồi báo thành
+         * {@code DuplicateHoldException}, nên lỗi hiện ra là "đơn trùng cho cùng một lần giữ chỗ" ở một
+         * test không hề dùng lại holdId nào.
+         *
+         * <p>Tính đơn điệu không quan trọng ở đây; tính KHÔNG TRÙNG mới quan trọng — y như với sequence thật.
+         */
+        private final java.util.concurrent.atomic.AtomicLong nextOrderCode = new java.util.concurrent.atomic.AtomicLong(
+                java.util.concurrent.ThreadLocalRandom.current().nextLong(1_000_000L, 9_000_000L));
+
+        private final java.util.Map<UUID, Intent> opened = new java.util.concurrent.ConcurrentHashMap<>();
 
         @Override
         public Intent openIntent(UUID orderId, UUID organizationId, long totalVnd, Instant expiresAt) {
             if (openFails) {
                 throw new RemoteCallException("payment-service", "timeout giả lập", null);
             }
-            return new Intent(
-                    "NT" + orderId.toString().substring(0, 8).toUpperCase(),
-                    "00020101021238...6304ABCD",
-                    "970422",
-                    "0123456789");
+            return opened.computeIfAbsent(orderId, id -> {
+                long orderCode = nextOrderCode.getAndIncrement();
+                // Tài khoản ảo RIÊNG cho từng link, đúng như payOS cấp — không phải một tài khoản ký quỹ
+                // dùng chung. Dùng chung một số ở fake sẽ che mất mọi lỗi gắn sai tài khoản vào đơn.
+                return new Intent(
+                        "NT" + orderCode,
+                        "00020101021238...6304ABCD",
+                        "https://pay.payos.vn/web/" + orderCode,
+                        "970422",
+                        "V3CAS" + orderCode,
+                        "NEXATICKET");
+            });
         }
 
         @Override

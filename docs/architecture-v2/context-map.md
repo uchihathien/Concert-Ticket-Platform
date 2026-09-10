@@ -17,7 +17,7 @@ Sai lầm phổ biến nhất khi làm microservices là chia theo bảng dữ l
 | Ticketing & Check-in | Supporting | Quan trọng nhưng đơn giản về nghiệp vụ | Tự viết |
 | Payout Operations | Supporting | Quy trình chi trả, phê duyệt | Tự viết mỏng, dựa trên Ledger |
 | Identity & Access | **Generic** | Ai cũng cần, đã có chuẩn | Keycloak (OIDC) + service mỏng cho org/membership |
-| Payment Gateway Integration | **Generic** | SePay lo phần khó | ACL bọc SePay, không để chi tiết SePay rò vào domain |
+| Payment Gateway Integration | **Generic** | payOS lo phần khó | ACL bọc payOS, không để chi tiết payOS rò vào domain (ADR-0016) |
 | Notification | Generic | Email/SMS | Provider ngoài + service mỏng |
 | Analytics | Generic | | Sink + pipeline |
 
@@ -51,7 +51,7 @@ flowchart LR
   PAY -->|Customer/Supplier| LDG
   LDG -->|Customer/Supplier| PO
   ORD --> TKT
-  SEPAY[SePay - external] -->|ACL| PAY
+  PAYOS[payOS - external] -->|ACL| PAY
   BANKS[Ngân hàng - external] -->|ACL| PO
 ```
 
@@ -62,10 +62,10 @@ flowchart LR
 | Identity | tất cả | **Open Host Service + Published Language** | JWT + `OrganizationMembership` là hợp đồng công khai, ổn định |
 | Catalog | Inventory | **Customer/Supplier** | Publish event ⇒ Inventory materialize ghế. Inventory là khách hàng, có quyền yêu cầu contract |
 | Inventory | Ordering | **Customer/Supplier + ACL** | Ordering dịch `Reservation` của Inventory thành `OrderItem` của mình |
-| Ordering | Payment | Customer/Supplier | Ordering yêu cầu thu tiền, không biết SePay là gì |
+| Ordering | Payment | Customer/Supplier | Ordering yêu cầu thu tiền, không biết payOS là gì |
 | Payment | Ledger | Customer/Supplier | Payment báo "tiền đã vào", Ledger quyết định ghi sổ thế nào |
 | Ledger | Payout | Customer/Supplier | Payout hỏi số dư khả dụng, Ledger là nguồn chân lý |
-| **SePay** | Payment | **Anti-Corruption Layer** | Bên ngoài, ta không kiểm soát. Payload SePay **không được** xuất hiện quá lớp adapter |
+| **payOS** | Payment | **Anti-Corruption Layer** | Bên ngoài, ta không kiểm soát. Payload payOS **không được** xuất hiện quá `infrastructure/payos` |
 | **Ngân hàng** | Payout | **Anti-Corruption Layer** | Chi trả có thể thủ công (MVP) hoặc API |
 | tất cả | Analytics | **Conformist** | Analytics chấp nhận event như nó vốn có, không đòi upstream đổi |
 

@@ -32,6 +32,66 @@ spring:
         jwt:
           issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
 
+nexaticket:
+  payment:
+    # Bật đường /internal/payment-intents/{id}/simulate-transfer.
+    #
+    # Nó đánh dấu một đơn là ĐÃ TRẢ TIỀN mà không có đồng nào vào tài khoản, và ticketing sẽ phát
+    # vé thật ngay sau đó. Thứ này CẦN THIẾT HƠN sau khi chuyển sang payOS, không phải ít hơn:
+    # payOS không có môi trường test, mọi lần thử là tiền thật trên production bằng một tài khoản
+    # ngân hàng thật. Không có nó thì mỗi lần chạy thử luồng mua vé đều tốn tiền và cần điện thoại.
+    #
+    # Và cũng vì vậy, nó là thứ biến hệ thống thành máy phát vé miễn phí nếu để sót.
+    #
+    # MẶC ĐỊNH LÀ FALSE, và đó là điểm khác so với bản trước. Một mặc định "bật" nghĩa là quên khai
+    # biến môi trường ở production cũng đủ mở cửa; mặc định "tắt" thì quên khai ở máy phát triển
+    # chỉ làm một lệnh thử trả 409 kèm câu giải thích. Hai lần quên, hai hậu quả khác hẳn nhau.
+    # .env.example đặt PAYMENT_SANDBOX=true cho máy phát triển.
+    sandbox: ${PAYMENT_SANDBOX:false}
+
+    ordering-url: ${ORDERING_URL:http://localhost:8093}
+
+    # --- Kênh thanh toán payOS (ADR-0016) ---
+    #
+    # Thay cho bank-bin / bank-account-number của thời SePay. Không còn một tài khoản ký quỹ cố
+    # định trong cấu hình: payOS cấp một TÀI KHOẢN ẢO RIÊNG cho từng link thanh toán, và số tài
+    # khoản đó về trong response lúc tạo link rồi được lưu theo từng intent. Một số tài khoản
+    # trong file cấu hình sẽ là một lời hứa hệ thống không giữ được — link tạo hôm qua vẫn trỏ về
+    # tài khoản ảo của hôm qua.
+    payos:
+      # payOS KHÔNG CÓ môi trường sandbox/staging. Tài liệu của họ nói thẳng điều đó. Nghĩa là giá
+      # trị này không có biến thể "test", và mọi lần gọi ở đây đều đi vào hệ thống thật.
+      base-url: ${PAYOS_BASE_URL:https://api-merchant.payos.vn}
+
+      # client-id + api-key: đi ở header mỗi request TA GỌI SANG payOS. Chúng chứng minh ta là ai.
+      client-id: ${PAYOS_CLIENT_ID:}
+      api-key: ${PAYOS_API_KEY:}
+
+      # checksum-key: KHÔNG BAO GIỜ gửi đi đâu. Dùng để ký request tạo link và để kiểm chữ ký
+      # webhook payOS gửi về.
+      #
+      # Đây là secret NẶNG NHẤT của service. Lộ nó nghĩa là bất kỳ ai cũng giả được một webhook
+      # "đã trả tiền" — và webhook đó là thứ duy nhất đứng giữa internet với việc phát vé thật.
+      # Để trống thì service TỪ CHỐI mọi webhook, chứ không "bỏ qua kiểm" như SePay trước đây.
+      checksum-key: ${PAYOS_CHECKSUM_KEY:}
+
+      # Gốc URL web khách hàng, để dựng returnUrl/cancelUrl của link. Cả hai trỏ về đúng trang
+      # thanh toán của đơn — trang đó HỎI LẠI trạng thái đơn chứ không tin các tham số payOS gắn
+      # vào URL, vì tham số do trình duyệt mang về thì người dùng sửa được.
+      web-base-url: ${WEB_BASE_URL:http://localhost:3000}
+
+      # URL payOS gọi khi tiền vào. Chỉ dùng cho lệnh POST /internal/payos/confirm-webhook.
+      #
+      # payOS đòi HTTPS và phải gọi được TỪ INTERNET, nên localhost không dùng được: ở máy phát
+      # triển cần một tunnel (ngrok/cloudflared), hoặc bỏ qua webhook và dùng
+      # POST /internal/payment-intents/{orderId}/reconcile để kéo trạng thái về.
+      webhook-url: ${PAYOS_WEBHOOK_URL:}
+
+      connect-timeout: ${PAYOS_CONNECT_TIMEOUT:3s}
+      # Dài hơn hạn 2 giây của saga checkout là CỐ Ý ở đường webhook/đối soát. Nhưng lúc mở link thì
+      # chính ordering-service áp hạn của nó, nên giá trị này là trần trên, không phải mục tiêu.
+      read-timeout: ${PAYOS_READ_TIMEOUT:10s}
+
 server:
   port: ${PORT:8095}
   shutdown: graceful

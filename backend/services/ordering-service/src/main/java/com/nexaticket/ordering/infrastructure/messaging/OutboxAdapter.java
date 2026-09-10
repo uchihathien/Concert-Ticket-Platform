@@ -58,6 +58,10 @@ public class OutboxAdapter implements OutboxPort {
         payload.put("orderNumber", order.orderNumber().value());
         payload.put("organizationId", order.organizationId().toString());
         payload.put("eventSessionId", order.eventSessionId().toString());
+        // Read model doanh thu khoá theo suất diễn nhưng nhóm theo sự kiện, và cột `event_id` của
+        // nó là NOT NULL. Đơn tạo trước V0102 không có giá trị này; consumer bỏ qua message thiếu
+        // nó thay vì chết.
+        payload.put("eventId", order.eventId() == null ? null : order.eventId().toString());
         payload.put("userId", order.userId().toString());
         payload.put("totalVnd", order.total().amountVnd());
         payload.put("ticketCount", order.items().size());

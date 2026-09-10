@@ -53,6 +53,47 @@ git clone https://github.com/uchihathien/Concert-Ticket-Frontend.git frontend
 cd frontend && corepack pnpm install && corepack pnpm dev
 ```
 
+## Thanh toán (payOS)
+
+Luồng thu tiền đi qua **payOS** ([ADR-0016](docs/03-seat-checkout/adr/ADR-0016-payos-payment-gateway.md),
+hợp đồng webhook: [api/payos-webhook.md](docs/03-seat-checkout/api/payos-webhook.md)). Hai điều cần biết
+trước khi chạy thử:
+
+**payOS không có môi trường sandbox.** Tài liệu của họ nói thẳng điều đó — mọi lần gọi API đi vào hệ
+thống thật, bằng tài khoản ngân hàng thật. Nên cứ giữ `PAYMENT_SANDBOX=true` khi phát triển:
+
+```bash
+set -a && . ./.env && set +a          # secret thật nằm ở .env (đã gitignore)
+cd backend && ./mvnw -pl services/payment-service spring-boot:run
+```
+
+Chạy trọn luồng mua vé **không tốn đồng nào** — đi qua đúng cùng đường xử lý với webhook thật, nên nó
+không phát vé theo luật khác:
+
+```bash
+curl -X POST http://localhost:8095/internal/payment-intents/$ORDER_ID/simulate-transfer
+# trả thiếu tiền để thử nhánh chặn:
+curl -X POST http://localhost:8095/internal/payment-intents/$ORDER_ID/simulate-transfer \
+     -H 'Content-Type: application/json' -d '{"amountVnd": 10000}'
+```
+
+**Webhook payOS cần một URL HTTPS gọi được từ internet**, nên ở máy phát triển nó không tới. Hai cách:
+
+```bash
+# A. Có tunnel: đăng ký URL một lần cho mỗi môi trường.
+#    payOS gọi thử endpoint ngay trong lời gọi này, nên nó cũng là phép thử đầu-cuối.
+cloudflared tunnel --url http://localhost:8095          # rồi đặt PAYOS_WEBHOOK_URL trong .env
+curl -X POST http://localhost:8095/internal/payos/confirm-webhook
+
+# B. Không có tunnel: đã chuyển tiền THẬT thì KÉO trạng thái từ payOS về.
+#    An toàn gọi lại nhiều lần — lần thứ hai chỉ trả DUPLICATE.
+curl -X POST http://localhost:8095/internal/payment-intents/$ORDER_ID/reconcile
+```
+
+`PAYOS_CHECKSUM_KEY` là secret nặng nhất của hệ thống: ai biết nó thì giả được một webhook "đã trả
+tiền", và webhook đó là thứ duy nhất đứng giữa internet với việc phát vé thật. Để trống thì service
+**từ chối** mọi webhook — không có chế độ "bỏ qua kiểm".
+
 | Dịch vụ | Địa chỉ |
 | --- | --- |
 | Gateway | http://localhost:8080 |
@@ -120,7 +161,7 @@ Ba chỗ dồn rủi ro lớn nhất của dự án. Hai đã xong, có test ch�
 | --- | --- | --- |
 | Sổ cái luôn cân | ✅ | `LedgerInvariantIT` — ghi thẳng SQL để cố tình làm lệch sổ, database từ chối |
 | Chống oversell (ngồi + đứng) | ✅ | `SeatHoldConcurrencyIT`, `OversellBackstopIT` — xem dưới |
-| Webhook SePay 8 nhánh | ⬜ | thuộc `payment-service` |
+| Webhook payOS đủ nhánh | ⬜ | thuộc `payment-service`, xem ADR-0016 |
 
 Bộ test chống oversell chạy **thật sự đồng thời**, không phải nộp việc vào thread pool rồi hy vọng:
 

@@ -14,7 +14,7 @@ Thay thế `docs/00-discovery/legal-constraints-vn.md §3` và ADR-0013.
 sequenceDiagram
   participant K as Khách
   participant B as TK ký quỹ NexaTicket
-  participant SP as SePay
+  participant SP as payOS
   participant L as ledger-service
   participant PO as payout-service
   participant O as TK ngân hàng Tổ chức
@@ -178,7 +178,7 @@ Ngân hàng xác nhận đã chuyển:
 
 Chuyển khoản thất bại → **bút toán đảo** của bút toán đầu, không sửa bút toán cũ.
 
-### N7 — Phí SePay
+### N7 — Phí cổng thanh toán (payOS)
 
 | Tài khoản | Nợ | Có |
 | --- | ---: | ---: |

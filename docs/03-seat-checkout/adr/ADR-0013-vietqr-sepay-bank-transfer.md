@@ -1,6 +1,12 @@
 # ADR-0013: VietQR và SePay cho bank transfer
 
-**Status:** Accepted
+**Status:** Superseded by [ADR-0016](./ADR-0016-payos-payment-gateway.md)
+
+> **Không triển khai theo ADR này nữa.** Luồng thu tiền đã chuyển sang payOS. Giữ lại làm hồ sơ quyết
+> định: phần *Consequences* bên dưới mô tả chính những chi phí đã dẫn tới việc thay nhà cung cấp —
+> đáng nhất là "khách gõ sai nội dung chuyển khoản thì tiền mồ côi và phải đối soát tay".
+>
+> Hợp đồng đang có hiệu lực: [api/payos-webhook.md](../api/payos-webhook.md).
 
 ## Context
 

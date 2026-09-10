@@ -40,8 +40,10 @@ public class PaymentHttpAdapter implements PaymentPort {
             return new Intent(
                     response.paymentReference(),
                     response.vietQrPayload(),
+                    response.checkoutUrl(),
                     response.bankBin(),
-                    response.bankAccountNumber());
+                    response.bankAccountNumber(),
+                    response.bankAccountName());
         } catch (RemoteCallException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -61,5 +63,12 @@ public class PaymentHttpAdapter implements PaymentPort {
         }
     }
 
-    record IntentResponse(String paymentReference, String vietQrPayload, String bankBin, String bankAccountNumber) {}
+    /** Phải khớp {@code InternalPaymentController.IntentResponse} của payment-service, tên từng field. */
+    record IntentResponse(
+            String paymentReference,
+            String vietQrPayload,
+            String checkoutUrl,
+            String bankBin,
+            String bankAccountNumber,
+            String bankAccountName) {}
 }
