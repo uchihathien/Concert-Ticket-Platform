@@ -5,6 +5,7 @@ import com.nexaticket.identity.application.IdentityErrorCode;
 import com.nexaticket.identity.domain.port.InvitationRepository;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
 import com.nexaticket.identity.domain.port.UserRepository;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.access.Role;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.kernel.id.UserId;
@@ -45,7 +46,27 @@ public class OrganizationQueries {
         this.clock = clock;
     }
 
+    /**
+     * Địa chỉ nhận thư của một người dùng, cho các service nội bộ.
+     *
+     * <p>404 khi không có: gửi thư tới một địa chỉ rỗng hỏng âm thầm, còn một mã lỗi thì consumer
+     * ghi log được và người vận hành tra ra được.
+     */
+    public UserContactView contactOf(UserId userId) {
+        return users.findById(userId)
+                .map(UserContactView::from)
+                .orElseThrow(() -> new ApiException(IdentityErrorCode.USER_NOT_FOUND, "User not found"));
+    }
+
+    /**
+     * Thông tin tổ chức.
+     *
+     * <p>Kiểm membership tường minh chứ không dựa vào {@code TenantFilter}: bộ lọc đó từng bị đi
+     * vòng bằng một đường dẫn mã hoá phần trăm, và khi ấy đây là endpoint không còn lớp nào phía
+     * sau. Xem {@code TenantPath}.
+     */
     public OrganizationView byId(TenantId id) {
+        TenantContext.requireMember(id);
         return organizations
                 .findById(id)
                 .map(OrganizationView::from)
@@ -85,7 +106,7 @@ public class OrganizationQueries {
      * viên soát vé.
      */
     public List<InvitationView> pendingInvitations(TenantId organizationId) {
-        requireOrgAdmin(organizationId);
+        TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
         return invitations.findPending(organizationId).stream()
                 .map(invitation -> InvitationView.from(invitation, clock.instant()))
                 .toList();
@@ -118,20 +139,9 @@ public class OrganizationQueries {
 
     /** Danh sách toàn hệ thống — chỉ superadmin (ADR-1010). */
     public List<OrganizationView> all(int limit, int offset) {
-        TenantContext.requireSuperAdmin();
+        TenantContext.requirePlatformPermission(Permission.PLATFORM_ORG_MANAGE);
         return organizations.findAll(Math.min(limit, MAX_PAGE_SIZE), Math.max(offset, 0)).stream()
                 .map(OrganizationView::from)
                 .toList();
-    }
-
-    private void requireOrgAdmin(TenantId organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return;
-        }
-        Role role = scope.roleIn(organizationId);
-        if (role == null || !role.isAtLeastOrgAdmin()) {
-            throw ApiException.forbidden("Requires ORG_ADMIN or above");
-        }
     }
 }

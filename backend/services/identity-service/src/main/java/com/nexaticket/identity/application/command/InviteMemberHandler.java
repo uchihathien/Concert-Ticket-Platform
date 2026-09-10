@@ -6,11 +6,11 @@ import com.nexaticket.identity.domain.model.Invitation;
 import com.nexaticket.identity.domain.model.Organization;
 import com.nexaticket.identity.domain.port.InvitationRepository;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.access.Role;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.platform.outbox.OutboxWriter;
 import com.nexaticket.platform.security.tenant.TenantContext;
-import com.nexaticket.platform.security.tenant.TenantScope;
 import com.nexaticket.platform.web.error.ApiException;
 import java.time.Clock;
 import java.util.Map;
@@ -46,7 +46,7 @@ public class InviteMemberHandler {
 
     @Transactional
     public String handle(TenantId organizationId, String email, Role role) {
-        requireOrgAdmin(organizationId);
+        TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
 
         Organization organization = organizations
                 .findById(organizationId)
@@ -73,21 +73,14 @@ public class InviteMemberHandler {
                 "member.invited",
                 Map.of(
                         "organizationId", organizationId.value().toString(),
+                        // Tên tổ chức đi kèm sự kiện, không để consumer gọi ngược lại hỏi.
+                        // Thư mời có tiêu đề "Lời mời tham gia <tên>", và một consumer phải gọi
+                        // ngược về Identity chỉ để lấy một chuỗi là một consumer chết theo Identity.
+                        "organizationName", organization.name(),
                         "email", email,
                         "role", role.name(),
                         "expiresAt", issued.invitation().expiresAt().toString()));
 
         return issued.rawToken();
-    }
-
-    private void requireOrgAdmin(TenantId organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return;
-        }
-        Role role = scope.roleIn(organizationId);
-        if (role == null || !role.isAtLeastOrgAdmin()) {
-            throw ApiException.forbidden("Requires ORG_ADMIN or above");
-        }
     }
 }

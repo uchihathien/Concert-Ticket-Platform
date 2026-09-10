@@ -4,6 +4,7 @@ package com.nexaticket.identity.application.command;
 import com.nexaticket.identity.application.IdentityErrorCode;
 import com.nexaticket.identity.domain.model.Organization;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.access.Role;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.kernel.id.UserId;
@@ -48,7 +49,7 @@ public class ManageMembersHandler {
 
     @Transactional
     public void changeRole(TenantId organizationId, UserId memberId, Role newRole) {
-        TenantScope actor = requireOrgAdmin(organizationId);
+        TenantScope actor = TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
         if (actor.userId().equals(memberId)) {
             throw ApiException.forbidden("Không tự đổi vai trò của chính mình");
         }
@@ -81,7 +82,7 @@ public class ManageMembersHandler {
 
     @Transactional
     public void remove(TenantId organizationId, UserId memberId) {
-        TenantScope actor = requireOrgAdmin(organizationId);
+        TenantScope actor = TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
         if (actor.userId().equals(memberId)) {
             throw ApiException.forbidden("Không tự gỡ chính mình khỏi tổ chức");
         }
@@ -107,17 +108,5 @@ public class ManageMembersHandler {
                 .findById(organizationId)
                 .orElseThrow(
                         () -> new ApiException(IdentityErrorCode.ORGANIZATION_NOT_FOUND, "Organization not found"));
-    }
-
-    private TenantScope requireOrgAdmin(TenantId organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return scope;
-        }
-        Role role = scope.roleIn(organizationId);
-        if (role == null || !role.isAtLeastOrgAdmin()) {
-            throw ApiException.forbidden("Requires ORG_ADMIN or above");
-        }
-        return scope;
     }
 }

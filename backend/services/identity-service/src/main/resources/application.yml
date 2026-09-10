@@ -48,6 +48,28 @@ nexaticket:
     # O production dat bang bien moi truong, khong commit vao repo.
     super-admin-emails: ${SUPER_ADMIN_EMAILS:superadmin@nexaticket.local}
 
+    keycloak:
+      # Admin API — CHỈ dùng cho một việc: nhờ Keycloak gửi thư đặt lại mật khẩu khi quản trị viên
+      # bấm hộ. Người dùng tự bấm "Quên mật khẩu?" trên trang đăng nhập thì KHÔNG đi qua đây.
+      #
+      # Trống client-secret thì tính năng đó tắt và trả 503 kèm lý do; mọi thứ còn lại chạy như cũ.
+      # Ở production đặt bằng biến môi trường, và xoay vòng như một mật khẩu database — bí mật này
+      # cho phép quản lý mọi tài khoản trong realm.
+      base-url: ${OIDC_BASE_URL:http://localhost:8081}
+      realm: ${OIDC_REALM:nexaticket}
+      client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:identity-admin}
+      client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:dev-secret-identity-admin}
+
+      # Người dùng quay về đâu sau khi đặt xong mật khẩu.
+      #
+      # PHẢI nằm trong redirect URI đã khai của client tương ứng, nếu không Keycloak từ chối cả
+      # lời gọi — và thông báo lỗi của nó không nói rõ là vì lý do này.
+      #
+      # Mặc định trỏ về app của ban tổ chức: đường "quản trị viên gửi hộ" gần như luôn dành cho
+      # nhân viên nội bộ.
+      default-reset-client-id: ${PASSWORD_RESET_CLIENT_ID:web-admin}
+      default-reset-redirect-uri: ${PASSWORD_RESET_REDIRECT_URI:http://localhost:3001/login}
+
     demo:
       # Dựng sẵn người dùng, tổ chức, thành viên và lời mời mẫu lúc khởi động.
       #
