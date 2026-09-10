@@ -8,6 +8,7 @@ import com.nexaticket.identity.domain.model.Organization;
 import com.nexaticket.identity.domain.model.Slug;
 import com.nexaticket.identity.domain.port.InvitationRepository;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.access.Role;
 import com.nexaticket.platform.outbox.OutboxWriter;
 import com.nexaticket.platform.security.tenant.TenantContext;
@@ -52,7 +53,7 @@ public class CreateOrganizationHandler {
     /** @return token thô của lời mời, chỉ trả về đúng một lần để gửi email */
     @Transactional
     public Result handle(CreateOrganization command) {
-        TenantContext.requireSuperAdmin();
+        TenantContext.requirePlatformPermission(Permission.PLATFORM_ORG_MANAGE);
 
         Instant now = clock.instant();
         Slug slug = resolveSlug(command);

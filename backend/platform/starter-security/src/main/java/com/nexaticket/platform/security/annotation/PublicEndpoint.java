@@ -7,7 +7,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Endpoint cố ý bỏ qua tenant filter: catalog công khai, webhook SePay.
+ * Endpoint cố ý bỏ qua tenant filter: catalog công khai, webhook payOS.
  *
  * <p>Đánh dấu tường minh để việc review nhìn ra ngay. Mọi endpoint không có annotation này mà truy
  * cập dữ liệu org-owned đều phải đi qua tenant filter.

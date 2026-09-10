@@ -4,10 +4,9 @@ package com.nexaticket.identity.application.command;
 import com.nexaticket.identity.application.IdentityErrorCode;
 import com.nexaticket.identity.domain.model.Invitation;
 import com.nexaticket.identity.domain.port.InvitationRepository;
-import com.nexaticket.kernel.access.Role;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.platform.security.tenant.TenantContext;
-import com.nexaticket.platform.security.tenant.TenantScope;
 import com.nexaticket.platform.web.error.ApiException;
 import java.util.Map;
 import java.util.UUID;
@@ -37,7 +36,7 @@ public class RevokeInvitationHandler {
 
     @Transactional
     public void handle(TenantId organizationId, UUID invitationId) {
-        requireOrgAdmin(organizationId);
+        TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
 
         Invitation invitation = invitations
                 .findById(invitationId)
@@ -60,16 +59,5 @@ public class RevokeInvitationHandler {
                 invitation.id(),
                 Map.of("email", invitation.email(), "role", invitation.role().name()),
                 null);
-    }
-
-    private void requireOrgAdmin(TenantId organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return;
-        }
-        Role role = scope.roleIn(organizationId);
-        if (role == null || !role.isAtLeastOrgAdmin()) {
-            throw ApiException.forbidden("Requires ORG_ADMIN or above");
-        }
     }
 }

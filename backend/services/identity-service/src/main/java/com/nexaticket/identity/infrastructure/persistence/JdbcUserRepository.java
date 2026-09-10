@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.identity.infrastructure.persistence;
 
+import com.nexaticket.identity.domain.model.UserStatus;
 import com.nexaticket.identity.domain.port.UserRepository;
 import com.nexaticket.kernel.id.UserId;
 import java.util.Optional;
@@ -18,9 +19,15 @@ public class JdbcUserRepository implements UserRepository {
             rs.getString("email"),
             rs.getString("full_name"),
             rs.getString("phone"),
-            rs.getBoolean("is_super_admin"));
+            rs.getBoolean("is_super_admin"),
+            UserStatus.valueOf(rs.getString("status")),
+            // getTimestamp trả null cho cột NULL, và null ở đây có nghĩa: "chưa từng thu hồi".
+            rs.getTimestamp("tokens_valid_from") == null
+                    ? null
+                    : rs.getTimestamp("tokens_valid_from").toInstant());
 
-    private static final String SELECT = "SELECT id, idp_subject, email, full_name, phone, is_super_admin FROM users ";
+    private static final String SELECT =
+            "SELECT id, idp_subject, email, full_name, phone, is_super_admin, status, tokens_valid_from FROM users ";
 
     private final JdbcTemplate jdbc;
 
@@ -50,6 +57,14 @@ public class JdbcUserRepository implements UserRepository {
      *
      * <p>{@code analytics_subject_id} sinh riêng và không bao giờ bằng {@code id} — analytics dùng nó
      * để không join được với PII (legal-constraints-vn.md §4).
+     *
+     * <p><b>Nhánh cập nhật KHÔNG ghi đè {@code full_name}.</b> Chiều đúng là
+     * {@code COALESCE(users.full_name, excluded.full_name)}: lấy tên từ IdP khi phía ta chưa có,
+     * và giữ nguyên khi đã có. Viết ngược lại — như bản trước — thì mỗi lần gọi là một lần trả tên
+     * về bản của Keycloak, và {@code PATCH /v1/me} trở thành nút "đổi tên trong vài giây".
+     *
+     * <p>Email thì ngược lại: Keycloak là nguồn chân lý, và email cũng là khoá khớp lời mời, nên
+     * bản mới thắng — trừ khi nó rỗng, vì khi đó bản mới không mang thông tin gì.
      */
     @Override
     public UserRecord upsertByIdpSubject(String idpSubject, String email, String fullName) {
@@ -57,8 +72,8 @@ public class JdbcUserRepository implements UserRepository {
                 """
                 INSERT INTO users (id, idp_subject, email, full_name, analytics_subject_id)
                 VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (idp_subject) DO UPDATE SET email = excluded.email,
-                                                        full_name = COALESCE(excluded.full_name, users.full_name),
+                ON CONFLICT (idp_subject) DO UPDATE SET email = COALESCE(excluded.email, users.email),
+                                                        full_name = COALESCE(users.full_name, excluded.full_name),
                                                         updated_at = now()
                 """,
                 UUID.randomUUID(),
@@ -87,6 +102,32 @@ public class JdbcUserRepository implements UserRepository {
                 """,
                 fullName,
                 phone,
+                id.value());
+    }
+
+    @Override
+    public void setStatus(UserId id, UserStatus status) {
+        jdbc.update("UPDATE users SET status = ?, updated_at = now() WHERE id = ?", status.name(), id.value());
+    }
+
+    /**
+     * Chỉ đẩy mốc VỀ PHÍA TRƯỚC, không bao giờ lùi.
+     *
+     * <p>{@code GREATEST} chứ không gán thẳng: hai lần thu hồi đồng thời — một của superadmin, một
+     * của quản trị viên tổ chức — mà lần ghi sau mang mốc cũ hơn thì nó sẽ <b>khôi phục</b> lại
+     * những token vừa bị lần trước vô hiệu. Một lệnh thu hồi không được phép cấp lại quyền cho ai.
+     */
+    @Override
+    public void revokeTokensIssuedBefore(UserId id, java.time.Instant cutoff) {
+        jdbc.update(
+                """
+                UPDATE users
+                   SET tokens_valid_from = GREATEST(COALESCE(tokens_valid_from, ?), ?),
+                       updated_at = now()
+                 WHERE id = ?
+                """,
+                java.sql.Timestamp.from(cutoff),
+                java.sql.Timestamp.from(cutoff),
                 id.value());
     }
 

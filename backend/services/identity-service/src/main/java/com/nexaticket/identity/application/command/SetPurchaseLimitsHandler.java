@@ -3,11 +3,9 @@ package com.nexaticket.identity.application.command;
 
 import com.nexaticket.identity.application.query.PurchaseLimitsView;
 import com.nexaticket.identity.domain.port.PurchaseLimitsRepository;
-import com.nexaticket.kernel.access.Role;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.platform.security.tenant.TenantContext;
-import com.nexaticket.platform.security.tenant.TenantScope;
-import com.nexaticket.platform.web.error.ApiException;
 import java.util.HashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -41,14 +39,14 @@ public class SetPurchaseLimitsHandler {
 
     @Transactional(readOnly = true)
     public PurchaseLimitsView get(TenantId organizationId) {
-        requireOrgAdmin(organizationId);
+        TenantContext.requirePermission(Permission.ORG_LIMITS_SET, organizationId);
         return PurchaseLimitsView.from(limits.find(organizationId).orElseGet(PurchaseLimitsRepository.Limits::empty));
     }
 
     @Transactional
     public PurchaseLimitsView set(
             TenantId organizationId, Integer seated, Integer standing, Integer units, Integer perCustomer) {
-        requireOrgAdmin(organizationId);
+        TenantContext.requirePermission(Permission.ORG_LIMITS_SET, organizationId);
         PurchaseLimitsRepository.Limits before =
                 limits.find(organizationId).orElseGet(PurchaseLimitsRepository.Limits::empty);
         PurchaseLimitsRepository.Limits newLimits =
@@ -68,16 +66,5 @@ public class SetPurchaseLimitsHandler {
         map.put("maxUnitsPerHold", value.maxUnitsPerHold());
         map.put("maxTicketsPerCustomer", value.maxTicketsPerCustomer());
         return map;
-    }
-
-    private void requireOrgAdmin(TenantId organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return;
-        }
-        Role role = scope.roleIn(organizationId);
-        if (role == null || !role.isAtLeastOrgAdmin()) {
-            throw ApiException.forbidden("Requires ORG_ADMIN or above");
-        }
     }
 }

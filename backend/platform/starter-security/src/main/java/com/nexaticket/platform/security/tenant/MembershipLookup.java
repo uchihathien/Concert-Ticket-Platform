@@ -22,8 +22,20 @@ public interface MembershipLookup {
      * @param subject claim {@code sub} — khoá định danh bền của người dùng ở IdP
      * @param email claim {@code email}; cần để tạo bản ghi ở lần chạm đầu tiên
      * @param fullName claim {@code name}, có thể null
+     * @param sessionId claim {@code sid} của Keycloak — một phiên đăng nhập, tức là một thiết bị.
+     *     Cần để thu hồi <b>một</b> phiên mà không đá người dùng ra khỏi mọi máy khác. Có thể null
+     *     với IdP không phát claim này; khi đó chỉ thu hồi được toàn bộ phiên.
+     * @param issuedAt claim {@code iat}. Đây là thứ làm cho việc thu hồi có hiệu lực <b>ngay</b>:
+     *     token phát trước mốc {@code tokens_valid_from} của người dùng bị từ chối, thay vì còn
+     *     sống tới khi hết hạn. Có thể null.
      */
-    record Claims(String subject, String email, String fullName) {}
+    record Claims(String subject, String email, String fullName, String sessionId, java.time.Instant issuedAt) {
+
+        /** Cho những chỗ gọi không có thông tin phiên — chúng chỉ mất khả năng kiểm thu hồi. */
+        public Claims(String subject, String email, String fullName) {
+            this(subject, email, fullName, null, null);
+        }
+    }
 
     /**
      * Tra người dùng, <b>tạo bản ghi nếu đây là lần đầu</b>.

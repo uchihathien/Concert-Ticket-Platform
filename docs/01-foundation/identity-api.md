@@ -155,11 +155,22 @@ dụng với tổ chức đã khai.
 
 | Method | Path | Dùng bởi |
 | --- | --- | --- |
-| GET | `/internal/users/provision` | mọi service, qua `HttpMembershipLookup` |
-| GET | `/internal/memberships` | như trên |
+| GET | `/internal/memberships` | mọi service, qua `HttpMembershipLookup` |
+
+Một endpoint, không phải hai. `/internal/users/provision` đã bị bỏ: nó UPSERT vô điều kiện rồi mới
+tra, nên đường nóng của mười service thành một lệnh ghi mỗi 60 giây mỗi người dùng — và lệnh ghi đó
+đè `full_name` bằng claim của Keycloak, làm tên vừa sửa ở `PATCH /v1/me` quay về bản cũ trong vòng
+một phút. `/internal/memberships` vốn đã **tra-hoặc-tạo**: tạo ở lần chạm đầu tiên, và không đụng
+vào bản ghi đã có.
 
 Gateway **cố ý không route** `/internal/**`: chỉ gọi được trong mạng nội bộ. Không service nào đọc
 thẳng bảng `organization_members` của identity (ADR-1002).
+
+Mạng nội bộ là hàng rào thứ nhất, không phải hàng rào duy nhất. Khai
+`nexaticket.internal.shared-secret` (biến `NEXATICKET_INTERNAL_SHAREDSECRET`, **cùng một giá trị cho
+mọi service**) thì `InternalApiFilter` đòi header `X-Internal-Token` và trả 404 nếu thiếu. Bắt buộc ở
+production: `/internal/memberships` tạo được người dùng với `email` do người gọi tự đặt, và
+`SuperAdminBootstrap` cấp `SUPER_ADMIN` theo email.
 
 ## Mã lỗi
 

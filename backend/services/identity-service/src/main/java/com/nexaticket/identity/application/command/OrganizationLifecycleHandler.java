@@ -4,10 +4,9 @@ package com.nexaticket.identity.application.command;
 import com.nexaticket.identity.application.IdentityErrorCode;
 import com.nexaticket.identity.domain.model.Organization;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
-import com.nexaticket.kernel.access.Role;
+import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.platform.security.tenant.TenantContext;
-import com.nexaticket.platform.security.tenant.TenantScope;
 import com.nexaticket.platform.web.error.ApiException;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -43,7 +42,7 @@ public class OrganizationLifecycleHandler {
 
     @Transactional
     public void rename(TenantId organizationId, String newName) {
-        requireOrgAdmin(organizationId);
+        TenantContext.requirePermission(Permission.ORG_PROFILE_MANAGE, organizationId);
         Organization organization = load(organizationId);
         String before = organization.name();
 
@@ -60,7 +59,7 @@ public class OrganizationLifecycleHandler {
 
     @Transactional
     public void suspend(TenantId organizationId) {
-        TenantContext.requireSuperAdmin();
+        TenantContext.requirePlatformPermission(Permission.PLATFORM_ORG_MANAGE);
         Organization organization = load(organizationId);
         if (!organization.isActive()) {
             throw new ApiException(IdentityErrorCode.ORGANIZATION_SUSPENDED, "Tổ chức đã bị khoá");
@@ -78,7 +77,7 @@ public class OrganizationLifecycleHandler {
 
     @Transactional
     public void activate(TenantId organizationId) {
-        TenantContext.requireSuperAdmin();
+        TenantContext.requirePlatformPermission(Permission.PLATFORM_ORG_MANAGE);
         Organization organization = load(organizationId);
 
         organization.activate();
@@ -96,16 +95,5 @@ public class OrganizationLifecycleHandler {
                 .findById(organizationId)
                 .orElseThrow(
                         () -> new ApiException(IdentityErrorCode.ORGANIZATION_NOT_FOUND, "Organization not found"));
-    }
-
-    private void requireOrgAdmin(TenantId organizationId) {
-        TenantScope scope = TenantContext.requireAuthenticated();
-        if (scope.superAdmin()) {
-            return;
-        }
-        Role role = scope.roleIn(organizationId);
-        if (role == null || !role.isAtLeastOrgAdmin()) {
-            throw ApiException.forbidden("Requires ORG_ADMIN or above");
-        }
     }
 }

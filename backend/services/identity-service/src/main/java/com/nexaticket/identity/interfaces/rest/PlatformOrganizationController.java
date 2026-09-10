@@ -3,11 +3,18 @@ package com.nexaticket.identity.interfaces.rest;
 
 import com.nexaticket.identity.application.command.CreateOrganization;
 import com.nexaticket.identity.application.command.CreateOrganizationHandler;
+import com.nexaticket.identity.application.command.GrantMembershipHandler;
 import com.nexaticket.identity.application.command.OrganizationLifecycleHandler;
 import com.nexaticket.identity.application.query.OrganizationQueries;
 import com.nexaticket.identity.application.query.OrganizationView;
+import com.nexaticket.kernel.access.Permission;
+import com.nexaticket.kernel.access.Role;
 import com.nexaticket.kernel.id.TenantId;
+import com.nexaticket.platform.security.annotation.RequiresPermission;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import java.net.URI;
 import java.util.List;
 import java.util.UUID;
@@ -31,18 +38,44 @@ public class PlatformOrganizationController {
 
     private final CreateOrganizationHandler createOrganization;
     private final OrganizationLifecycleHandler lifecycle;
+    private final GrantMembershipHandler grantMembership;
     private final OrganizationQueries queries;
 
     public PlatformOrganizationController(
             CreateOrganizationHandler createOrganization,
             OrganizationLifecycleHandler lifecycle,
+            GrantMembershipHandler grantMembership,
             OrganizationQueries queries) {
         this.createOrganization = createOrganization;
         this.lifecycle = lifecycle;
+        this.grantMembership = grantMembership;
         this.queries = queries;
     }
 
+    /**
+     * Cấp thẳng một vai trò cho ai đó trong tổ chức — không qua email mời.
+     *
+     * <p>Đây là bước hai của luồng onboarding: {@code POST /v1/platform/organizations} tạo tổ chức
+     * và mời chủ sở hữu, còn endpoint này cấp thêm {@code ORG_ADMIN} hay nhân viên khi Tổng công ty
+     * cần đơn vị bắt đầu làm việc ngay.
+     *
+     * <p><b>Kết quả có hai dạng</b>, và đó là hệ quả của việc Keycloak giữ danh tính (ADR-0016):
+     * người đã từng đăng nhập thì {@code GRANTED} và có hiệu lực ngay; người chưa từng thì
+     * {@code INVITED} kèm token, vì phía ta chưa có danh tính nào để gắn membership vào. Xem
+     * {@code GrantMembershipHandler} để biết vì sao không thể bịa ra một bản ghi tạm.
+     */
+    @PostMapping("/{organizationId}/members")
+    @RequiresPermission(Permission.PLATFORM_ORG_MANAGE)
+    public GrantMembershipHandler.Result grantMember(
+            @PathVariable UUID organizationId, @Valid @RequestBody GrantMemberRequest request) {
+        return grantMembership.handle(TenantId.of(organizationId), request.email(), request.role());
+    }
+
+    /** @param role vai trò trong phạm vi tổ chức; {@code SUPER_ADMIN} và {@code CUSTOMER} bị từ chối */
+    public record GrantMemberRequest(@NotBlank @Email String email, @NotNull Role role) {}
+
     @PostMapping
+    @RequiresPermission(Permission.PLATFORM_ORG_MANAGE)
     public ResponseEntity<CreatedOrganizationResponse> create(@Valid @RequestBody CreateOrganization command) {
         CreateOrganizationHandler.Result result = createOrganization.handle(command);
         OrganizationView org = result.organization();
@@ -74,12 +107,14 @@ public class PlatformOrganizationController {
      * kéo theo một quyết định thương mại.
      */
     @PostMapping("/{organizationId}/suspend")
+    @RequiresPermission(Permission.PLATFORM_ORG_MANAGE)
     public OrganizationSummary suspend(@PathVariable UUID organizationId) {
         lifecycle.suspend(TenantId.of(organizationId));
         return OrganizationSummary.from(queries.byId(TenantId.of(organizationId)));
     }
 
     @PostMapping("/{organizationId}/activate")
+    @RequiresPermission(Permission.PLATFORM_ORG_MANAGE)
     public OrganizationSummary activate(@PathVariable UUID organizationId) {
         lifecycle.activate(TenantId.of(organizationId));
         return OrganizationSummary.from(queries.byId(TenantId.of(organizationId)));
