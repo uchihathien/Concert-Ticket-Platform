@@ -61,7 +61,12 @@ public class AdminCatalogQuery {
                 .toList();
     }
 
-    private static CatalogViews.AdminEventDetail toDetail(Event event, Venue venue) {
+    /**
+     * Dùng lại bởi {@link OrganizationDashboardQuery}: màn hình master data cần đúng hình dạng này
+     * cho phần "thông tin chi tiết + khu vực + hạng vé", và dựng bản thứ hai của nó là để hai màn
+     * hình cùng nói về một sự kiện bằng hai giọng khác nhau.
+     */
+    static CatalogViews.AdminEventDetail toDetail(Event event, Venue venue) {
         Map<UUID, VenueZone> zones =
                 venue.zones().stream().collect(Collectors.toMap(VenueZone::id, Function.identity()));
 

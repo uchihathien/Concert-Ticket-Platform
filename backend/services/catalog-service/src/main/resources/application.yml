@@ -54,6 +54,19 @@ nexaticket:
     publish-interval-ms: 500
 
   catalog:
+    services:
+      # Bảng điều khiển của ban tổ chức ghép dữ liệu của ba service. Hai địa chỉ này chỉ dùng cho
+      # đường ĐỌC đó — không có lệnh ghi nào của catalog đi qua chúng.
+      #
+      # Hai service này chết thì bảng điều khiển vẫn mở, chỉ thiếu phần số và có `degraded` nói rõ
+      # thiếu vì sao (OrganizationDashboardQuery). Nên sai địa chỉ ở đây KHÔNG làm hỏng gì rõ ràng
+      # — nó chỉ làm mọi con số biến mất, lặng lẽ.
+      inventory-url: ${INVENTORY_URL:http://localhost:8092}
+      analytics-url: ${ANALYTICS_URL:http://localhost:8099}
+      # Đây là màn hình quản trị chứ không phải khách đang giữ chỗ, nên ngân sách rộng hơn 2 giây
+      # của saga checkout — nhưng vẫn hữu hạn, và vẫn nhỏ hơn kiên nhẫn của người đang nhìn màn hình.
+      timeout: ${DASHBOARD_TIMEOUT:3s}
+
     # TRẦN CỨNG của nền tảng, không phải giá trị gợi ý. Ban tổ chức khai số nhỏ hơn thì được, khai
     # số lớn hơn thì bị kẹp xuống (PurchaseLimits.resolve). Đây là chốt chặn chống đầu cơ vé, nên
     # nới nó ra là quyết định của nền tảng chứ không phải của từng ban tổ chức.
@@ -61,6 +74,15 @@ nexaticket:
     max-standing-per-hold: ${MAX_STANDING_PER_HOLD:10}
     max-units-per-hold: ${MAX_UNITS_PER_HOLD:10}
     max-tickets-per-customer: ${MAX_TICKETS_PER_CUSTOMER:20}
+
+    # Hoa hồng nền tảng, tính bằng điểm cơ bản: 500 = 5% (custodial-funds.md §N1).
+    #
+    # Ordering hỏi con số này lúc tạo đơn rồi CHỐT LUÔN vào đơn và vào từng dòng đơn. Đổi ở đây chỉ
+    # ảnh hưởng đơn mới; đơn cũ giữ nguyên tỷ lệ lúc bán, vì hoá đơn sáu tháng trước vẫn phải in ra
+    # đúng những gì khách đã thấy.
+    #
+    # ADR-1010: tổ chức KHÔNG được thấy con số này. Nó chỉ đi qua /internal, không qua gateway.
+    commission-bps: ${PLATFORM_COMMISSION_BPS:500}
 
     # Dựng sẵn một tổ chức mẫu với vài sự kiện đã publish, lúc khởi động.
     #

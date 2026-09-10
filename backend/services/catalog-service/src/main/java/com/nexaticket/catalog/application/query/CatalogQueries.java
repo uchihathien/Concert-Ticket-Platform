@@ -39,4 +39,14 @@ public interface CatalogQueries {
 
     /** Bảng sự kiện của khu vực quản trị, gồm cả bản nháp. */
     List<CatalogViews.AdminEventRow> organizationEvents(UUID organizationId);
+
+    /**
+     * Suất diễn này có thật không.
+     *
+     * <p>Cố ý KHÔNG đòi sự kiện phải đang ở trạng thái PUBLISHED. Đường gọi duy nhất là báo giá lúc
+     * tạo đơn, và lúc đó khách đã giữ được chỗ — nghĩa là suất đã từng lên bán. Ban tổ chức rút sự
+     * kiện xuống giữa chừng không được làm hỏng những lần checkout đang dở: chặn bán thêm là việc
+     * của Inventory qua cửa sổ bán, không phải của bước báo giá.
+     */
+    boolean sessionExists(UUID eventSessionId);
 }
