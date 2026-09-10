@@ -36,6 +36,7 @@ EXTRA=(
   notification-service:8098
   analytics-service:8099
   realtime-gateway:8100
+  ai-chatbox-service:8101
 )
 
 SKIP_INSTALL=0; WITH_FRONTEND=0; WITH_INFRA=1; SERVICES=("${CORE[@]}"); FRONTEND_APPS=""

@@ -96,6 +96,14 @@ spring:
               uri: ${PAYMENT_URL:http://localhost:8095}
               predicates:
                 - Path=/api/billing/bank/webhook/**
+            # Trợ lý AI. Không chồng mẫu nào, nhưng CẦN một ghi chú riêng: mỗi request ở đường
+            # này là một lần gọi mô hình có tính tiền, khác hẳn mọi route còn lại vốn chỉ tốn CPU
+            # của ta. Ngưỡng chung 50 rps là quá rộng cho nó — xem hạng mục còn lại trong
+            # production-checklist.
+            - id: ai-chatbox
+              uri: ${AICHATBOX_URL:http://localhost:8101}
+              predicates:
+                - Path=/v1/chat/**
             # Rộng nhất, nên đứng cuối: `/v1/organizations/**` và `/v1/me/**` bao trùm mọi mẫu trên.
             # `/v1/roles`, `/v1/platform/users/**` và `/v1/platform/audit-logs` KHÔNG khớp mẫu nào
             # ở trên, nên thiếu chúng ở đây là 404 của chính gateway — và người ta sẽ đi soi

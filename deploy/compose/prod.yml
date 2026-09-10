@@ -372,7 +372,8 @@ services:
 
   # --- Hạ tầng ---------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    # pgvector: ai-chatbox-service cần extension `vector`, không có trong ảnh chính thức.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     # 200 = 11 service x 10 kết nối, cộng chỗ trống cho psql và công cụ sao lưu. Mặc định 100
     # KHÔNG đủ: service khởi động sau chết với "remaining connection slots are reserved", một

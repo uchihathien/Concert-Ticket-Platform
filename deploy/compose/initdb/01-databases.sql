@@ -18,6 +18,7 @@ CREATE USER payout     WITH PASSWORD 'payout';
 CREATE USER ticketing  WITH PASSWORD 'ticketing';
 CREATE USER notification WITH PASSWORD 'notification';
 CREATE USER analytics  WITH PASSWORD 'analytics';
+CREATE USER ai_chatbox WITH PASSWORD 'ai_chatbox';
 
 CREATE DATABASE identity_db     OWNER identity;
 CREATE DATABASE catalog_db      OWNER catalog;
@@ -29,6 +30,18 @@ CREATE DATABASE payout_db       OWNER payout;
 CREATE DATABASE ticketing_db    OWNER ticketing;
 CREATE DATABASE notification_db OWNER notification;
 CREATE DATABASE analytics_db    OWNER analytics;
+CREATE DATABASE ai_chatbox_db   OWNER ai_chatbox;
+
+-- Extension pgvector cho ai_chatbox_db, tạo Ở ĐÂY chứ không trong migration.
+--
+-- pgvector không phải extension "trusted", nên CREATE EXTENSION đòi superuser — mà Flyway chạy
+-- bằng role ai_chatbox, chủ database chứ không phải superuser. Đặt lệnh này vào migration thì mọi
+-- môi trường sạch đều chết ở lần khởi động đầu với "permission denied to create extension", và
+-- thông báo ấy trỏ vào Flyway trong khi nguyên nhân là phân quyền của cụm. Script này chạy bằng
+-- `postgres`, nên nó là chỗ đúng.
+\connect ai_chatbox_db
+CREATE EXTENSION IF NOT EXISTS vector;
+\connect postgres
 
 -- Quyền trên bảng của ledger_db do migration V0101 cấp — nó chạy bằng ledger_owner nên cấp được,
 -- và nó NÉM LỖI nếu role ledger_app chưa tồn tại thay vì bỏ qua im lặng.
@@ -39,6 +52,13 @@ CREATE DATABASE analytics_db    OWNER analytics;
 --   CREATE USER ledger_app   WITH PASSWORD 'ledger_app';
 --   ALTER DATABASE ledger_db OWNER TO ledger_owner;
 --   REASSIGN OWNED BY ledger TO ledger_owner;   -- chạy khi đang kết nối vào ledger_db
+--
+-- Tương tự với ai-chatbox trên máy đã chạy từ trước — và nhớ đổi ảnh postgres sang
+-- pgvector/pgvector:pg16 rồi `docker compose up -d postgres` trước, vì extension nằm trong ảnh:
+--   CREATE USER ai_chatbox WITH PASSWORD 'ai_chatbox';
+--   CREATE DATABASE ai_chatbox_db OWNER ai_chatbox;
+--   \connect ai_chatbox_db
+--   CREATE EXTENSION vector;
 
 -- Mỗi user service chỉ nên thấy database của mình. Postgres cấp CONNECT cho PUBLIC theo mặc định,
 -- nên điều đó KHÔNG tự đúng — xem hạng mục còn lại trong báo cáo kiến trúc.
