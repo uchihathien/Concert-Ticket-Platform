@@ -63,11 +63,30 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HTTP_PORT: "8081"
+      # Từ Keycloak 25, /health/* KHÔNG còn nằm trên cổng ứng dụng và mặc định bị tắt hẳn.
+      # Thiếu biến này thì cổng quản trị 9000 từ chối kết nối, healthcheck bên dưới không bao
+      # giờ xanh, và `docker compose up --wait` treo tới lúc hết giờ rồi báo lỗi — dù Keycloak
+      # phục vụ hoàn toàn bình thường. Triệu chứng đánh lừa: người ta đi tìm lỗi ở realm.
+      KC_HEALTH_ENABLED: "true"
     ports: ["8081:8081"]
     volumes:
+      # Container này KHÔNG có volume dữ liệu: `start-dev` giữ database trong chính filesystem của
+      # nó, nên recreate container là mất sạch người dùng. Realm được import lại, nhưng Keycloak
+      # cấp UUID MỚI cho từng user nếu realm JSON không ghi sẵn `id`.
+      #
+      # Hậu quả không nhìn ra được từ phía Keycloak: identity_db nhận diện người dùng theo
+      # `idp_subject`, nên sau một lần recreate mọi tài khoản cũ đều lệch. Đăng nhập vẫn qua được
+      # Keycloak, nhưng identity từ chối tra cứu (email đã thuộc về một `sub` khác) và MỌI lời gọi
+      # API trả 401/403 — trong khi giao diện hiển thị là đã đăng nhập.
+      #
+      # Vì vậy `id` của bốn tài khoản mẫu được ghim thẳng trong nexaticket-realm.json. Đừng bỏ
+      # chúng đi. Tài khoản người dùng tự đăng ký thì vẫn mất khi recreate; đó là cái giá của việc
+      # không gắn volume, đổi lại realm JSON luôn được import lại đúng như trong repo.
       - ../keycloak:/opt/keycloak/data/import:ro
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8081 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      # Cổng 9000 (management), KHÔNG phải 8081: bản trước hỏi /health/ready trên cổng ứng
+      # dụng và nhận 404 mãi mãi. Cổng này chỉ dùng trong mạng của compose, không cần publish.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && cat <&3 | grep -q '200 OK'"]
       interval: 10s
       timeout: 5s
       retries: 30
