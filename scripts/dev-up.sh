@@ -104,6 +104,18 @@ if [ -f "$ROOT/.env" ]; then
   unset DB_URL DB_USER DB_PASSWORD
 fi
 
+# Cổng quản trị của mỗi service. Từ khi actuator tách khỏi cổng ứng dụng, MỌI service đều mặc định
+# `MANAGEMENT_PORT:9090` — đúng cho production (một service một container) và sai hoàn toàn ở đây,
+# nơi mười hai service dùng chung một máy. Cái nào bind 9090 trước thì sống, phần còn lại chết bằng
+# một thông báo không hề nhắc tới actuator:
+#
+#   Web server failed to start. Port 9090 was already in use.
+#
+# Cổng ứng dụng đã duy nhất rồi, nên lấy nó + 1000 là được một cổng quản trị cũng duy nhất
+# (8080→9080, 8091→9091, …). Và vì actuator KHÔNG còn nghe ở cổng ứng dụng nữa, đây cũng là địa chỉ
+# duy nhất để hỏi health — kiểm tra ở cổng ứng dụng sẽ luôn trả 404/500.
+mgmt_port() { echo $(( $1 + 1000 )); }
+
 # Chờ tới khi URL trả 200, hoặc bỏ cuộc. Ngủ cố định rồi hy vọng là cách làm cho ra một script
 # lúc chạy được lúc không, và không ai biết vì sao.
 wait_http() {
@@ -140,8 +152,8 @@ fi
 : > "$PIDFILE"
 echo "==> Backend (${#SERVICES[@]} service)"
 for entry in "${SERVICES[@]}"; do
-  svc="${entry%%:*}"; port="${entry##*:}"
-  if curl -fsS -o /dev/null --max-time 2 "http://localhost:$port/actuator/health" 2>/dev/null; then
+  svc="${entry%%:*}"; port="${entry##*:}"; mport="$(mgmt_port "$port")"
+  if curl -fsS -o /dev/null --max-time 2 "http://localhost:$mport/actuator/health" 2>/dev/null; then
     echo "    $svc đã chạy sẵn ở :$port — bỏ qua"
     continue
   fi
@@ -172,20 +184,20 @@ for entry in "${SERVICES[@]}"; do
   # Qua `env`, không phải một tiền tố gán biến dựng từ mảng: `"${env_prefix[@]}" ./mvnw` khiến
   # bash coi "PAYMENT_SANDBOX=true" là TÊN LỆNH và chết với "command not found". Phép gán biến
   # phải nằm nguyên văn trong câu lệnh lúc parse, không đến từ một lần khai triển.
-  env_prefix=()
-  [ "$svc" = "payment-service" ] && env_prefix=(PAYMENT_SANDBOX=true)
+  env_prefix=(MANAGEMENT_PORT="$mport")
+  [ "$svc" = "payment-service" ] && env_prefix+=(PAYMENT_SANDBOX=true)
 
   (cd "$ROOT/backend" && env "${env_prefix[@]}" ./mvnw -q -pl "services/$svc" spring-boot:run \
       > "$LOGS/$svc.log" 2>&1) &
   echo "$!:$port:$svc" >> "$PIDFILE"
-  echo "    $svc → :$port (log: backend/target/dev-logs/$svc.log)"
+  echo "    $svc → :$port (quản trị :$mport, log: backend/target/dev-logs/$svc.log)"
 done
 
 echo "==> Chờ backend lên"
 failed=0
 for entry in "${SERVICES[@]}"; do
   svc="${entry%%:*}"; port="${entry##*:}"
-  wait_http "$svc" "http://localhost:$port/actuator/health" 90 || failed=1
+  wait_http "$svc" "http://localhost:$(mgmt_port "$port")/actuator/health" 90 || failed=1
 done
 
 if [ "$WITH_FRONTEND" = 1 ]; then
