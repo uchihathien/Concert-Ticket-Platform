@@ -19,20 +19,24 @@ public class PayoutClients {
 
     @Bean
     public RestClient ledgerClient(
-            @Value("${nexaticket.payout.services.ledger-url:http://localhost:8094}") String url) {
-        return build(url);
+            @Value("${nexaticket.payout.services.ledger-url:http://localhost:8094}") String url,
+            RestClient.Builder builder) {
+        return build(builder, url);
     }
 
     @Bean
     public RestClient identityClient(
-            @Value("${nexaticket.payout.services.identity-url:http://localhost:8090}") String url) {
-        return build(url);
+            @Value("${nexaticket.payout.services.identity-url:http://localhost:8090}") String url,
+            RestClient.Builder builder) {
+        return build(builder, url);
     }
 
-    private static RestClient build(String baseUrl) {
+    // Builder ĐƯỢC TIÊM, không phải RestClient.builder() tĩnh: chỉ bản này mang theo correlation
+    // id và trace span sang service được gọi. Xem CorrelationPropagation.
+    private static RestClient build(RestClient.Builder builder, String baseUrl) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(5));
         factory.setReadTimeout(Duration.ofSeconds(5));
-        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        return builder.baseUrl(baseUrl).requestFactory(factory).build();
     }
 }

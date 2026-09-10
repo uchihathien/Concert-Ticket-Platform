@@ -17,14 +17,17 @@ public class OrderingHttpAdapter implements OrderingPort {
 
     private final RestClient client;
 
-    public OrderingHttpAdapter(@Value("${nexaticket.ticketing.ordering-url:http://localhost:8093}") String baseUrl) {
+    public OrderingHttpAdapter(
+            RestClient.Builder builder,
+            @Value("${nexaticket.ticketing.ordering-url:http://localhost:8093}") String baseUrl) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         // Rộng hơn hạn 2 giây của saga checkout: ở đây không có khách nào đang chờ màn hình,
         // và để message giao lại chỉ vì chậm một giây là lãng phí.
         factory.setConnectTimeout(Duration.ofSeconds(5));
         factory.setReadTimeout(Duration.ofSeconds(5));
-        this.client =
-                RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        // Builder ĐƯỢC TIÊM, không phải RestClient.builder() tĩnh: chỉ bản này mang theo
+        // correlation id và trace span sang service được gọi. Xem CorrelationPropagation.
+        this.client = builder.baseUrl(baseUrl).requestFactory(factory).build();
     }
 
     @Override

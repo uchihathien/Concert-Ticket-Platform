@@ -44,6 +44,27 @@
       <artifactId>micrometer-registry-prometheus</artifactId>
       <scope>runtime</scope>
     </dependency>
+    <!-- Trace phân tán.
+
+         Metric trả lời "chậm bao nhiêu", trace trả lời "chậm ở ĐÂU". Với một saga checkout đi qua
+         năm service thì câu thứ hai là câu duy nhất đáng hỏi lúc 2 giờ sáng — và không suy ra được
+         từ metric của từng service, vì mỗi service đều nhìn thấy mình nhanh.
+
+         Bridge của Micrometer chứ không phải OTel agent: agent cần thêm -javaagent vào ENTRYPOINT
+         và nó vá bytecode lúc chạy, nên một bản nâng cấp agent có thể làm hỏng ứng dụng ở nơi
+         không ai đọc được từ mã nguồn. Bridge thì hiện ra trong pom và trong context Spring.
+
+         TẮT mặc định (management.tracing.enabled=false): không có collector thì exporter thử gửi
+         mỗi vài giây và ghi đầy log bằng lỗi kết nối. Bật bằng TRACING_ENABLED=true. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>com.nexaticket</groupId>
       <artifactId>shared-kernel</artifactId>

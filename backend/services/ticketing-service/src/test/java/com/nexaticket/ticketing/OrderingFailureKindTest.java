@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClient;
 
 /**
  * Phân biệt lỗi <b>tạm thời</b> với lỗi <b>dứt khoát</b> khi hỏi Ordering.
@@ -45,8 +46,10 @@ class OrderingFailureKindTest {
             exchange.close();
         });
         server.start();
+        // Builder tĩnh là ĐỦ ở đây: test này kiểm cách phân loại lỗi, không kiểm việc truyền
+        // correlation id — thứ do CorrelationPropagation cắm vào builder của Spring.
         adapter = new OrderingHttpAdapter(
-                "http://127.0.0.1:" + server.getAddress().getPort());
+                RestClient.builder(), "http://127.0.0.1:" + server.getAddress().getPort());
     }
 
     @AfterEach

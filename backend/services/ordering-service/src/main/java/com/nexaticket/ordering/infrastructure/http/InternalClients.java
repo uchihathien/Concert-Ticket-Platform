@@ -29,25 +29,27 @@ public class InternalClients {
     private String paymentUrl = "http://localhost:8095";
 
     @Bean
-    public RestClient inventoryClient(OrderingProperties properties) {
-        return build(inventoryUrl, properties.remoteTimeout());
+    public RestClient inventoryClient(OrderingProperties properties, RestClient.Builder builder) {
+        return build(builder, inventoryUrl, properties.remoteTimeout());
     }
 
     @Bean
-    public RestClient catalogClient(OrderingProperties properties) {
-        return build(catalogUrl, properties.remoteTimeout());
+    public RestClient catalogClient(OrderingProperties properties, RestClient.Builder builder) {
+        return build(builder, catalogUrl, properties.remoteTimeout());
     }
 
     @Bean
-    public RestClient paymentClient(OrderingProperties properties) {
-        return build(paymentUrl, properties.remoteTimeout());
+    public RestClient paymentClient(OrderingProperties properties, RestClient.Builder builder) {
+        return build(builder, paymentUrl, properties.remoteTimeout());
     }
 
-    private static RestClient build(String baseUrl, Duration timeout) {
+    // Builder ĐƯỢC TIÊM, không phải RestClient.builder() tĩnh: chỉ bản này mang theo correlation
+    // id và trace span sang service được gọi. Xem CorrelationPropagation.
+    private static RestClient build(RestClient.Builder builder, String baseUrl, Duration timeout) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(timeout);
         factory.setReadTimeout(timeout);
-        return RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        return builder.baseUrl(baseUrl).requestFactory(factory).build();
     }
 
     public void setInventoryUrl(String inventoryUrl) {
