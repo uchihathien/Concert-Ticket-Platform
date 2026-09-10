@@ -20,16 +20,19 @@ need() {
   [ -n "$v" ] || { echo "THIEU bien moi truong $1" >&2; exit 1; }
 }
 
-for s in IDENTITY CATALOG INVENTORY ORDERING PAYMENT LEDGER PAYOUT TICKETING NOTIFICATION ANALYTICS KEYCLOAK; do
+for s in IDENTITY CATALOG INVENTORY ORDERING PAYMENT LEDGER_OWNER LEDGER_APP PAYOUT TICKETING NOTIFICATION ANALYTICS KEYCLOAK; do
   need "DB_PASSWORD_$s"
 done
 
 create() {
   name="$1"
+  # Tên database mặc định suy từ tên role; tham số thứ 3 ghi đè khi hai thứ đó khác nhau
+  # (ledger_owner sở hữu ledger_db, không phải ledger_owner_db).
+  db="${3:-${name}_db}"
   eval "pw=\$DB_PASSWORD_$2"
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<SQL
 CREATE USER $name WITH PASSWORD '$pw';
-CREATE DATABASE ${name}_db OWNER $name;
+CREATE DATABASE $db OWNER $name;
 SQL
 }
 
@@ -38,7 +41,16 @@ create catalog      CATALOG
 create inventory    INVENTORY
 create ordering     ORDERING
 create payment      PAYMENT
-create ledger       LEDGER
+# Sổ cái là ngoại lệ DUY NHẤT: hai role, không phải một (ADR-1005, bất biến 2).
+#
+# Owner bỏ qua mọi REVOKE trên bảng của chính mình. Nên nếu service chạy bằng owner thì sổ cái
+# KHÔNG append-only, dù migration có REVOKE — đã kiểm bằng lệnh thật, UPDATE và DELETE đều đi qua.
+# ledger_owner chạy Flyway; ledger_app là role runtime và không bao giờ có UPDATE/DELETE trên
+# journal_entries, postings. Quyền cụ thể do migration V0101 cấp.
+create ledger_owner LEDGER_OWNER ledger_db
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<SQL
+CREATE USER ledger_app WITH PASSWORD '$DB_PASSWORD_LEDGER_APP';
+SQL
 create payout       PAYOUT
 create ticketing    TICKETING
 create notification NOTIFICATION
@@ -52,4 +64,4 @@ create analytics    ANALYTICS
 # riêng nằm trên volume.
 create keycloak KEYCLOAK
 
-echo "Da tao 11 database va 11 user."
+echo "Da tao 11 database va 12 user (ledger co ledger_owner + ledger_app)."

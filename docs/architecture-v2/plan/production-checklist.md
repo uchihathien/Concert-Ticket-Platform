@@ -72,6 +72,12 @@ mục đích nghĩa là một lần lộ làm hỏng tất cả những mục đ
 - [ ] `max_connections=200`. Mặc định 100 **không đủ**: 11 service x pool 10, cộng psql và công cụ
       sao lưu. Service khởi động sau chết với `remaining connection slots are reserved`, một thông
       báo không hề gợi ý rằng nguyên nhân nằm ở cấu hình pool của service khác.
+- [ ] **`ledger_db` có HAI role**: `ledger_owner` (sở hữu schema, chạy Flyway) và `ledger_app`
+      (runtime). Đây là thứ làm cho sổ cái thật sự append-only: owner bỏ qua mọi `REVOKE` trên bảng
+      của chính mình, nên chạy service bằng owner khiến `UPDATE postings` và
+      `DELETE FROM journal_entries` đi qua trót lọt trong khi migration vẫn có dòng `REVOKE` và
+      tài liệu vẫn nói là đã chặn. Kiểm bằng `LedgerAppendOnlyIT`, và kiểm lại sau mỗi lần khôi
+      phục database — `pg_restore` gán lại quyền sở hữu theo user chạy lệnh.
 - [ ] Sao lưu đã chạy và đã **thử phục hồi** — xem §7.
 
 ## 4. Mạng và biên

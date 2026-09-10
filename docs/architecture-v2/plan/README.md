@@ -183,7 +183,7 @@ Seed dữ liệu: `deploy/compose/seed/` tạo sẵn 1 superadmin, 2 tổ chức
 
 **Secrets** không bao giờ trong git: `DB_PASSWORD_*` (11 bộ), `REDIS_PASSWORD`, `RABBITMQ_PASSWORD`, `KEYCLOAK_CLIENT_SECRET_*` (4 client), `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY` (nặng nhất — lộ nó là giả được webhook "đã trả tiền"), `TICKET_QR_SIGNING_KEY`, `BANK_ACCOUNT_ENCRYPTION_KEY`, `NEXTAUTH_SECRET_*`.
 
-**Quyền database:** mỗi service một user riêng chỉ thấy schema của mình ([ADR-1002](../adr/ADR-1002-database-per-service.md)). `ledger_db` thêm `REVOKE UPDATE, DELETE ON postings, journal_entries`.
+**Quyền database:** mỗi service một user riêng chỉ thấy schema của mình ([ADR-1002](../adr/ADR-1002-database-per-service.md)). `ledger_db` tách **hai role**: `ledger_owner` sở hữu schema và chạy Flyway, `ledger_app` là role runtime chỉ có `SELECT, INSERT` trên `postings` và `journal_entries` (V0101). Chỉ `REVOKE ... FROM PUBLIC` là **không đủ** — owner bỏ qua nó trên bảng của chính mình.
 
 ## 7. Branching & PR
 

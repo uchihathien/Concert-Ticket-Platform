@@ -140,8 +140,13 @@ services:
     environment:
       <<: *service-env
       DB_URL: jdbc:postgresql://postgres:5432/ledger_db
-      DB_USER: ledger
-      DB_PASSWORD: ${DB_PASSWORD_LEDGER:?can DB_PASSWORD_LEDGER}
+      # HAI role, không phải một (ADR-1005, bất biến 2). Owner bỏ qua mọi REVOKE trên bảng của
+      # chính mình, nên service PHẢI chạy bằng role runtime không sở hữu schema — nếu không, sổ cái
+      # mất tính append-only mà không có dấu hiệu nào.
+      DB_USER: ledger_app
+      DB_PASSWORD: ${DB_PASSWORD_LEDGER_APP:?can DB_PASSWORD_LEDGER_APP}
+      DB_MIGRATION_USER: ledger_owner
+      DB_MIGRATION_PASSWORD: ${DB_PASSWORD_LEDGER_OWNER:?can DB_PASSWORD_LEDGER_OWNER}
 
   payout-service:
     <<: *service-base
@@ -377,7 +382,8 @@ services:
       DB_PASSWORD_INVENTORY: ${DB_PASSWORD_INVENTORY:?}
       DB_PASSWORD_ORDERING: ${DB_PASSWORD_ORDERING:?}
       DB_PASSWORD_PAYMENT: ${DB_PASSWORD_PAYMENT:?}
-      DB_PASSWORD_LEDGER: ${DB_PASSWORD_LEDGER:?}
+      DB_PASSWORD_LEDGER_OWNER: ${DB_PASSWORD_LEDGER_OWNER:?}
+      DB_PASSWORD_LEDGER_APP: ${DB_PASSWORD_LEDGER_APP:?}
       DB_PASSWORD_PAYOUT: ${DB_PASSWORD_PAYOUT:?}
       DB_PASSWORD_TICKETING: ${DB_PASSWORD_TICKETING:?}
       DB_PASSWORD_NOTIFICATION: ${DB_PASSWORD_NOTIFICATION:?}

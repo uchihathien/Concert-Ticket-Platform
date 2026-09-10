@@ -2,9 +2,15 @@ spring:
   application:
     name: ledger-service
   datasource:
+    # Role RUNTIME, cố ý KHÔNG phải owner của schema (ADR-1005, bất biến 2).
+    #
+    # Owner bỏ qua mọi REVOKE trên bảng của chính mình, nên chạy service bằng owner làm sổ cái mất
+    # tính append-only mà không có dấu hiệu nào: migration vẫn REVOKE, lệnh UPDATE vẫn đi qua.
+    # ledger_app chỉ có SELECT + INSERT trên journal_entries và postings (V0101) — sửa sai bằng bút
+    # toán đảo, không bằng UPDATE.
     url: ${DB_URL:jdbc:postgresql://localhost:5432/ledger_db}
-    username: ${DB_USER:ledger}
-    password: ${DB_PASSWORD:ledger}
+    username: ${DB_USER:ledger_app}
+    password: ${DB_PASSWORD:ledger_app}
     hikari:
       # Mười một service dùng CHUNG một cụm PostgreSQL ở MVP (ADR-1002 — database riêng, cụm
       # chung). Với pool 30 thì tổng nhu cầu là 330 kết nối, còn cụm mặc định cho 100: hệ thống
@@ -19,6 +25,12 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration/platform,classpath:db/migration/ledger
+    # Migration chạy bằng OWNER, không bằng role runtime.
+    #
+    # ledger_app không có quyền DDL, và đó là chủ đích: nếu nó tạo/sửa được bảng thì nó cũng tự cấp
+    # lại được quyền cho chính mình, và việc tách role trở thành trang trí.
+    user: ${DB_MIGRATION_USER:ledger_owner}
+    password: ${DB_MIGRATION_PASSWORD:ledger_owner}
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
