@@ -18,6 +18,20 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-websocket</artifactId>
     </dependency>
+    <!-- BAT BUOC du service nay khong validate request nao.
+         starter-web khai spring-boot-starter-validation o scope `provided`, nghia la moi consumer
+         phai tu cung cap luc chay. Ma GlobalExceptionHandler cua starter-web thi KHONG tuy chon:
+         no duoc scan o moi service qua scanBasePackages, va no tham chieu truc tiep
+         jakarta.validation.ConstraintViolationException.
+         Thieu dependency nay thi service KHONG KHOI DONG DUOC:
+           Failed to introspect Class [com.nexaticket.platform.web.error.GlobalExceptionHandler]
+           Caused by: ClassNotFoundException: jakarta.validation.ConstraintViolationException
+         Loi chi lo ra luc chay - no bien dich duoc va test duoc. 10 service khac da khai san nen
+         khong ai thay; realtime-gateway la cai duy nhat khong khai. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-amqp</artifactId>

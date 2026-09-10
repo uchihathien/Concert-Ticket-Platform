@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.realtime.interfaces.ws;
 
-import com.nexaticket.realtime.application.SessionRegistry;
-import com.nexaticket.realtime.application.UpdateCoalescer;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
@@ -18,6 +14,12 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
  * <p>Xác thực bằng token trong query param hoặc {@code Sec-WebSocket-Protocol} — trình duyệt không
  * gửi được header tuỳ ý khi mở WebSocket. Sơ đồ chỗ là dữ liệu công khai nên kết nối ẩn danh vẫn
  * được chấp nhận; token chỉ dùng khi cần biết người xem là ai.
+ *
+ * <p><b>Lớp này chỉ ĐĂNG KÝ handler, không cung cấp bean nào.</b> {@code SessionRegistry} và
+ * {@code UpdateCoalescer} nằm ở {@link com.nexaticket.realtime.application.RealtimeBeans}, và đó
+ * không phải chuyện sắp xếp cho đẹp: đặt chúng ở đây tạo một vòng tròn phụ thuộc
+ * ({@code WebSocketConfig} → handler → hai bean đó → {@code WebSocketConfig}) làm service
+ * <b>không khởi động được</b>. Xem javadoc của {@code RealtimeBeans} để biết vì sao.
  */
 @Configuration
 @EnableWebSocket
@@ -32,17 +34,6 @@ public class WebSocketConfig implements WebSocketConfigurer {
             @Value("${nexaticket.realtime.allowed-origins:http://localhost:3000}") String allowedOrigins) {
         this.handler = handler;
         this.allowedOrigins = allowedOrigins;
-    }
-
-    @Bean
-    public UpdateCoalescer updateCoalescer() {
-        return new UpdateCoalescer();
-    }
-
-    @Bean
-    public SessionRegistry<WebSocketSession> sessionRegistry(
-            @Value("${nexaticket.realtime.max-sessions-per-connection:5}") int maxSessions) {
-        return new SessionRegistry<>(maxSessions);
     }
 
     @Override
