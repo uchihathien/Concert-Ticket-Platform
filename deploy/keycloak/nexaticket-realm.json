@@ -70,7 +70,8 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "redirectUris": [
-        "http://localhost:3001/api/auth/callback/keycloak"
+        "http://localhost:3001/api/auth/callback/keycloak",
+        "http://localhost:3001/login"
       ],
       "webOrigins": [
         "http://localhost:3001"
@@ -89,7 +90,8 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "redirectUris": [
-        "http://localhost:3003/api/auth/callback/keycloak"
+        "http://localhost:3003/api/auth/callback/keycloak",
+        "http://localhost:3003/login"
       ],
       "webOrigins": [
         "http://localhost:3003"
@@ -117,10 +119,23 @@
         "pkce.code.challenge.method": "S256",
         "post.logout.redirect.uris": "+##http://localhost:3002/##http://localhost:3002/login"
       }
+    },
+    {
+      "clientId": "identity-admin",
+      "name": "identity-service — Admin API",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "dev-secret-identity-admin",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": []
     }
   ],
   "users": [
     {
+      "id": "08065131-d104-4602-aff3-ae0bfb2b3907",
       "username": "superadmin",
       "email": "superadmin@nexaticket.local",
       "firstName": "Super",
@@ -139,6 +154,7 @@
       ]
     },
     {
+      "id": "dc4ac9b5-6785-40bb-832e-e63dca009e1e",
       "username": "organizer",
       "email": "organizer@nexaticket.local",
       "firstName": "Chủ",
@@ -157,6 +173,7 @@
       ]
     },
     {
+      "id": "f80659fa-b38d-4960-a946-c5f65ad5c517",
       "username": "staff",
       "email": "staff@nexaticket.local",
       "firstName": "Nhân viên",
@@ -175,6 +192,7 @@
       ]
     },
     {
+      "id": "f201f7e6-a094-425a-9ab8-f47bfa06984a",
       "username": "customer",
       "email": "customer@nexaticket.local",
       "firstName": "Khách",
@@ -191,7 +209,28 @@
       "realmRoles": [
         "CUSTOMER"
       ]
+    },
+    {
+      "username": "service-account-identity-admin",
+      "enabled": true,
+      "serviceAccountClientId": "identity-admin",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users",
+          "view-users"
+        ]
+      }
     }
   ],
-  "registrationEmailAsUsername": true
+  "registrationEmailAsUsername": true,
+  "smtpServer": {
+    "host": "mailhog",
+    "port": "1025",
+    "from": "no-reply@nexaticket.local",
+    "fromDisplayName": "NexaTicket",
+    "ssl": "false",
+    "starttls": "false",
+    "auth": "false"
+  },
+  "actionTokenGeneratedByUserLifespan": 900
 }
