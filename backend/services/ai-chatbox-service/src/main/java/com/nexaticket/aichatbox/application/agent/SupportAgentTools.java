@@ -17,6 +17,16 @@ public final class SupportAgentTools {
     public static final String GET_ORDER_STATUS = "getOrderStatus";
     public static final String GET_EVENT_RULES = "getEventRules";
 
+    /**
+     * Tool <b>điều khiển</b>, không phải tool dữ liệu.
+     *
+     * <p>Nó không tra gì cả — nó chuyển cuộc hội thoại sang người thật. Vì vậy nó được xử lý ngay
+     * trong vòng ReAct chứ không đi qua {@code ToolDispatcher}: dispatcher chỉ nhận một
+     * {@code ToolInvocation} và không biết phiên nào, người nào. Truyền thêm hai tham số ấy vào
+     * dispatcher chỉ để phục vụ một tool là làm hỏng hình dạng của nó cho cả hai tool còn lại.
+     */
+    public static final String ESCALATE_TO_HUMAN = "escalateToHuman";
+
     private SupportAgentTools() {}
 
     private static final List<ToolSpec> CATALOG = List.of(
@@ -34,7 +44,19 @@ public final class SupportAgentTools {
                     Tra quy định của một sự kiện: giới hạn độ tuổi, vật phẩm được và không được mang vào, \
                     giờ mở cửa. Chỉ gọi khi phần NGỮ CẢNH THAM KHẢO không trả lời được câu hỏi và khách \
                     đang nói về một sự kiện cụ thể có mã UUID.""",
-                    List.of(ToolSpec.Param.requiredString("eventId", "Mã sự kiện dạng UUID"))));
+                    List.of(ToolSpec.Param.requiredString("eventId", "Mã sự kiện dạng UUID"))),
+            new ToolSpec(
+                    ESCALATE_TO_HUMAN,
+                    """
+                    Chuyển cuộc trò chuyện cho nhân viên hỗ trợ là người thật. Gọi khi: khách yêu cầu \
+                    một ngoại lệ so với chính sách (hoàn tiền, đổi vé, đổi tên trên vé); hoặc khách \
+                    đang khiếu nại và cần người xử lý; hoặc bạn đã tra cứu mà vẫn không đủ thông tin \
+                    để trả lời. KHÔNG gọi chỉ vì câu hỏi khó — hãy thử tra cứu trước. Sau khi gọi \
+                    tool này, hãy báo cho khách biết là đang chuyển cho nhân viên.""",
+                    List.of(ToolSpec.Param.requiredString(
+                            "reason",
+                            "Một câu tiếng Việt nói rõ khách đang cần gì, để nhân viên đọc là hiểu ngay "
+                                    + "mà không phải mở lại cả hội thoại"))));
 
     public static List<ToolSpec> all() {
         return CATALOG;

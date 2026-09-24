@@ -59,6 +59,33 @@ public final class SupportAgentPrompts {
     }
 
     /**
+     * Câu trả lời khi vừa mở phiếu chuyển tiếp.
+     *
+     * <p>Viết cứng, không nhờ mô hình sinh: đây là lời hứa về một việc sẽ xảy ra ở phía sau, và nó
+     * phải nói đúng một điều, đúng cách, mọi lần. Một mô hình được yêu cầu "báo cho khách biết là
+     * đang chuyển" có thể kèm thêm một câu đoán về thời gian chờ mà không ai kiểm soát được.
+     */
+    public static String handoffOpenedMessage() {
+        return """
+                Mình đã chuyển cuộc trò chuyện này cho nhân viên hỗ trợ. Bạn cứ nhắn tiếp ngay tại \
+                đây nhé — nhân viên sẽ đọc được toàn bộ nội dung phía trên và trả lời bạn trong ít phút.
+
+                Nếu cần gấp, bạn gọi hotline 1900 1234 (8:00–22:00 hằng ngày).""";
+    }
+
+    /**
+     * Câu trả lời cho những lượt TIẾP THEO khi người trực đang cầm cuộc hội thoại.
+     *
+     * <p>Trợ lý không được nói gì thêm vào lúc này — xem {@code HandoffUseCase}. Nhưng im lặng
+     * hoàn toàn thì khách gõ xong không thấy gì phản hồi và tưởng tin nhắn chưa gửi được.
+     */
+    public static String waitingForAgentMessage() {
+        return """
+                Mình đã ghi lại tin nhắn của bạn và nhân viên hỗ trợ sẽ thấy ngay. Bạn chờ giúp \
+                mình một chút nhé.""";
+    }
+
+    /**
      * Ghép ngữ cảnh RAG vào câu hỏi của khách.
      *
      * <p>Ranh giới giữa "tài liệu" và "câu hỏi" được đánh dấu rõ, và câu hỏi đặt <b>sau</b> tài

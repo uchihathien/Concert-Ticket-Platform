@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox;
 
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
 import com.nexaticket.aichatbox.infrastructure.llm.AnthropicProperties;
+import com.nexaticket.aichatbox.infrastructure.llm.OllamaProperties;
 import java.time.Clock;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -10,7 +11,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 @SpringBootApplication(scanBasePackages = {"com.nexaticket.aichatbox", "com.nexaticket.platform"})
-@EnableConfigurationProperties({AgentProperties.class, AnthropicProperties.class})
+@EnableConfigurationProperties({AgentProperties.class, AnthropicProperties.class, OllamaProperties.class})
 public class AiChatboxApplication {
 
     public static void main(String[] args) {

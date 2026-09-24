@@ -25,6 +25,29 @@ server:
 
 nexaticket:
   aichatbox:
+    # local | anthropic — xem LlmProvider.
+    #
+    # Mặc định LOCAL, và đó là một lựa chọn chứ không phải giá trị tạm: chat hỗ trợ chạy suốt ngày
+    # với lưu lượng không đoán trước, và mỗi lượt tính tiền hai lần (nhúng + mô hình) nhân với số
+    # vòng ReAct. Một mặc định có tính tiền nghĩa là mọi môi trường dev và mọi lần chạy thử đều ghi
+    # vào hoá đơn thật.
+    #
+    # Đổi sang `anthropic` ở nơi cần chất lượng cao hơn — mô hình 7B gọi tool kém tin cậy hơn hẳn,
+    # và hậu quả là tỷ lệ chuyển sang bàn hỗ trợ cao hơn.
+    provider: ${AI_PROVIDER:local}
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+      # Phải hỗ trợ tool calling VÀ viết được tiếng Việt. Phần lớn mô hình nhỏ thiếu cái đầu, và
+      # agent này sống bằng tool.
+      chat-model: ${OLLAMA_CHAT_MODEL:qwen2.5:7b-instruct}
+      # bge-m3 sinh vector 1024 chiều — ĐÚNG BẰNG vector(1024) mà V0100 khai cho voyage-3.5. Sự
+      # trùng khớp ấy là lý do chọn nó: đổi nhà cung cấp mà không phải sửa schema. Đổi sang mô hình
+      # số chiều khác thì phải đổi cột VÀ nhúng lại toàn bộ kho tri thức.
+      embedding-model: ${OLLAMA_EMBEDDING_MODEL:bge-m3}
+      dimensions: ${OLLAMA_EMBEDDING_DIMENSIONS:1024}
+      # Rộng hơn hẳn hạn của API trả phí: mô hình local chạy CPU thì một lượt 30–60 giây là bình
+      # thường, và cắt ở 60s sẽ biến máy chậm thành "trợ lý luôn hỏng".
+      timeout: ${OLLAMA_TIMEOUT:120s}
     agent:
       # Mô hình mặc định. Đổi model là đổi cả hành vi lẫn giá — nên nó nằm ở cấu hình, không nằm
       # trong mã nguồn.
@@ -37,8 +60,9 @@ nexaticket:
       # không cắt thì đoạn lạc đề đi thẳng vào prompt.
       max-retrieval-distance: ${AGENT_MAX_RETRIEVAL_DISTANCE:0.55}
     anthropic:
-      # KHÔNG có mặc định. Thiếu khoá thì service từ chối khởi động, và đó là điều đúng: một agent
-      # không gọi được mô hình chỉ trả 503 cho mọi request.
+      # KHÔNG có mặc định, và service từ chối khởi động nếu thiếu — nhưng CHỈ khi provider =
+      # anthropic. Với provider mặc định (local) thì cả khối này không được dựng, nên máy chưa có
+      # khoá trả phí vẫn chạy được service.
       api-key: ${ANTHROPIC_API_KEY:}
       max-tokens: ${ANTHROPIC_MAX_TOKENS:8000}
       # low | medium | high | xhigh | max. Chat hỗ trợ thường đủ ở mức thấp; mỗi nấc cao hơn là

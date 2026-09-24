@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -53,6 +54,7 @@ import org.springframework.stereotype.Component;
  *       khối text hay không.
  * </ol>
  */
+@ConditionalOnProperty(name = LlmProvider.PROPERTY, havingValue = "anthropic")
 @Component
 public class AnthropicLlmAdapter implements LlmProviderPort {
 

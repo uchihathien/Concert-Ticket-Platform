@@ -2,8 +2,10 @@
 package com.nexaticket.aichatbox.application.agent;
 
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
+import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Exchange;
+import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
 import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ToolOutcome;
@@ -52,6 +54,7 @@ public class CustomerSupportAgentUseCase {
     private final VectorStorePort knowledge;
     private final LlmProviderPort llm;
     private final ToolDispatcher tools;
+    private final HandoffUseCase handoffs;
     private final AgentProperties properties;
 
     public CustomerSupportAgentUseCase(
@@ -60,12 +63,14 @@ public class CustomerSupportAgentUseCase {
             VectorStorePort knowledge,
             LlmProviderPort llm,
             ToolDispatcher tools,
+            HandoffUseCase handoffs,
             AgentProperties properties) {
         this.history = history;
         this.embeddings = embeddings;
         this.knowledge = knowledge;
         this.llm = llm;
         this.tools = tools;
+        this.handoffs = handoffs;
         this.properties = properties;
     }
 
@@ -85,6 +90,24 @@ public class CustomerSupportAgentUseCase {
             throw new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "Không tìm thấy phiên chat");
         }
 
+        // Bước 1b — người thật đang cầm cuộc hội thoại?
+        //
+        // Đặt TRƯỚC mọi thứ tốn tiền, và trước cả phát hiện ý định: khi đã có phiếu mở thì không
+        // có nhánh nào bên dưới còn đúng. Trợ lý trả lời xen vào giữa nghĩa là khách nhận hai câu
+        // trả lời khác nhau cho cùng một câu hỏi và không biết tin câu nào.
+        if (handoffs.openFor(sessionId).isPresent()) {
+            history.append(sessionId, userId, ChatRole.USER, userQuery);
+            return new AgentReply(sessionId, SupportAgentPrompts.waitingForAgentMessage(), List.of());
+        }
+
+        // Bước 1c — khách nói thẳng là muốn gặp người.
+        //
+        // Không hỏi mô hình cho việc này: xem HandoffIntent. Cắt trọn một lượt gọi API, và không
+        // bắt một người đang bực phải chờ thêm một lượt suy luận để nhận đúng thứ họ vừa yêu cầu.
+        if (HandoffIntent.isExplicitRequest(userQuery)) {
+            return escalate(sessionId, userId, userQuery, HandoffTrigger.CUSTOMER_REQUEST, "Khách yêu cầu gặp người");
+        }
+
         // Bước 2 — RAG.
         List<KnowledgeChunk> context = retrieve(userQuery);
 
@@ -101,6 +124,21 @@ public class CustomerSupportAgentUseCase {
             switch (turn) {
                 case LlmProviderPort.LlmTurn.Answer a -> answer = a.text();
                 case LlmProviderPort.LlmTurn.ToolRequest request -> {
+                    // Tool điều khiển được xử lý TRƯỚC, và nó kết thúc lượt ngay.
+                    //
+                    // Không đi qua ToolDispatcher vì dispatcher không biết phiên nào, người nào —
+                    // xem SupportAgentTools.ESCALATE_TO_HUMAN. Và không chạy nốt những tool còn
+                    // lại trong cùng lượt: khi đã quyết định chuyển cho người thật thì mọi kết quả
+                    // tra cứu thêm đều đi vào một câu trả lời sẽ không bao giờ được gửi.
+                    ToolInvocation escalation = request.calls().stream()
+                            .filter(call -> SupportAgentTools.ESCALATE_TO_HUMAN.equals(call.toolName()))
+                            .findFirst()
+                            .orElse(null);
+                    if (escalation != null) {
+                        return escalate(
+                                sessionId, userId, userQuery, HandoffTrigger.LOW_CONFIDENCE, reasonOf(escalation));
+                    }
+
                     transcript.add(new Exchange.AssistantRequestedTools(request.calls(), request.providerEcho()));
                     List<ToolOutcome> outcomes = new ArrayList<>(request.calls().size());
                     for (ToolInvocation call : request.calls()) {
@@ -115,23 +153,54 @@ public class CustomerSupportAgentUseCase {
         }
 
         if (answer == null) {
-            // Hết vòng mà chưa có câu trả lời. Trả một câu tử tế thay vì ném lỗi ra màn hình chat:
-            // khách không quan tâm agent đã lặp mấy vòng, họ cần biết đi đâu tiếp. Dòng WARN này
-            // là thứ để đo — lặp trần thường xuyên nghĩa là mô tả tool đang mơ hồ.
+            // Hết vòng mà chưa có câu trả lời — đây ĐÚNG là định nghĩa của "độ tin cậy thấp", nên
+            // nó chuyển sang người thật chứ không còn chỉ xin lỗi rồi bỏ đó. Dòng WARN vẫn giữ: lặp
+            // trần thường xuyên nghĩa là mô tả tool đang mơ hồ, và đó là việc phải sửa ở đây chứ
+            // không phải việc đẩy sang bàn hỗ trợ.
             log.warn(
                     "Agent hết {} vòng mà chưa trả lời (phiên {}), tool đã gọi: {}",
                     properties.maxToolIterations(),
                     sessionId,
                     toolsUsed);
-            answer = SupportAgentPrompts.gaveUpMessage();
+            return escalate(
+                    sessionId,
+                    userId,
+                    userQuery,
+                    HandoffTrigger.LOW_CONFIDENCE,
+                    "Trợ lý tra cứu nhiều lần mà vẫn chưa trả lời được");
         }
 
         // Bước 5 — lưu. Lưu câu hỏi GỐC, không lưu bản đã ghép ngữ cảnh RAG: ngữ cảnh là thứ dựng
         // lại được và khác nhau mỗi lượt, còn lưu nó nghĩa là lượt sau đọc lại ngữ cảnh cũ như thể
         // khách đã nói ra.
-        history.append(sessionId, userId, ChatRole.USER, userQuery);
-        history.append(sessionId, userId, ChatRole.ASSISTANT, answer);
+        //
+        // Một lệnh cho cả lượt, không phải hai: hỏng ở giữa để lại một câu hỏi không có câu trả
+        // lời, và lượt sau mô hình đọc lại hội thoại ấy như thể khách đã bị bỏ qua.
+        history.appendTurn(sessionId, userId, userQuery, ChatRole.ASSISTANT, answer);
         return new AgentReply(sessionId, answer, List.copyOf(toolsUsed));
+    }
+
+    /**
+     * Mở phiếu, ghi cả hai lượt vào hội thoại, trả câu báo cho khách.
+     *
+     * <p>Lượt của khách vẫn được ghi: người trực phải đọc được chính câu khiến khách phải nhờ tới
+     * mình. Bỏ nó đi thì câu đầu tiên của cuộc hỗ trợ sẽ là "anh/chị cần gì ạ" — đúng câu khách
+     * vừa gõ xong.
+     *
+     * <p>Cả ba lệnh ghi đi trong MỘT transaction của {@code HandoffUseCase}, và lượt chat được ghi
+     * trước phiếu. Lý do nằm ở khoá ngoại {@code chat_handoffs.session_id} — xem
+     * {@link HandoffUseCase#escalateWithTurn}.
+     */
+    private AgentReply escalate(UUID sessionId, UUID userId, String userQuery, HandoffTrigger trigger, String reason) {
+        String answer = SupportAgentPrompts.handoffOpenedMessage();
+        handoffs.escalateWithTurn(sessionId, userId, trigger, reason, userQuery, answer);
+        return new AgentReply(sessionId, answer, List.of(SupportAgentTools.ESCALATE_TO_HUMAN));
+    }
+
+    /** Mô hình có thể bỏ trống tham số. Một phiếu không có lý do vẫn hơn một lượt chat vỡ. */
+    private static String reasonOf(ToolInvocation escalation) {
+        String reason = escalation.stringArg("reason");
+        return reason == null || reason.isBlank() ? "Trợ lý không xử lý được yêu cầu này" : reason;
     }
 
     private LlmProviderPort.LlmTurn ask(List<Exchange> transcript) {
