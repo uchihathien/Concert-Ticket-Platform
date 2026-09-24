@@ -88,6 +88,18 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/catalog_db
       DB_USER: catalog
       DB_PASSWORD: ${DB_PASSWORD_CATALOG:?can DB_PASSWORD_CATALOG}
+      # Hai địa chỉ KHÁC NHAU, và đó là điểm dễ sai nhất của khối này:
+      #   - MEDIA_ENDPOINT   : catalog gọi qua mạng nội bộ của compose.
+      #   - MEDIA_PUBLIC_URL : trình duyệt gọi, nên phải là tên miền thật có https.
+      # Chữ ký của URL tải lên bao gồm cả tên host. Khai nhầm MEDIA_PUBLIC_URL thành `minio:9000`
+      # thì trình duyệt nhận một URL vừa không phân giải được vừa sai chữ ký.
+      MEDIA_ENDPOINT: http://minio:9000
+      MEDIA_PUBLIC_URL: ${MEDIA_PUBLIC_URL:?can MEDIA_PUBLIC_URL}
+      MEDIA_ACCESS_KEY: ${MEDIA_ACCESS_KEY:?can MEDIA_ACCESS_KEY}
+      MEDIA_SECRET_KEY: ${MEDIA_SECRET_KEY:?can MEDIA_SECRET_KEY}
+      # TẮT ở production: ảnh dán từ host lạ làm mọi khách xem trang lộ IP cho host đó, và ảnh
+      # biến mất vào ngày chủ host dọn dẹp mà không ai báo.
+      MEDIA_ALLOW_EXTERNAL_URLS: "false"
 
   inventory-service:
     <<: *service-base
@@ -209,6 +221,65 @@ services:
       DB_USER: analytics
       DB_PASSWORD: ${DB_PASSWORD_ANALYTICS:?can DB_PASSWORD_ANALYTICS}
 
+  # Trợ lý hỗ trợ khách hàng. Service DUY NHẤT tiêu tiền theo lượt request.
+  #
+  # `AI_PROVIDER` mặc định `local` (Ollama trong chính stack này) chứ không phải `anthropic`, và đó
+  # là mặc định có chủ đích: chat hỗ trợ chạy suốt ngày, mỗi lượt tính tiền hai lần (nhúng + mô
+  # hình) nhân với số vòng ReAct. Đổi sang `anthropic` thì khai thêm ANTHROPIC_API_KEY VÀ
+  # VOYAGE_API_KEY — service từ chối khởi động nếu thiếu một trong hai, vì Claude không có endpoint
+  # nhúng và một trợ lý mất RAG vẫn trả lời như thường, chỉ tệ hơn.
+  ai-chatbox-service:
+    <<: *service-base
+    image: ${REGISTRY:-nexaticket}/ai-chatbox-service:${BACKEND_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+      args: {SERVICE: ai-chatbox-service}
+    environment:
+      <<: *service-env
+      DB_URL: jdbc:postgresql://postgres:5432/ai_chatbox_db
+      DB_USER: ai_chatbox
+      DB_PASSWORD: ${DB_PASSWORD_AI_CHATBOX:?can DB_PASSWORD_AI_CHATBOX}
+      # Tool tra đơn hàng đi bằng access token của CHÍNH KHÁCH qua đường công khai của ordering,
+      # không qua /internal/** — xem OrderingHttpAdapter.
+      ORDERING_URL: http://ordering-service:8080
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+    # Mô hình local nạp vào RAM và giữ ở đó; 768m của service-base không liên quan tới Ollama
+    # (nó là container riêng), nhưng một lượt chat giữ cả bản ghi hội thoại nên nới nhẹ.
+    mem_limit: ${AICHATBOX_MEMORY:-1g}
+
+  # Mô hình chạy tại chỗ. Chỉ ai-chatbox-service gọi tới.
+  #
+  # KHÔNG publish cổng ra host: đây là một endpoint sinh văn bản không có xác thực nào, và mở nó ra
+  # internet là tặng không năng lực tính toán của máy chủ cho bất kỳ ai tìm thấy cổng 11434.
+  #
+  # PHẢI pull mô hình sau lần dựng đầu — ảnh Ollama không mang mô hình nào theo:
+  #   docker compose -f deploy/compose/prod.yml exec ollama ollama pull qwen2.5:7b-instruct
+  #   docker compose -f deploy/compose/prod.yml exec ollama ollama pull bge-m3
+  # Chưa pull thì mọi lượt chat trả 503 "trợ lý đang bận" — đúng hướng hỏng, nhưng không tự khỏi.
+  #
+  # Chạy trên CPU thì một lượt 30–60 giây là bình thường; hạn của service đã khai 120s cho đúng
+  # thực tế đó. Có GPU thì thêm khối `deploy.resources.reservations.devices` cho ảnh này.
+  ollama:
+    profiles: ["ai-local"]
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollamadata:/root/.ollama
+    # 7B ở 4-bit chiếm ~5GB khi nạp, cộng chỗ cho bge-m3. Đặt thấp hơn thì container bị OOMKill
+    # giữa một lượt trả lời, và log của service chỉ nói "không gọi được Ollama".
+    mem_limit: ${OLLAMA_MEMORY:-8g}
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
   # Realtime không có database: nó chỉ đẩy sự kiện từ RabbitMQ xuống WebSocket.
   realtime-gateway:
     <<: *service-base
@@ -256,6 +327,10 @@ services:
       ANALYTICS_URL: http://analytics-service:8080
       LEDGER_URL: http://ledger-service:8080
       PAYMENT_URL: http://payment-service:8080
+      # Thiếu dòng này thì route /v1/chat/** và /v1/support/** giữ mặc định `localhost:8101` — tức
+      # là trỏ vào chính container gateway, và cả khung chat của khách lẫn bàn hỗ trợ nhận 503 trong
+      # khi ai-chatbox-service chạy hoàn toàn tốt ở ngay mạng bên cạnh.
+      AICHATBOX_URL: http://ai-chatbox-service:8080
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
       OTEL_ENDPOINT: ${OTEL_ENDPOINT:-http://otel-collector:4318/v1/traces}
       OTEL_SAMPLE_RATE: ${OTEL_SAMPLE_RATE:-0.1}
@@ -394,6 +469,10 @@ services:
       DB_PASSWORD_TICKETING: ${DB_PASSWORD_TICKETING:?}
       DB_PASSWORD_NOTIFICATION: ${DB_PASSWORD_NOTIFICATION:?}
       DB_PASSWORD_ANALYTICS: ${DB_PASSWORD_ANALYTICS:?}
+      # Thiếu biến này thì initdb-prod/01-databases.sh dừng ngay ở dòng `need` với "THIEU bien moi
+      # truong DB_PASSWORD_AI_CHATBOX" — và vì nó chạy trong entrypoint của Postgres, cái chết đó
+      # kéo theo CẢ stack, không riêng ai-chatbox.
+      DB_PASSWORD_AI_CHATBOX: ${DB_PASSWORD_AI_CHATBOX:?}
       DB_PASSWORD_KEYCLOAK: ${DB_PASSWORD_KEYCLOAK:?}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -515,7 +594,52 @@ Connection: close
     restart: unless-stopped
     mem_limit: 256m
 
+  # ---------------------------------------------------------------------------
+  # Kho ảnh. Trình duyệt tải lên THẲNG đây bằng URL đã ký, và khách xem trang tải ảnh về từ đây —
+  # nên nó phải nằm sau reverse proxy có TLS, ở đúng tên miền khai trong MEDIA_PUBLIC_URL.
+  #
+  # Cổng 9000 KHÔNG mở ra host: proxy nói chuyện với nó qua mạng nội bộ của compose. Mở thẳng ra
+  # ngoài là phơi một endpoint S3 không TLS.
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MEDIA_ACCESS_KEY:?can MEDIA_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MEDIA_SECRET_KEY:?can MEDIA_SECRET_KEY}
+      # Chỉ tên miền của khu quản trị: đây là danh sách những nơi được phép GỬI ảnh lên.
+      # `*` ở đây nghĩa là bất kỳ trang nào trên internet cũng dùng được URL ký sẵn mà nó lấy được.
+      MINIO_API_CORS_ALLOW_ORIGIN: ${MEDIA_CORS_ORIGIN:?can MEDIA_CORS_ORIGIN}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MEDIA_BUCKET: ${MEDIA_BUCKET:-nexaticket-media}
+      MEDIA_ACCESS_KEY: ${MEDIA_ACCESS_KEY:?can MEDIA_ACCESS_KEY}
+      MEDIA_SECRET_KEY: ${MEDIA_SECRET_KEY:?can MEDIA_SECRET_KEY}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MEDIA_ACCESS_KEY $$MEDIA_SECRET_KEY &&
+      mc mb --ignore-existing local/$$MEDIA_BUCKET &&
+      mc anonymous set download local/$$MEDIA_BUCKET
+      "
+
 volumes:
   pgdata:
   redisdata:
   rabbitdata:
+  miniodata:
+  # Mo hinh da pull. Volume rieng vi mot mo hinh 7B la ~5GB: mat no nghia la moi lan dung lai
+  # container phai tai lai tu dau, va luot chat dau tien sau do het thoi gian cho.
+  ollamadata:

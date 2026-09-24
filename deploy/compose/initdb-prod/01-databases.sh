@@ -71,4 +71,4 @@ SQL
 # riêng nằm trên volume.
 create keycloak KEYCLOAK
 
-echo "Da tao 11 database va 12 user (ledger co ledger_owner + ledger_app)."
+echo "Da tao 12 database va 13 user (ledger co ledger_owner + ledger_app)."

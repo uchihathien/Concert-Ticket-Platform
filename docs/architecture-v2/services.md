@@ -510,12 +510,14 @@ Consumer thuần → `analytics_db` theo taxonomy `05-ai-scale/event-taxonomy.md
 
 Trợ lý AI cho khách hàng — `ai_chatbox_db` (PostgreSQL + **pgvector**). Hai nguồn thông tin, hai cơ chế:
 
-- **Tri thức chung** (giá vé, quy định, sơ đồ chỗ): RAG. Kho tri thức là dữ liệu của chính context này, do đội vận hành soạn và nhúng vào `event_knowledge_embeddings`. Không đọc `catalog_db`.
+- **Tri thức chung** (giá vé, quy định, sơ đồ chỗ): RAG. Kho tri thức là dữ liệu của chính context này, do đội vận hành soạn qua `/v1/support/knowledge/**` và nhúng vào `event_knowledge_embeddings` ngay lúc ghi. Không đọc `catalog_db`.
 - **Thông tin cá nhân** (trạng thái đơn, vé): tool call sang ordering-service.
 
 **Tool call đi bằng access token của chính khách, không phải `X-Internal-Token`.** `/internal/orders/{id}` là Open Host Service cho ledger và payout: nó **không kiểm chủ sở hữu** và bản trả về có hoa hồng nền tảng. Agent gọi nó bằng bí mật nội bộ thì mọi mã đơn đều tra được — khách chỉ cần đọc lên một UUID không phải của mình, và mô hình, vốn không có cách nào biết ai sở hữu đơn nào, sẽ trả lời. Đi bằng token của khách thì ordering-service quyết định quyền, đúng chỗ nó vẫn quyết định cho mọi client khác. Mô hình không bao giờ được giao việc phân quyền.
 
 Vòng ReAct nằm ở tầng application, không ở adapter LLM: số vòng tối đa, tool nào được phép, hỏng thì nói gì với khách — đều là quyết định nghiệp vụ. Trần vòng lặp là chốt chặn **chi phí**, vì mỗi vòng là một lần gọi API có tính tiền.
+
+**Kho tri thức rỗng không gây lỗi nào**, và đó là lý do nó cần được nhắc ở đây: `searchSimilar` trả danh sách rỗng, `getEventRules` trả "chưa có quy định", và trợ lý — vốn bị prompt buộc chỉ nói những gì có trong ngữ cảnh hoặc kết quả tool — vẫn trả lời lịch sự mà không biết gì ngoài đơn hàng của khách. Soạn xong thì thử lại bằng `GET /v1/support/knowledge/preview?q=…`: nó đi đúng đường agent đi và gắn cờ `used` cho đoạn nào thật sự vượt ngưỡng khoảng cách.
 
 ---
 

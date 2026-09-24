@@ -51,7 +51,16 @@ cd backend && ./mvnw -B verify && ./mvnw -pl services/identity-service spring-bo
 # 3. Frontend (terminal khác, repo riêng)
 git clone https://github.com/uchihathien/Concert-Ticket-Frontend.git frontend
 cd frontend && corepack pnpm install && corepack pnpm dev
+
+# 4. CHỈ khi cần trợ lý AI (ai-chatbox-service) — hồ sơ riêng, ~6GB tải về
+docker compose -f deploy/compose/infra.yml --profile ai up -d ollama
+docker compose -f deploy/compose/infra.yml exec ollama ollama pull qwen2.5:7b-instruct
+docker compose -f deploy/compose/infra.yml exec ollama ollama pull bge-m3
 ```
+
+Bước 4 tách riêng vì hai lý do: ảnh cộng mô hình là ~6GB, và không có nó thì phần còn lại của hệ
+thống vẫn chạy đủ — chỉ khung chat ở `/support` trả 503 "trợ lý đang bận". Đã cài Ollama thẳng trên
+máy thì bỏ qua: service mặc định gọi `http://localhost:11434`.
 
 ## Thanh toán (payOS)
 

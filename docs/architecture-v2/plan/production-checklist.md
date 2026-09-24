@@ -69,9 +69,18 @@ mục đích nghĩa là một lần lộ làm hỏng tất cả những mục đ
       lỗ hổng ở service nhỏ nhất đọc được sổ cái.
 - [ ] `deploy/compose/initdb-prod/01-databases.sh` **chỉ chạy một lần**, lúc thư mục dữ liệu còn
       rỗng. Đã có dữ liệu rồi thì đổi mật khẩu bằng `ALTER USER`; sửa file đó không có tác dụng gì.
-- [ ] `max_connections=200`. Mặc định 100 **không đủ**: 11 service x pool 10, cộng psql và công cụ
+- [ ] `max_connections=200`. Mặc định 100 **không đủ**: 13 service x pool 10, cộng psql và công cụ
       sao lưu. Service khởi động sau chết với `remaining connection slots are reserved`, một thông
       báo không hề gợi ý rằng nguyên nhân nằm ở cấu hình pool của service khác.
+- [ ] `DB_PASSWORD_AI_CHATBOX` đã khai. Script initdb **dừng ngay** khi thiếu bất kỳ
+      `DB_PASSWORD_*`, và nó chạy trong entrypoint của Postgres — nên một biến thiếu không làm
+      ai-chatbox không lên, nó làm **cả stack** không lên, với thông báo `THIEU bien moi truong
+      DB_PASSWORD_AI_CHATBOX` nằm trong log của container `postgres`.
+- [ ] **`ai_chatbox_db` cần extension `vector`**, và nó do initdb tạo bằng superuser — không do
+      migration. pgvector không phải extension "trusted" nên chủ database tự tạo không được; đặt
+      `CREATE EXTENSION` vào migration thì mọi môi trường sạch chết ở lần khởi động đầu với
+      `permission denied to create extension`, một thông báo trỏ vào Flyway trong khi nguyên nhân
+      là phân quyền của cụm. Ảnh Postgres phải là `pgvector/pgvector:pg16`.
 - [ ] **`ledger_db` có HAI role**: `ledger_owner` (sở hữu schema, chạy Flyway) và `ledger_app`
       (runtime). Đây là thứ làm cho sổ cái thật sự append-only: owner bỏ qua mọi `REVOKE` trên bảng
       của chính mình, nên chạy service bằng owner khiến `UPDATE postings` và
@@ -93,6 +102,31 @@ mục đích nghĩa là một lần lộ làm hỏng tất cả những mục đ
       danh sách này là chốt chặn duy nhất — để nguyên mặc định `localhost:3000` nghĩa là mọi trang
       web đều mở được socket tới đây.
 - [ ] TLS ở ingress cho cả năm tên miền công khai.
+
+## 4b. Trợ lý AI — đường DUY NHẤT tiêu tiền theo request
+
+Mọi route khác chỉ tốn CPU của ta. `/v1/chat/**` thì mỗi request là một lần nhúng cộng tối đa bốn
+lượt gọi mô hình, nên nó cần một mục riêng chứ không nằm chung với phần trên.
+
+- [ ] `AICHATBOX_URL` đã khai ở gateway. Thiếu nó thì route giữ mặc định `localhost:8101` — trỏ vào
+      chính container gateway — và cả khung chat của khách lẫn bàn hỗ trợ nhận 503 trong khi
+      ai-chatbox-service chạy hoàn toàn tốt ở mạng bên cạnh.
+- [ ] **Đã chọn nhà cung cấp, và khai đủ khoá cho lựa chọn đó.** `AI_PROVIDER=local` cần container
+      `ollama` (hồ sơ `ai-local`) **và** hai lần `ollama pull` — ảnh không mang mô hình nào theo, và
+      chưa pull thì mọi lượt chat trả 503. `AI_PROVIDER=anthropic` cần **cả** `ANTHROPIC_API_KEY`
+      **và** `VOYAGE_API_KEY`: Claude không có endpoint nhúng, và thiếu khoá Voyage thì service từ
+      chối khởi động — cố ý, vì nếu không thì trợ lý vẫn trả lời như thường sau khi mất hẳn RAG.
+- [ ] **Giới hạn tần suất riêng cho `/v1/chat/**`.** Ngưỡng chung `RATE_LIMIT_RPS=50` là hợp lý cho
+      một route đọc database; ở đây nó là 50 lần gọi mô hình mỗi giây, tức một hoá đơn không có
+      trần và một cách làm cạn hạn mức của nhà cung cấp trong vài phút. **Chưa làm** — xem "Việc còn
+      lại" ở cuối trang.
+- [ ] Kho tri thức **đã có nội dung**. RAG đọc `event_knowledge_embeddings`, và bảng rỗng không gây
+      lỗi nào: trợ lý vẫn trả lời, chỉ là nó không biết gì ngoài đơn hàng của khách và trả lời "mình
+      chưa tra được" cho mọi câu hỏi chính sách. Soạn qua `/v1/support/knowledge/**`, rồi thử lại
+      bằng `GET /v1/support/knowledge/preview?q=…` — cờ `used` nói đoạn nào thật sự vượt ngưỡng.
+- [ ] Đổi mô hình nhúng (hoặc đổi `AI_PROVIDER`) thì phải **nhúng lại toàn bộ** kho tri thức. Vector
+      của hai mô hình không nằm trong cùng một không gian kể cả khi cùng số chiều, và truy vấn trộn
+      hai loại vẫn chạy trơn tru với kết quả vô nghĩa. Chưa có đường nhúng lại hàng loạt.
 
 ## 5. Frontend
 
@@ -137,3 +171,13 @@ Ghi ở đây để không ai phải đi tìm lại:
 - **Xoá cache thành viên theo sự kiện** (thay vì chờ TTL): thu hồi quyền hiện có độ trễ tối đa bằng
   `membership-cache-ttl`. Chấp nhận được, nhưng không phải mãi mãi.
 - **Kiểm dữ liệu bằng Zod ở biên frontend**: hiện tin vào kiểu TypeScript, vốn biến mất lúc chạy.
+- **Giới hạn tần suất riêng cho `/v1/chat/**`** (mục ở §4b trỏ tới đây). Bộ giới hạn hiện là
+  `default-filters` áp chung cho mọi route, và Spring Cloud Gateway giữ cấu hình rate limiter
+  **theo route id**: thêm một `RequestRateLimiter` thứ hai lên cùng route ấy thì hai filter dùng
+  chung một bộ đếm Redis với một cấu hình, và hạn mức thực tế thành một nửa của con số ghi trong
+  file — đúng kiểu cấu hình chạy được mà không ai đọc ra được ý nghĩa. Nên hoặc tách hạn mức theo
+  route ở một chỗ hiểu được, hoặc đặt trần theo người dùng trong chính ai-chatbox-service. Chọn
+  cách nào cũng phải đo được, nên nó cần một quyết định chứ không phải một dòng YAML thêm vào.
+- **Nhúng lại kho tri thức hàng loạt**: đổi mô hình nhúng hiện phải xoá và soạn lại từng đoạn.
+- **Vòng đời dữ liệu hội thoại**: `chat_messages` giữ mã đơn và số tiền, chưa có TTL và chưa có
+  đường xoá theo yêu cầu của khách.
