@@ -21,7 +21,7 @@ public class JdbcTicketRepository implements TicketRepository {
     private static final String COLUMNS =
             """
             id, order_id, order_item_id, event_session_id, organization_id, user_id, session_seat_id,
-            seat_code, zone_code, admission_type, seat_label, ticket_type_name, status,
+            seat_code, zone_code, admission_type, seat_label, ticket_type_name, holder_name, status,
             checked_in_at, checked_in_by
             """;
 
@@ -42,8 +42,8 @@ public class JdbcTicketRepository implements TicketRepository {
                 """
                 INSERT INTO tickets (id, order_id, order_item_id, event_session_id, organization_id, user_id,
                                      session_seat_id, seat_code, zone_code, admission_type, seat_label,
-                                     ticket_type_name, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID')
+                                     ticket_type_name, holder_name, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'VALID')
                 ON CONFLICT (order_item_id) DO NOTHING
                 """,
                 tickets.stream()
@@ -59,7 +59,8 @@ public class JdbcTicketRepository implements TicketRepository {
                             t.zoneCode(),
                             t.admissionType(),
                             t.seatLabel(),
-                            t.ticketTypeName()
+                            t.ticketTypeName(),
+                            t.holderName()
                         })
                         .toList());
         return Arrays.stream(affected).sum();
@@ -136,6 +137,7 @@ public class JdbcTicketRepository implements TicketRepository {
                 rs.getString("admission_type"),
                 rs.getString("seat_label"),
                 rs.getString("ticket_type_name"),
+                rs.getString("holder_name"),
                 TicketStatus.valueOf(rs.getString("status")),
                 checkedInAt == null ? null : checkedInAt.toInstant(),
                 rs.getObject("checked_in_by", UUID.class));

@@ -30,9 +30,17 @@ public class IssueTicketsHandler {
     }
 
     /**
+     * @param holderName tên người mua, chụp lại để ban tổ chức tra cứu được theo tên. {@code null}
+     *     khi identity không trả lời được — xem {@code IssueTicketsForOrderHandler}.
      * @param seats các dòng của đơn hàng, mỗi dòng thành đúng một vé
      */
-    public record Command(UUID orderId, UUID eventSessionId, UUID organizationId, UUID userId, List<SeatLine> seats) {
+    public record Command(
+            UUID orderId,
+            UUID eventSessionId,
+            UUID organizationId,
+            UUID userId,
+            String holderName,
+            List<SeatLine> seats) {
 
         public record SeatLine(
                 UUID orderItemId,
@@ -61,7 +69,8 @@ public class IssueTicketsHandler {
                         seat.zoneCode(),
                         seat.admissionType(),
                         seat.seatLabel(),
-                        seat.ticketTypeName()))
+                        seat.ticketTypeName(),
+                        cmd.holderName()))
                 .toList();
 
         int issued = tickets.issueAll(toIssue);

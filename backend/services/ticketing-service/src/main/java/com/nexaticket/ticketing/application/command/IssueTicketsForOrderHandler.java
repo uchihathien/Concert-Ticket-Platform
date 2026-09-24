@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.ticketing.application.command;
 
+import com.nexaticket.ticketing.domain.port.IdentityPort;
 import com.nexaticket.ticketing.domain.port.OrderingPort;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -21,10 +22,12 @@ public class IssueTicketsForOrderHandler {
     private static final Logger log = LoggerFactory.getLogger(IssueTicketsForOrderHandler.class);
 
     private final OrderingPort ordering;
+    private final IdentityPort identity;
     private final IssueTicketsHandler issueTickets;
 
-    public IssueTicketsForOrderHandler(OrderingPort ordering, IssueTicketsHandler issueTickets) {
+    public IssueTicketsForOrderHandler(OrderingPort ordering, IdentityPort identity, IssueTicketsHandler issueTickets) {
         this.ordering = ordering;
+        this.identity = identity;
         this.issueTickets = issueTickets;
     }
 
@@ -42,11 +45,20 @@ public class IssueTicketsForOrderHandler {
             return 0;
         }
 
+        // Hỏi tên SAU khi đã chắc đơn hợp lệ: một đơn chưa PAID thì không phát vé, và gọi sang
+        // identity trước sẽ là một lời gọi mạng cho một việc không xảy ra.
+        //
+        // Rỗng là kết quả chấp nhận được, không phải lỗi — vé vẫn phát, chỉ là ban tổ chức tra cứu
+        // theo tên sẽ không thấy vé này. Đánh đổi ngược lại (không phát vé vì thiếu tên) là thứ
+        // khách đã trả tiền không chịu nổi.
+        String holderName = identity.displayNameOf(order.userId()).orElse(null);
+
         return issueTickets.handle(new IssueTicketsHandler.Command(
                 order.orderId(),
                 order.eventSessionId(),
                 order.organizationId(),
                 order.userId(),
+                holderName,
                 order.items().stream()
                         .map(line -> new IssueTicketsHandler.Command.SeatLine(
                                 line.orderItemId(),

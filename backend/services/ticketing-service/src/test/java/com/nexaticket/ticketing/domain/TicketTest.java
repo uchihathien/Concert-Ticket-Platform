@@ -66,6 +66,7 @@ class TicketTest {
                 "SEATED",
                 "1",
                 "Ve ngoi",
+                "Nguyễn Văn A",
                 status,
                 status == TicketStatus.CHECKED_IN ? Instant.now() : null,
                 null);

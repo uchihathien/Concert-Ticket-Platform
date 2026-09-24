@@ -54,6 +54,10 @@ public class InternalTicketController {
                 request.eventSessionId(),
                 request.organizationId(),
                 request.userId(),
+                // Đường nội bộ này không tra tên người mua: nó tồn tại cho test và cho việc phát
+                // lại thủ công, còn đường thật là IssueTicketsForOrderHandler — nơi tên được chụp.
+                // Thêm một lời gọi sang identity ở đây là thêm một chỗ nữa để nó lệch.
+                null,
                 request.seats().stream()
                         .map(s -> new IssueTicketsHandler.Command.SeatLine(
                                 s.orderItemId(),

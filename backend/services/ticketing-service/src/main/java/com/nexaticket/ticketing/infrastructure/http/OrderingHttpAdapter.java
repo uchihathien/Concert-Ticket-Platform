@@ -3,8 +3,12 @@ package com.nexaticket.ticketing.infrastructure.http;
 
 import com.nexaticket.ticketing.domain.port.OrderingPort;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -14,6 +18,8 @@ import org.springframework.web.client.RestClient;
 /** Anti-Corruption Layer sang ordering-service. Không kiểu nào của Ordering đi quá lớp này. */
 @Component
 public class OrderingHttpAdapter implements OrderingPort {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderingHttpAdapter.class);
 
     private final RestClient client;
 
@@ -28,6 +34,27 @@ public class OrderingHttpAdapter implements OrderingPort {
         // Builder ĐƯỢC TIÊM, không phải RestClient.builder() tĩnh: chỉ bản này mang theo
         // correlation id và trace span sang service được gọi. Xem CorrelationPropagation.
         this.client = builder.baseUrl(baseUrl).requestFactory(factory).build();
+    }
+
+    @Override
+    public Map<UUID, String> statusesOf(Collection<UUID> orderIds) {
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            StatusesResponse response = client.post()
+                    .uri("/internal/orders/statuses")
+                    .body(new StatusesRequest(List.copyOf(orderIds)))
+                    .retrieve()
+                    .body(StatusesResponse.class);
+
+            return response == null || response.statuses() == null ? Map.of() : response.statuses();
+        } catch (RuntimeException e) {
+            // Nuốt có chủ đích — xem OrderingPort.statusesOf. Vẫn log để một Ordering sập lâu ngày
+            // không đi qua trong im lặng.
+            log.warn("Không đọc được trạng thái {} đơn: {}", orderIds.size(), e.toString());
+            return Map.of();
+        }
     }
 
     @Override
@@ -96,4 +123,9 @@ public class OrderingHttpAdapter implements OrderingPort {
                                     .toList());
         }
     }
+
+    /** Tên field là hợp đồng với {@code InternalOrderController.StatusesRequest} của ordering. */
+    private record StatusesRequest(List<UUID> orderIds) {}
+
+    private record StatusesResponse(Map<UUID, String> statuses) {}
 }
