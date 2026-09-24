@@ -1,5 +1,196 @@
 # Lịch sử sửa đổi — Kiến trúc v2
 
+## Bản 7 — Trợ lý AI: nửa còn thiếu của kho tri thức, và ba lỗi ở lượt chat đầu tiên
+
+Bản 6 dựng xong đường chuyển cuộc chat sang người thật. Bản này sửa những gì nó để lại, và phần
+lớn chúng có chung một nguyên nhân: **ai-chatbox là service duy nhất không có integration test nào**,
+nên mọi ràng buộc nằm trong SQL đều chưa từng được chạy.
+
+### 1. Phiếu chuyển tiếp vỡ ở khoá ngoại ngay lượt chat ĐẦU TIÊN
+
+`chat_handoffs.session_id` trỏ tới `chat_sessions`, mà dòng đó chỉ ra đời khi có tin nhắn đầu tiên.
+Đường chuyển tiếp lại mở phiếu **trước** rồi mới ghi hội thoại — nên khách vừa mở trang và gõ ngay
+"cho tôi gặp nhân viên" (hoặc mô hình gọi tool chuyển tiếp, hoặc hết vòng ReAct) nhận **500** thay
+vì một phiếu. Với mô hình local 7B trên một kho tri thức rỗng thì nhánh "hết vòng" không hiếm chút
+nào — nó là kết cục thường gặp.
+
+Sửa bằng cách đảo thứ tự và gộp cả bốn lệnh ghi vào **một** transaction (`escalateWithTurn`). Thứ
+tự ấy giờ là một phần của hợp đồng, viết rõ trong javadoc, và có ba test giữ nó.
+
+### 2. Mở phiếu trên phiên của người khác
+
+`POST /v1/chat/agent/sessions/{id}/handoff` không kiểm chủ sở hữu, trong khi hai đường **đọc** đã
+kiểm từ đầu. Hậu quả không nhẹ: đoán ra một UUID phiên là tắt được trợ lý của người đó (phiếu mở là
+công tắc tắt trợ lý), đẩy hội thoại của họ vào hàng đợi bàn hỗ trợ, và ghi `user_id` của kẻ gọi lên
+phiếu của phiên người khác. Giờ kiểm ở `HandoffUseCase`, và trả cùng một mã lỗi cho "không có
+phiên" lẫn "phiên của người khác" — phân biệt được nghĩa là dò ra được UUID nào có thật.
+
+### 3. Kho tri thức không có đường ghi
+
+| Điểm thiết kế | Nội dung |
+| --- | --- |
+| Vấn đề | Hai bảng tri thức có từ migration đầu, truy vấn đọc có, nhưng **không một lệnh INSERT nào** trong cả repo. Không phải "kho còn ít" mà là một tính năng chạy đúng và vô dụng: prompt hệ thống buộc trợ lý chỉ nói những gì có trong ngữ cảnh hoặc kết quả tool, nên nó còn làm được đúng một việc — tra đơn hàng. |
+| Đường soạn | `/v1/support/knowledge/**`, dùng lại quyền `PLATFORM_SUPPORT_HANDLE`. Người soạn câu trả lời cho trợ lý và người trực bàn hỗ trợ là cùng một nhóm việc; tách quyền chỉ có nghĩa khi có hai nhóm người thật sự khác nhau. |
+| Nhúng lúc GHI | Đó là lý do `embedDocument` tồn tại và tách khỏi `embedQuery` — nhà cung cấp phân biệt hai loại đầu vào, và khai sai không gây lỗi nào, chỉ làm chất lượng tìm kiếm tệ đi theo cách không truy nguyên được. |
+| Endpoint thử | `GET .../preview?q=…` đi qua **đúng** đường agent đi và trả cả những đoạn bị ngưỡng loại, kèm cờ `used`. Không có nó thì một kho "trông đầy" mà mọi đoạn đều trên ngưỡng là thứ chỉ phát hiện được qua câu trả lời tệ với khách thật. |
+| Hỏng thì báo ngay | Đường đọc của agent nuốt lỗi embedding (mất RAG không phải hỏng); đường ghi thì không — một đoạn không có vector là một đoạn không bao giờ tìm ra được. |
+
+### 4. Ba chỗ trạng thái của phiếu
+
+Nhận lại phiếu của **chính mình** (F5, bấm hai lần) từng trả 409 như thể người khác vừa nhận — màn
+hình gỡ phiếu khỏi tay người đang trả lời nó. Trả lời vào phiếu **đã đóng** từng đi qua, dựng lại
+đúng cảnh hai phía cùng nói mà cả tính năng này tồn tại để tránh. Đóng phiếu hai lần từng dịch
+`resolved_at`, làm sai báo cáo "xử lý mất bao lâu". Cả ba giờ có mã lỗi riêng
+(`HANDOFF_ALREADY_RESOLVED`) hoặc hành xử idempotent, và có test.
+
+### 5. Deploy: service chưa từng có mặt ở production
+
+`prod.yml` không có khối `ai-chatbox-service`, gateway không có `AICHATBOX_URL`, và — nặng nhất —
+`postgres` không nhận `DB_PASSWORD_AI_CHATBOX` mà `initdb-prod` bắt buộc. Cái cuối không làm
+ai-chatbox không lên, nó làm **cả stack** không lên, bằng một thông báo nằm trong log của container
+`postgres`. Ollama giờ là một service có hồ sơ riêng (`ai-local` ở prod, `ai` ở dev): ~6GB không
+nên là cái giá mặc định của `docker compose up`.
+
+### 6. Integration test
+
+25 test mới trên PostgreSQL + pgvector thật. Chúng kiểm đúng những thứ nằm trong SQL chứ không nằm
+trong Java: khoá ngoại, unique index bộ phận, `UPDATE ... WHERE status = 'WAITING'`, cặp CHECK giữa
+trạng thái và mốc thời gian, cờ `published`, và toán tử `<=>`. Mô hình là hàng giả — thứ cần kiểm
+là vòng ReAct và những gì ghi xuống database, không phải khả năng gọi API có tính tiền.
+
+---
+
+## Bản 6 — Hình học mặt bằng, tra cứu vé, bàn hỗ trợ người thật
+
+Bốn mảng, một nhịp phát hành. Điểm chung: cả bốn đều là thứ đã có backend nhưng thiếu đúng một
+mảnh khiến nó chưa dùng được.
+
+### 1. Hình học mặt bằng (catalog-service)
+
+Trước bản này, một khu chỉ có `row_count × seats_per_row`, nên mọi sơ đồ đều là những khối chữ
+nhật xếp dọc — đủ cho nhà hát, sai cho mọi khán phòng vây quanh sân khấu.
+
+| Điểm thiết kế | Nội dung |
+| --- | --- |
+| Hai hình, không phải N | `GRID` (khối chữ nhật xoay được) và `ARC` (hàng là cung tròn đồng tâm). Sân khấu chữ U = một `ARC` ôm đầu + hai `GRID` xoay 90°. Hình thứ ba nghĩa là màn hình khai báo khu phải thành trình vẽ vector, và mã chỗ `A-3-12` mất nghĩa "hàng 3 ghế 12" mà soát vé đang đọc hàng ngày. |
+| Đơn vị là "ghế" | Không pixel, không mét. Cùng sơ đồ được vẽ trên điện thoại 360px, màn quản trị 1600px và ảnh poster 2480px; con số duy nhất đúng ở cả ba chỗ là con số không mang đơn vị hiển thị. |
+| Lưu công thức, không lưu kết quả | Khu cung 40×60 là 7 con số trong `venue_zones`, không phải 2.400 dòng. Toạ độ từng ghế tính lúc publish, đi theo `session.published`, nằm ở `seats.pos_x/pos_y` của inventory — nơi duy nhất thật sự đọc tới từng ghế. Cột ấy **đã có sẵn**; trước đây catalog chỉ điền chỉ số hàng/cột vào. |
+| `NULL` = "chưa đặt" | Khác hẳn "đặt đúng chỗ mặc định": khu chưa đặt sẽ tự dịch xuống khi chèn thêm khu phía trên, khu đã đặt thì đứng yên. Vì vậy migration không có bước backfill và không sơ đồ nào đang chạy bị xê dịch. |
+| Sửa hình học sau publish **không** di chuyển ghế đã dựng | Hành vi đúng: vé đã bán mang mã chỗ, và mã chỗ phải trỏ tới đúng chỗ ngồi hôm mở bán. Muốn đổi thì rút sự kiện xuống rồi publish lại. |
+
+Khung concert của Tổng công ty mang theo hình học và sân khấu, nên áp khung vẫn chỉ là một phép
+chép — đó là điều kiện để một khung sân khấu tròn không áp xuống thành mấy khối chữ nhật.
+
+**Frontend giữ đúng nguyên tắc của plan bản 5**: không tự tính chỗ. `SeatMapCanvas` nhận toạ độ từ
+backend (mặt bằng cho màn xem trước của ban tổ chức, sơ đồ tồn kho cho khách) và chỉ lo phần vẽ.
+Ba việc thay cho một `<button>` mỗi ghế: mức chi tiết theo khu (chưa chọn khu thì chỉ vẽ đường
+bao), cắt theo khung nhìn, và **một** listener ở gốc `<svg>`. Với khán phòng 20.000 chỗ thì số node
+DOM giữ ở mức vài trăm thay vì 20.000.
+
+### 2. Tra cứu vé của ban tổ chức (ticketing-service)
+
+Lọc theo mã vé, mã ghế, tên khách, khu, trạng thái vào cửa và trạng thái thanh toán.
+
+| Quyết định | Vì sao |
+| --- | --- |
+| Tên khách **chụp** vào `tickets.holder_name` lúc phát vé | Lọc theo một cột mình không có là điều không làm được. Hỏi identity lúc đọc chỉ trả lời được "tên của những vé tôi đã lấy ra", tức là phải lấy hết vé của cả sự kiện rồi mới lọc — và phân trang mất nghĩa. |
+| Identity im lặng thì vẫn phát vé | Tên là dữ liệu tô điểm. Khách đã trả tiền; một service phụ không trả lời không phải lý do để họ không có vé. |
+| `payment_status` là bản chụp, **tự vá lúc đọc** | Chưa có sự kiện `order.refunded` nào được phát. Đường đọc hỏi ordering trạng thái của đúng những đơn trên trang đang xem — một lời gọi cho tối đa 50 đơn — rồi ghi đè dòng nào lệch. Đánh đổi nói thẳng: bộ lọc chạy trên cột đã lưu, nên một vé vừa hoàn tiền mà chưa ai mở tới vẫn hiện là PAID; nó tự đúng ngay lần đầu có người nhìn vào. |
+| Một index, và nó không đánh trên phần chữ | Bộ lọc luôn bắt đầu bằng tổ chức (thường thêm sự kiện) — đó là chỗ duy nhất có tính chọn lọc thật. Sau đó còn vài nghìn dòng, và `ILIKE` trên vài nghìn dòng rẻ hơn nuôi một index GIN trgm phải cập nhật ở mỗi lần phát vé, tức đúng lúc mở bán. |
+
+### 3. Chuyển cuộc chat sang người thật (ai-chatbox-service)
+
+| Điểm thiết kế | Nội dung |
+| --- | --- |
+| Phiếu mở là **công tắc tắt trợ lý** | Phần quan trọng nhất của cả tính năng. Thiếu nó thì trợ lý trả lời xen vào giữa, khách nhận hai câu trả lời khác nhau cho cùng một câu hỏi và không biết tin câu nào. |
+| Ba đường kích hoạt | (a) nhận ý định trong câu chữ — không hỏi mô hình, không tốn tiền, không thể bị mô hình diễn giải thành "thử giúp thêm lần nữa"; (b) tool `escalateToHuman` cho trường hợp trợ lý tự thấy không xử lý được; (c) hết vòng ReAct mà chưa trả lời — đúng định nghĩa của "độ tin cậy thấp". |
+| `AGENT` tách khỏi `ASSISTANT` | Khách phải biết mình đang nói với máy hay với người. Với mô hình thì hai vai gộp làm một ("phía hỗ trợ đã nói"); với giao diện thì không. |
+| Một phiếu mở cho mỗi phiên | Unique index bộ phận, không phải đọc-rồi-ghi. Khách bấm "gặp nhân viên" ba lần mà ra ba phiếu nghĩa là ba người trực cùng trả lời một cuộc hội thoại. |
+| Nhận phiếu là `UPDATE ... WHERE status = 'WAITING'` | Hai người trực bấm trong cùng một giây là chuyện bình thường giờ cao điểm. 409 ở đây là câu trả lời **đúng**, không phải lỗi. |
+| Hỏi lại, không đẩy | Realtime-gateway phục vụ fan-out tồn kho, nơi một giây chậm là bán trùng ghế. Bàn hỗ trợ không có ràng buộc ấy — hỏi lại mỗi 5 giây rẻ hơn dựng thêm một kênh đẩy cùng phần dò kết nối lại. Đánh đổi có chủ đích. |
+
+Quyền `PLATFORM_SUPPORT_HANDLE` ở **phạm vi nền tảng**: khách chat với nền tảng về đơn của chính
+họ, và một cuộc chat có thể nhắc tới sự kiện của nhiều tổ chức. Hiện chỉ `SUPER_ADMIN` có — thêm
+*quyền* thì không phải sửa ràng buộc CHECK của database hay realm Keycloak, còn thêm *vai trò* thì
+phải. Khi vai trò trực hỗ trợ ra đời, nó chỉ cần khai thêm một dòng ở `Role`.
+
+### 4. Chi phí mô hình: mặc định đảo sang chạy tại chỗ
+
+`AI_PROVIDER=local` (Ollama) là mặc định mới; `anthropic` vẫn còn nguyên sau một biến môi trường.
+Hai lý do: mỗi lượt chat tính tiền hai lần (nhúng + mô hình) nhân với số vòng ReAct, nên một mặc
+định có tính tiền ghi mọi môi trường dev vào hoá đơn thật; và trước đây service **từ chối khởi
+động** khi thiếu `ANTHROPIC_API_KEY`.
+
+`bge-m3` được chọn vì nó sinh vector **1024 chiều** — đúng bằng `vector(1024)` đã khai cho
+voyage-3.5. Trùng số chiều cho phép đổi nhà cung cấp mà không sửa schema, nhưng **không** làm hai
+bên so sánh được: đổi nhà cung cấp vẫn phải nhúng lại toàn bộ kho tri thức.
+
+### 5. Bộ lọc: đẩy xuống database chỗ cần, giữ ở client chỗ không cần
+
+Một quy tắc duy nhất quyết định lọc ở đâu: **tập dữ liệu có nằm sẵn trong bộ nhớ của người đang
+xem hay không.**
+
+| Màn hình | Lọc ở đâu | Vì sao |
+| --- | --- | --- |
+| Danh sách sự kiện công khai | **Database** | Có bao nhiêu sự kiện đang bán là điều không kiểm soát được |
+| Tra cứu vé của ban tổ chức | **Database** | Một sự kiện có hàng chục nghìn vé |
+| Ví vé của khách | Client | Vài chục vé, đã tải về rồi |
+| Đơn hàng của khách | Client | 50 đơn, đã tải về rồi |
+| Địa điểm, thành viên | Client | Vài chục dòng, `GET` trả hết trong một lượt |
+
+**`GET /v1/events` nhận thêm `from`/`to` và `minPrice`/`maxPrice`.** Đây là việc mà
+`quick-filters.ts` đã ghi sẵn trong chính mã nguồn từ trước: hai bộ lọc thời gian và giá vốn chạy
+tại chỗ trên **tối đa 60 sự kiện** lấy về, nên chúng chỉ đúng trong phạm vi 60 cái đó — và con số
+tổng hiện trên màn hình cũng chỉ đếm trong phạm vi ấy. Giới hạn đó không còn.
+
+Ba quyết định trong lần sửa này:
+
+1. **Endpoint nhận KHOẢNG, không nhận tên lựa chọn** (`from=…` chứ không `when=weekend`). "Cuối
+   tuần này" phụ thuộc hôm nay là thứ mấy **ở Việt Nam**, mà tiến trình backend chạy giờ UTC —
+   07:00 giờ Việt Nam là 00:00 UTC, nên để backend tự giải nghĩa thì "hôm nay" nhảy sang hôm khác
+   đúng vào buổi sáng. Frontend đã có phép tính ấy và nó đúng. Danh sách lựa chọn cũng là quyết
+   định giao diện: thêm mốc "3 tháng tới" chỉ nên sửa một hằng số ở frontend.
+
+2. **Lọc trên giá trị dẫn xuất, không trên bảng gốc.** `from`/`to` so với *suất kế tiếp* và
+   `minPrice`/`maxPrice` so với *giá thấp nhất* — đúng hai con số hiện trên thẻ sự kiện. Lọc theo
+   "có suất bất kỳ trong khoảng" sẽ trả về một sự kiện mà thẻ của nó hiện một ngày nằm ngoài
+   khoảng vừa lọc, và người dùng đọc đó là lỗi. Vì hai giá trị ấy là subquery chứ không phải cột,
+   câu lệnh dùng CTE: tính một lần rồi lọc bên ngoài, thay vì viết lại subquery lần thứ hai trong
+   `WHERE`.
+
+3. **Câu lấy trang và câu đếm dùng chung mệnh đề lọc và chung hàm dựng tham số.** Mười bốn tham số
+   vị trí là chỗ dễ sai nhất, và sai kiểu ấy không gây lỗi — nó chỉ lặng lẽ lọc theo thành phố
+   bằng giá trị của phân loại. Hai câu lọc khác nhau thì tổng số trang không khớp số dòng thật, và
+   người dùng chỉ phát hiện ở trang cuối.
+
+Phía client, `applyQuickFilters` và `needsLocalFiltering` bị **bỏ** cùng với giới hạn 60 sự kiện;
+`timeRange`/`priceRange` ở lại vì chúng vẫn là chỗ dịch lựa chọn giao diện thành khoảng số.
+
+Ví vé mặc định lọc **"Sắp diễn ra"**: ví mở ra mà trên cùng là concert năm ngoái thì việc đầu tiên
+khách phải làm là cuộn qua chỗ mình không cần. Vé của sự kiện đã gỡ đăng bán (không tra được ngày)
+**luôn được giữ lại** — giấu đi một cái vé khách đã trả tiền hỏng nặng hơn nhiều so với hiện thừa
+một dòng.
+
+Đơn hàng gộp sáu trạng thái thành **ba việc** (chờ thanh toán / đã thanh toán / đã đóng): khách
+không phân biệt `EXPIRED` với `CANCELLED` — cả hai đều là "đơn này hỏng rồi". `MANUAL_REVIEW` nằm
+cùng nhóm "đã thanh toán" vì tiền đã tới, việc còn lại là của nền tảng.
+
+Mọi màn hình lọc tại chỗ đều phân biệt **"không có dữ liệu"** với **"bộ lọc đang giấu dữ liệu"**.
+Gộp hai câu làm một sẽ nói với người vừa mua vé rằng họ chưa mua gì.
+
+### 6. Ảnh vé — và vì sao mã QR không đổi
+
+Poster in tên khách, khu, ghế, tên sự kiện ra **bằng chữ**; mã QR vẫn chỉ mang `jti` và `exp`
+(H7 giữ nguyên). Ảnh vé bị đăng lên mạng xã hội là chuyện hàng ngày và mọi mã QR đều giải ra được
+bằng một cái điện thoại — chữ in trên ảnh thì người đăng nhìn thấy và tự quyết định che đi, dữ
+liệu giấu trong mã thì không. Nhãn ghế hiện trên máy soát vé là do **server trả về** sau khi kiểm
+quyền nhân viên, nên nhét chúng vào mã cũng không làm cửa vào nhanh hơn một giây nào.
+
+Dựng ở client, cùng lý do màn hình quản trị không có endpoint xuất file: chỗ ấy biết ngôn ngữ, múi
+giờ và định dạng ngày mà người dùng đang xem.
+
+---
+
 ## Bản 5 — Kế hoạch triển khai + hướng giao diện
 
 | Tài liệu | Nội dung |

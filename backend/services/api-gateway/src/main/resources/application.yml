@@ -51,6 +51,8 @@ spring:
             #   /v1/me/tickets, /v1/me/orders       <  /v1/me/**                       (ticketing, ordering trước identity)
             #   /v1/orders/*/tickets                <  /v1/orders/**                   (ticketing trước ordering)
             #   /v1/sessions/*/checkins             <  /v1/sessions/**                 (ticketing trước inventory)
+            #   /v1/organizations/*/tickets         <  /v1/organizations/**            (ticketing trước identity)
+            #   /v1/organizations/*/uploads/**      <  /v1/organizations/**            (catalog trước identity)
             #   /v1/platform/organizations/*/balance <  /v1/platform/organizations/**  (ledger trước identity)
             # `/v1/platform/concert-templates/**` KHÔNG chồng với `/v1/platform/organizations/**`
             # của identity, nên thứ tự giữa hai cái đó không quan trọng. Nhưng nó vẫn phải có mặt:
@@ -59,11 +61,11 @@ spring:
             - id: catalog
               uri: ${CATALOG_URL:http://localhost:8091}
               predicates:
-                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**,/v1/organizations/*/concert-templates/**,/v1/organizations/*/dashboard,/v1/platform/concert-templates/**
+                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**,/v1/organizations/*/concert-templates/**,/v1/organizations/*/dashboard,/v1/platform/concert-templates/**,/v1/organizations/*/uploads/**
             - id: ticketing
               uri: ${TICKETING_URL:http://localhost:8097}
               predicates:
-                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins
+                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets
             - id: ordering
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:
@@ -103,7 +105,7 @@ spring:
             - id: ai-chatbox
               uri: ${AICHATBOX_URL:http://localhost:8101}
               predicates:
-                - Path=/v1/chat/**
+                - Path=/v1/chat/**,/v1/support/**
             # Rộng nhất, nên đứng cuối: `/v1/organizations/**` và `/v1/me/**` bao trùm mọi mẫu trên.
             # `/v1/roles`, `/v1/platform/users/**` và `/v1/platform/audit-logs` KHÔNG khớp mẫu nào
             # ở trên, nên thiếu chúng ở đây là 404 của chính gateway — và người ta sẽ đi soi
