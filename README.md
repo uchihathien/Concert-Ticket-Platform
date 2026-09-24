@@ -8,14 +8,14 @@ Kiến trúc microservices + DDD, nền tảng giữ tiền. Toàn bộ thiết 
 
 | Repo | Nội dung |
 | --- | --- |
-| **Repo này** | Backend (11 service Spring Boot), tài liệu thiết kế, hạ tầng |
+| **Repo này** | Backend (12 service Spring Boot + gateway), tài liệu thiết kế, hạ tầng |
 | [Concert-Ticket-Frontend](https://github.com/uchihathien/Concert-Ticket-Frontend) | 4 app Next.js, pnpm workspace |
 
 Trong repo này:
 
 | Thư mục | Nội dung | README |
 | --- | --- | --- |
-| [`backend/`](backend/) | 11 service + gateway, Maven multi-module | [backend/README.md](backend/README.md) |
+| [`backend/`](backend/) | 12 service + gateway, Maven multi-module | [backend/README.md](backend/README.md) |
 | `deploy/` | Hạ tầng dùng chung: compose, RabbitMQ topology, Keycloak realm | — |
 | `scripts/` | Công cụ dùng chung | — |
 | `docs/` | Tài liệu thiết kế — **nguồn chân lý cho cả hai repo** | [docs/README.md](docs/README.md) |
@@ -29,7 +29,7 @@ Trong repo này:
 | --- | --- |
 | [Kiến trúc v2](docs/architecture-v2/README.md) | Tổng quan, vai trò, hằng số nghiệp vụ, lộ trình G0–G7 |
 | [Context map](docs/architecture-v2/context-map.md) | Bounded context, ubiquitous language |
-| [Danh mục service](docs/architecture-v2/services.md) | 11 service + gateway |
+| [Danh mục service](docs/architecture-v2/services.md) | 12 service + gateway |
 | [Mô hình địa điểm](docs/architecture-v2/venue-seating-model.md) | Khu vực cố định / linh hoạt, vé ngồi / đứng |
 | [Mô hình giữ tiền](docs/architecture-v2/custodial-funds.md) | Sổ cái kép, chi trả, pháp lý |
 | [Plan triển khai](docs/architecture-v2/plan/README.md) | [Backend](docs/architecture-v2/plan/backend.md) · [Frontend](docs/architecture-v2/plan/frontend.md) |
@@ -147,30 +147,44 @@ Trả về `invitationToken` — dùng nó gọi `POST /v1/invitations/{token}/a
 
 ## Trạng thái
 
-21 module Maven (6 thư viện `platform/` + gateway + 11 service) đã dựng và **build xanh**. Mức độ
-hoàn thiện rất khác nhau giữa các service — bảng dưới nói rõ cái nào là sản phẩm, cái nào mới là khung.
+19 module Maven (6 thư viện `platform/` + `api-gateway` + 12 service) đã dựng và **build xanh**,
+với **440 test** và **36 luật ArchUnit**. Mỗi service là một bounded context: một database riêng,
+một user database riêng, một bộ migration Flyway riêng (ADR-1002).
 
-| Thành phần | |
-| --- | --- |
-| Maven multi-module, 6 thư viện `platform/` | ✅ build xanh |
-| `identity-service` — tạo tổ chức, mời thành viên, membership | ✅ lát cắt dọc đầy đủ |
-| `ledger-service` — sổ cái kép, bút toán N1, bất biến do database ép | ✅ lát cắt dọc đầy đủ |
-| `inventory-service` — giữ chỗ, chống oversell, trần mua vé | ✅ lát cắt dọc đầy đủ |
-| `api-gateway` — route, JWT, rate limit, correlation id | ✅ |
-| Hạ tầng local: PostgreSQL, Redis, RabbitMQ, Keycloak, Mailpit | ✅ |
-| 4 app Next.js + design token | ✅ khung |
-| **96 test** (63 unit + ArchUnit, 33 integration với PostgreSQL và Redis thật) | ✅ |
-| catalog · ordering · payment · payout · ticketing · realtime · notification · analytics | ⬜ khung: POM, cấu hình, ArchUnit, migration rỗng |
+| Service | Nội dung | Test |
+| --- | --- | --- |
+| `identity` | Tổ chức, mời thành viên, RBAC theo ma trận quyền, thu hồi phiên, đặt lại mật khẩu qua Keycloak | 79 |
+| `catalog` | Địa điểm, khu, **hình học mặt bằng** (GRID + ARC), khung concert dùng chung, sự kiện/suất, publish, ảnh bìa qua S3 | 99 |
+| `inventory` | Giữ chỗ bằng Redis Lua, chống oversell, trần mua vé, materialize `session_seats` | 38 |
+| `ordering` | Saga đặt vé, hạn thanh toán, bù trừ khi một chặng hỏng | 25 |
+| `payment` | payOS: tạo yêu cầu, webhook đủ nhánh, chữ ký HMAC, đối soát, hết hạn | 44 |
+| `ledger` | Sổ cái kép, bút toán N1, append-only do **database** ép chứ không do mã nguồn | 27 |
+| `payout` | Lịch chi trả cho tổ chức, duyệt bốn mắt | 22 |
+| `ticketing` | Phát vé, mã QR ký, ví vé, soát vé, tra cứu của ban tổ chức, ảnh vé | 42 |
+| `ai-chatbox` | Trợ lý RAG + tool calling (Ollama hoặc Claude), chuyển sang người thật, kho tri thức soạn được | 48 |
+| `analytics` | Read model doanh thu, consumer thuần | 10 |
+| `notification` | Gửi email theo sự kiện, consumer thuần | 9 |
+| `realtime-gateway` | WebSocket fan-out tồn kho ghế, gom 200ms một lần | 10 |
+| `api-gateway` | Route, JWT, rate limit theo người dùng/IP, CORS, correlation id | — |
+
+Trong 440 test có **260 integration test** chạy trên PostgreSQL, Redis, pgvector **thật** bằng
+Testcontainers — không mock repository. Lý do: gần hết những gì hệ thống này hứa nằm trong SQL chứ
+không nằm trong Java (partial unique index, ràng buộc CHECK, `UPDATE ... WHERE status`, quyền của
+role), và mock repository thì test xanh trong khi tất cả những thứ đó chưa từng chạy.
+
+Hạ tầng local (PostgreSQL + pgvector, Redis, RabbitMQ, Keycloak, Mailpit, MinIO, Ollama) và bộ
+compose production đầy đủ: ✅. Bốn app Next.js (khách, tổ chức, nền tảng, soát vé) dùng chung
+design token: ✅.
 
 ### Ba spike bắt buộc
 
-Ba chỗ dồn rủi ro lớn nhất của dự án. Hai đã xong, có test chứng minh:
+Ba chỗ dồn rủi ro lớn nhất của dự án. **Cả ba đã xong**, mỗi cái có test chứng minh:
 
 | Spike | | Bằng chứng |
 | --- | --- | --- |
 | Sổ cái luôn cân | ✅ | `LedgerInvariantIT` — ghi thẳng SQL để cố tình làm lệch sổ, database từ chối |
 | Chống oversell (ngồi + đứng) | ✅ | `SeatHoldConcurrencyIT`, `OversellBackstopIT` — xem dưới |
-| Webhook payOS đủ nhánh | ⬜ | thuộc `payment-service`, xem ADR-0016 |
+| Webhook payOS đủ nhánh | ✅ | `PayosPaymentFlowIT` (trả đủ, trả thiếu, gọi lại, sai chữ ký), `PayosSignatureTest` |
 
 Bộ test chống oversell chạy **thật sự đồng thời**, không phải nộp việc vào thread pool rồi hy vọng:
 
