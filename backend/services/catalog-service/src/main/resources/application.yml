@@ -54,6 +54,27 @@ nexaticket:
     publish-interval-ms: 500
 
   catalog:
+    media:
+      # Địa chỉ catalog dùng để nói chuyện với kho vật thể. Trong container đây là tên service.
+      endpoint: ${MEDIA_ENDPOINT:http://localhost:9000}
+      # Địa chỉ TRÌNH DUYỆT dùng. Phải tách khỏi `endpoint`: chữ ký của URL tải lên bao gồm cả tên
+      # host, nên ký bằng `http://minio:9000` rồi đưa cho trình duyệt sẽ cho ra một URL vừa không
+      # phân giải được vừa sai chữ ký. Ở máy phát triển hai địa chỉ trùng nhau nên không phải khai.
+      public-base-url: ${MEDIA_PUBLIC_URL:http://localhost:9000}
+      bucket: ${MEDIA_BUCKET:nexaticket-media}
+      access-key: ${MEDIA_ACCESS_KEY:nexaticket}
+      secret-key: ${MEDIA_SECRET_KEY:nexaticket-dev-secret}
+      # MinIO không quan tâm vùng, nhưng SDK BẮT BUỘC phải có một giá trị.
+      region: ${MEDIA_REGION:us-east-1}
+      # 8 MB. Thi hành SAU khi tải lên (URL ký sẵn kiểu PUT không chặn được kích thước), nên ảnh
+      # quá cỡ bị xoá ngay chứ không nằm lại làm rác.
+      max-bytes: ${MEDIA_MAX_BYTES:8388608}
+      # Cho phép dán đường dẫn ảnh từ nơi khác hay không.
+      #
+      # Bật ở môi trường phát triển vì dữ liệu mẫu trỏ ra picsum.photos. Ở production nên TẮT: mọi
+      # khách xem trang tải ảnh thẳng từ host đó, nên host ấy thấy được IP của từng người — và ảnh
+      # biến mất vào ngày chủ host dọn dẹp, không ai báo.
+      allow-external-urls: ${MEDIA_ALLOW_EXTERNAL_URLS:true}
     services:
       # Bảng điều khiển của ban tổ chức ghép dữ liệu của ba service. Hai địa chỉ này chỉ dùng cho
       # đường ĐỌC đó — không có lệnh ghi nào của catalog đi qua chúng.

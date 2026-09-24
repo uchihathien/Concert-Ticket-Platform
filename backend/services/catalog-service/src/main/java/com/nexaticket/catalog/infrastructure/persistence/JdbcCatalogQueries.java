@@ -2,12 +2,14 @@
 package com.nexaticket.catalog.infrastructure.persistence;
 
 import com.nexaticket.catalog.application.query.CatalogQueries;
+import com.nexaticket.catalog.application.query.CatalogQueries.EventFilter;
 import com.nexaticket.catalog.application.query.CatalogViews;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +42,18 @@ public class JdbcCatalogQueries implements CatalogQueries {
      * GROUP BY: chúng lọc theo những điều kiện khác nhau (suất kế tiếp phải còn ở tương lai, giá
      * thấp nhất thì không), nên gộp vào một phép gom nhóm sẽ ra sai một trong hai.
      *
-     * <p>Ba bộ lọc đều theo kiểu "null thì bỏ qua", viết thẳng vào SQL bằng {@code ? IS NULL OR …}
+     * <h3>Vì sao có CTE</h3>
+     *
+     * <p>Bộ lọc thời gian và giá so sánh với <b>giá trị dẫn xuất</b> — suất kế tiếp và giá thấp
+     * nhất — mà hai thứ đó là subquery, không phải cột. SQL không cho tham chiếu bí danh của
+     * SELECT trong chính mệnh đề WHERE của nó, nên hoặc viết lại cả subquery lần thứ hai trong
+     * WHERE, hoặc tính một lần trong CTE rồi lọc bên ngoài. Cách đầu là hai bản sao của cùng một
+     * phép tính, và bản sai sẽ là bản người dùng nhìn thấy.
+     *
+     * <p>Ba bộ lọc chữ nằm <b>trong</b> CTE chứ không ngoài: chúng cắt bớt số dòng trước khi hai
+     * subquery kia phải chạy cho từng dòng còn lại.
+     *
+     * <p>Mọi bộ lọc đều theo kiểu "null thì bỏ qua", viết thẳng vào SQL bằng {@code ? IS NULL OR …}
      * thay vì nối chuỗi điều kiện. Nối chuỗi là chỗ mà một ngày nào đó có người nối vào giá trị của
      * người dùng.
      *
@@ -50,27 +63,9 @@ public class JdbcCatalogQueries implements CatalogQueries {
      * null, tức là đúng lúc người dùng KHÔNG lọc gì cả: trang danh sách mặc định.
      */
     @Override
-    public List<CatalogViews.EventCard> publishedEvents(
-            String query, String city, String category, int limit, int offset) {
+    public List<CatalogViews.EventCard> publishedEvents(EventFilter filter, int limit, int offset) {
         return jdbc.query(
-                """
-                SELECT e.slug, e.title, e.summary, e.category, e.poster_url,
-                       v.city, v.name AS venue_name,
-                       (SELECT min(s.starts_at) FROM event_sessions s
-                         WHERE s.event_id = e.id AND s.starts_at > now())        AS next_session_at,
-                       (SELECT min(t.price_vnd) FROM ticket_types t
-                          JOIN event_sessions s2 ON s2.id = t.event_session_id
-                         WHERE s2.event_id = e.id)                               AS from_price_vnd,
-                       (SELECT count(*) FROM event_sessions s3 WHERE s3.event_id = e.id) AS session_count
-                  FROM events e
-                  JOIN venues v ON v.id = e.venue_id
-                 WHERE e.status = 'PUBLISHED'
-                   AND (CAST(? AS text) IS NULL OR e.title ILIKE '%' || CAST(? AS text) || '%')
-                   AND (CAST(? AS text) IS NULL OR v.city    = CAST(? AS text))
-                   AND (CAST(? AS text) IS NULL OR e.category = CAST(? AS text))
-                 ORDER BY e.published_at DESC
-                 LIMIT ? OFFSET ?
-                """,
+                CARDS_CTE + "SELECT * FROM cards" + DERIVED_FILTERS + " ORDER BY published_at DESC LIMIT ? OFFSET ?",
                 (rs, i) -> new CatalogViews.EventCard(
                         rs.getString("slug"),
                         rs.getString("title"),
@@ -82,36 +77,110 @@ public class JdbcCatalogQueries implements CatalogQueries {
                         instant(rs, "next_session_at"),
                         nullableLong(rs, "from_price_vnd"),
                         rs.getInt("session_count")),
-                blankToNull(query),
-                blankToNull(query),
-                blankToNull(city),
-                blankToNull(city),
-                blankToNull(category),
-                blankToNull(category),
-                limit,
-                offset);
+                concat(filterParams(filter), new Object[] {limit, offset}));
     }
 
+    /**
+     * Đếm đúng tập dòng mà {@link #publishedEvents} trả về.
+     *
+     * <p>Dùng chung {@link #CARDS_CTE}, {@link #DERIVED_FILTERS} và {@link #filterParams} với câu
+     * lấy trang — không phải để gọn, mà vì hai câu lọc khác nhau nghĩa là tổng số trang không khớp
+     * số dòng thật, và người dùng chỉ phát hiện điều đó ở trang cuối.
+     *
+     * <p>Đắt hơn bản cũ: hai subquery tương quan vẫn chạy cho mọi dòng khớp bộ lọc chữ, kể cả khi
+     * không lọc theo thời gian hay giá. Chấp nhận được vì tập ấy là "sự kiện đang bán" — hàng chục
+     * đến hàng trăm, không phải hàng triệu — và câu này đứng sau cache 2 phút của endpoint.
+     */
     @Override
-    public int countPublishedEvents(String query, String city, String category) {
+    public int countPublishedEvents(EventFilter filter) {
         Integer count = jdbc.queryForObject(
-                """
-                SELECT count(*)
-                  FROM events e
-                  JOIN venues v ON v.id = e.venue_id
-                 WHERE e.status = 'PUBLISHED'
-                   AND (CAST(? AS text) IS NULL OR e.title ILIKE '%' || CAST(? AS text) || '%')
-                   AND (CAST(? AS text) IS NULL OR v.city    = CAST(? AS text))
-                   AND (CAST(? AS text) IS NULL OR e.category = CAST(? AS text))
-                """,
-                Integer.class,
-                blankToNull(query),
-                blankToNull(query),
-                blankToNull(city),
-                blankToNull(city),
-                blankToNull(category),
-                blankToNull(category));
+                CARDS_CTE + "SELECT count(*) FROM cards" + DERIVED_FILTERS, Integer.class, filterParams(filter));
         return count == null ? 0 : count;
+    }
+
+    /**
+     * Thẻ sự kiện đã tính xong phần dẫn xuất, chưa lọc theo thời gian và giá.
+     *
+     * <p>{@code published_at} có mặt chỉ để {@code ORDER BY} bên ngoài dùng được — nó không lọt ra
+     * {@code EventCard}.
+     */
+    private static final String CARDS_CTE =
+            """
+            WITH cards AS (
+              SELECT e.slug, e.title, e.summary, e.category, e.poster_url, e.published_at,
+                     v.city, v.name AS venue_name,
+                     (SELECT min(s.starts_at) FROM event_sessions s
+                       WHERE s.event_id = e.id AND s.starts_at > now())        AS next_session_at,
+                     (SELECT min(t.price_vnd) FROM ticket_types t
+                        JOIN event_sessions s2 ON s2.id = t.event_session_id
+                       WHERE s2.event_id = e.id)                               AS from_price_vnd,
+                     (SELECT count(*) FROM event_sessions s3 WHERE s3.event_id = e.id) AS session_count
+                FROM events e
+                JOIN venues v ON v.id = e.venue_id
+               WHERE e.status = 'PUBLISHED'
+                 AND (CAST(? AS text) IS NULL OR e.title ILIKE '%' || CAST(? AS text) || '%')
+                 AND (CAST(? AS text) IS NULL OR v.city    = CAST(? AS text))
+                 AND (CAST(? AS text) IS NULL OR e.category = CAST(? AS text))
+            )
+            """;
+
+    /**
+     * Lọc theo suất kế tiếp và giá thấp nhất.
+     *
+     * <p>{@code IS NOT NULL} trong mỗi mệnh đề là bắt buộc chứ không thừa: sự kiện chưa có suất nào
+     * ở tương lai có {@code next_session_at = NULL}, và trong SQL thì {@code NULL >= ?} cho ra NULL
+     * chứ không phải false — WHERE loại nó y như false, nhưng người đọc sau không nên phải dựa vào
+     * chi tiết ấy. Viết rõ cũng để nó khớp đúng luật cũ ở frontend: không biết ngày thì không thể
+     * nói sự kiện diễn ra hôm nay.
+     *
+     * <p>Cả hai cận trên đều <b>không</b> lấy mốc ({@code <}): hai lựa chọn liền nhau phải rời
+     * nhau, nếu không một sự kiện giá đúng 500.000đ sẽ hiện ở cả "dưới 500k" lẫn "500k–1tr".
+     */
+    private static final String DERIVED_FILTERS =
+            """
+             WHERE (CAST(? AS timestamptz) IS NULL
+                    OR (next_session_at IS NOT NULL AND next_session_at >= CAST(? AS timestamptz)))
+               AND (CAST(? AS timestamptz) IS NULL
+                    OR (next_session_at IS NOT NULL AND next_session_at <  CAST(? AS timestamptz)))
+               AND (CAST(? AS bigint) IS NULL
+                    OR (from_price_vnd IS NOT NULL AND from_price_vnd >= CAST(? AS bigint)))
+               AND (CAST(? AS bigint) IS NULL
+                    OR (from_price_vnd IS NOT NULL AND from_price_vnd <  CAST(? AS bigint)))
+            """;
+
+    /**
+     * Tham số của {@link #CARDS_CTE} + {@link #DERIVED_FILTERS}, đúng thứ tự, dựng ở <b>một</b> chỗ.
+     *
+     * <p>Mười bốn tham số vị trí là chỗ dễ sai nhất trong file này, và sai kiểu ấy không gây lỗi —
+     * nó chỉ lặng lẽ lọc theo thành phố bằng giá trị của phân loại. Một hàm duy nhất dựng chúng là
+     * cách để câu lấy trang và câu đếm không thể lệch nhau.
+     */
+    private static Object[] filterParams(EventFilter filter) {
+        Timestamp from = filter.from() == null ? null : Timestamp.from(filter.from());
+        Timestamp to = filter.to() == null ? null : Timestamp.from(filter.to());
+
+        return new Object[] {
+            blankToNull(filter.query()),
+            blankToNull(filter.query()),
+            blankToNull(filter.city()),
+            blankToNull(filter.city()),
+            blankToNull(filter.category()),
+            blankToNull(filter.category()),
+            from,
+            from,
+            to,
+            to,
+            filter.minPriceVnd(),
+            filter.minPriceVnd(),
+            filter.maxPriceVnd(),
+            filter.maxPriceVnd()
+        };
+    }
+
+    private static Object[] concat(Object[] head, Object[] tail) {
+        Object[] all = Arrays.copyOf(head, head.length + tail.length);
+        System.arraycopy(tail, 0, all, head.length, tail.length);
+        return all;
     }
 
     /**

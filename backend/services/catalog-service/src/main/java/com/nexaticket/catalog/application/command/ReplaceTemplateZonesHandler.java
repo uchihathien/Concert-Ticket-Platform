@@ -2,6 +2,7 @@
 package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogErrorCode;
+import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.application.PlatformAccess;
 import com.nexaticket.catalog.application.query.TemplateQueries;
 import com.nexaticket.catalog.application.query.TemplateViews;
@@ -36,13 +37,15 @@ public class ReplaceTemplateZonesHandler {
     }
 
     /**
+     * @param stage sân khấu của khung; {@code null} đưa khung về sân khấu mặc định. Đi cùng tập khu
+     *     vì sân khấu và khu là một mặt bằng — toạ độ khu chỉ có nghĩa so với chỗ sân khấu đứng.
      * @param zones tập khu mới, thay hoàn toàn tập cũ
      * @return khung sau khi thay, đã ở hình dạng của đường đọc: người gọi dựng được phản hồi mà
      *     không phải đọc lại, và không phải nhận một kiểu của domain — tầng interfaces không được
      *     chạm vào domain (ArchitectureRules.hexagonalLayers)
      */
     @Transactional
-    public TemplateViews.TemplateDetail handle(UUID templateId, List<ZoneSpec> zones) {
+    public TemplateViews.TemplateDetail handle(UUID templateId, LayoutSpecs.StageSpec stage, List<ZoneSpec> zones) {
         access.requireSuperAdmin();
 
         ConcertTemplate template = templates
@@ -63,13 +66,19 @@ public class ReplaceTemplateZonesHandler {
                     // Thứ tự trên màn hình = thứ tự trong request khi người gọi không nói gì khác.
                     // Bắt họ tự đánh số là bắt họ đánh lại từ đầu mỗi lần chèn một khu vào giữa.
                     spec.sortOrder() == null ? i : spec.sortOrder(),
-                    spec.suggestedPriceVnd()));
+                    spec.suggestedPriceVnd(),
+                    LayoutSpecs.toLayout(spec.layout())));
         }
 
         // Bất biến "mã khu không trùng" kiểm ở aggregate, trước khi chạm database: ràng buộc UNIQUE
         // sẽ bắt được, nhưng nó nói bằng tiếng của Postgres chứ không bằng tiếng của người dùng.
         template.replaceZones(replacement);
+        template.placeStage(LayoutSpecs.toStage(stage));
         templates.replaceZones(template);
+        // Sân khấu nằm trên bảng khung, không trên bảng khu — nên nó cần lượt ghi riêng. Thiếu dòng
+        // này thì khung lưu đúng khu nhưng quên sân khấu, và mọi khu hình cung trong đó sẽ quây
+        // quanh một sân khấu ở chỗ khác.
+        templates.update(template);
         return TemplateQueries.toDetail(template);
     }
 
@@ -87,7 +96,8 @@ public class ReplaceTemplateZonesHandler {
             Integer seatsPerRow,
             Integer capacity,
             Integer sortOrder,
-            Long suggestedPriceVnd) {}
+            Long suggestedPriceVnd,
+            LayoutSpecs.ZoneLayoutSpec layout) {}
 
     private static AdmissionKind parseKind(String kind) {
         try {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.interfaces.rest;
 
+import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.application.command.ManageTemplateHandler;
 import com.nexaticket.catalog.application.command.ReplaceTemplateZonesHandler;
 import com.nexaticket.catalog.application.query.TemplateQueries;
@@ -90,6 +91,14 @@ public class PlatformTemplateController {
     public TemplateViews.TemplateDetail zones(@PathVariable UUID templateId, @Valid @RequestBody ZonesRequest request) {
         return replaceZones.handle(
                 templateId,
+                request.stage() == null
+                        ? null
+                        : new LayoutSpecs.StageSpec(
+                                request.stage().shape(),
+                                request.stage().x(),
+                                request.stage().y(),
+                                request.stage().width(),
+                                request.stage().height()),
                 request.zones().stream()
                         .map(z -> new ReplaceTemplateZonesHandler.ZoneSpec(
                                 z.zoneCode(),
@@ -99,7 +108,15 @@ public class PlatformTemplateController {
                                 z.seatsPerRow(),
                                 z.capacity(),
                                 z.sortOrder(),
-                                z.suggestedPriceVnd()))
+                                z.suggestedPriceVnd(),
+                                new LayoutSpecs.ZoneLayoutSpec(
+                                        z.layoutShape(),
+                                        z.originX(),
+                                        z.originY(),
+                                        z.rotationDeg(),
+                                        z.innerRadius(),
+                                        z.startAngleDeg(),
+                                        z.endAngleDeg())))
                         .toList());
     }
 
@@ -147,7 +164,20 @@ public class PlatformTemplateController {
      * <p>Một khung rỗng không có nghĩa gì, và cách duy nhất người gọi có thể muốn nó là gõ nhầm.
      * Muốn xoá sạch khu thì xoá khung.
      */
-    public record ZonesRequest(@NotEmpty @Valid List<ZoneRequest> zones) {}
+    public record ZonesRequest(@Valid StageRequest stage, @NotEmpty @Valid List<ZoneRequest> zones) {}
+
+    /**
+     * Sân khấu của khung. Đây là chỗ đáng khai hình học nhất trong hệ thống: nền tảng dựng một lần,
+     * hàng chục tổ chức dùng lại, và mỗi lần áp khung là một phép chép nguyên.
+     *
+     * @param height bỏ qua với {@code CIRCLE} — sân khấu tròn lấy {@code width} làm đường kính
+     */
+    public record StageRequest(
+            @NotNull @Pattern(regexp = "RECTANGLE|CIRCLE|THRUST") String shape,
+            @NotNull Double x,
+            @NotNull Double y,
+            @NotNull @Positive Double width,
+            @PositiveOrZero Double height) {}
 
     /**
      * Hình dạng khu không kiểm chéo bằng annotation ở đây — cùng lý do với
@@ -163,5 +193,12 @@ public class PlatformTemplateController {
             @Positive Integer seatsPerRow,
             @Positive Integer capacity,
             Integer sortOrder,
-            @PositiveOrZero Long suggestedPriceVnd) {}
+            @PositiveOrZero Long suggestedPriceVnd,
+            @Pattern(regexp = "GRID|ARC") String layoutShape,
+            Double originX,
+            Double originY,
+            Double rotationDeg,
+            @PositiveOrZero Double innerRadius,
+            Double startAngleDeg,
+            Double endAngleDeg) {}
 }

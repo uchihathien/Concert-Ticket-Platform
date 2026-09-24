@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.domain.port;
 
+import com.nexaticket.catalog.domain.model.StageArea;
 import com.nexaticket.catalog.domain.model.Venue;
 import com.nexaticket.catalog.domain.model.VenueZone;
 import java.util.List;
@@ -13,6 +14,16 @@ public interface VenueRepository {
     void save(Venue venue);
 
     void addZone(VenueZone zone);
+
+    /**
+     * Đặt lại sân khấu của một địa điểm đã có.
+     *
+     * <p>Tách khỏi {@link #save} vì {@code save} là INSERT: sân khấu đổi nhiều lần trong lúc ban
+     * tổ chức xếp sơ đồ, còn địa điểm thì tạo đúng một lần.
+     *
+     * @param stage {@code null} đưa địa điểm về sân khấu mặc định
+     */
+    void updateStage(UUID venueId, StageArea stage);
 
     /**
      * Ghi địa điểm cùng toàn bộ khu của nó trong <b>một</b> lần đi database cho phần khu.
@@ -50,4 +61,18 @@ public interface VenueRepository {
     Optional<Venue> findById(UUID organizationId, UUID venueId);
 
     List<Venue> findAllByOrganization(UUID organizationId);
+
+    /**
+     * Địa điểm của một sự kiện <b>đã publish</b>, tra theo slug, không lọc theo tổ chức.
+     *
+     * <p>Tra theo sự kiện chứ không theo suất diễn: mặt bằng thuộc địa điểm, và mọi suất của một
+     * sự kiện diễn ra ở cùng một địa điểm. Nhận {@code eventSessionId} ở đây sẽ dựng một đường đọc
+     * nói rằng sơ đồ đổi theo suất — nó không đổi, và ai đó sẽ dựa vào điều ngược lại.
+     *
+     * <p>Đây là đường đọc duy nhất trong catalog không mang {@code organizationId}, và nó an toàn
+     * vì điều kiện thay thế nằm trong chính câu truy vấn: chỉ sự kiện {@code PUBLISHED} mới giải
+     * ra được. Sơ đồ của một sự kiện đang bán là dữ liệu công khai — cùng mức với
+     * {@code GET /v1/events/{slug}}.
+     */
+    Optional<Venue> findByPublishedEventSlug(String slug);
 }

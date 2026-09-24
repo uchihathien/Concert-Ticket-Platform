@@ -95,6 +95,7 @@ public class TemplateQueries {
                 template.description(),
                 template.status().name(),
                 template.capacity(),
+                CatalogViews.AdminStage.of(template.stage()),
                 template.zones().stream().map(TemplateQueries::toZone).toList());
     }
 
@@ -127,7 +128,8 @@ public class TemplateQueries {
                 zone.capacity(),
                 zone.seatCount(),
                 zone.sortOrder(),
-                zone.suggestedPriceVnd());
+                zone.suggestedPriceVnd(),
+                CatalogViews.AdminZoneLayout.of(zone.layout()));
     }
 
     /** Trạng thái lạ bị từ chối thay vì bị bỏ qua: bỏ qua sẽ trả về mọi khung cho một bộ lọc gõ sai. */

@@ -125,6 +125,7 @@ public class AdminCatalogQuery {
                 venue.city(),
                 venue.address(),
                 venue.capacity(),
+                CatalogViews.AdminStage.of(venue.stage()),
                 venue.zones().stream()
                         .map(zone -> new CatalogViews.AdminZone(
                                 zone.id(),
@@ -134,7 +135,8 @@ public class AdminCatalogQuery {
                                 zone.rowCount(),
                                 zone.seatsPerRow(),
                                 zone.capacity(),
-                                zone.seatCount()))
+                                zone.seatCount(),
+                                CatalogViews.AdminZoneLayout.of(zone.layout())))
                         .toList());
     }
 }

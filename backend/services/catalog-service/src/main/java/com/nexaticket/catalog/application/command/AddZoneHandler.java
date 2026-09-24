@@ -81,6 +81,9 @@ public class AddZoneHandler {
                 zone.rowCount(),
                 zone.seatsPerRow(),
                 zone.capacity(),
-                zone.seatCount());
+                zone.seatCount(),
+                // Khu thêm lẻ chưa có vị trí: bố cục tự động xếp nó xuống dưới cùng, và ban tổ chức
+                // kéo lại chỗ khác qua màn hình sơ đồ nếu muốn.
+                null);
     }
 }

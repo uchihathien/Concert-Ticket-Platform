@@ -15,6 +15,7 @@ import com.nexaticket.catalog.domain.model.Slug;
 import com.nexaticket.catalog.domain.model.TicketType;
 import com.nexaticket.catalog.domain.model.Venue;
 import com.nexaticket.catalog.domain.model.VenueZone;
+import com.nexaticket.catalog.domain.model.ZoneLayout;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -141,6 +142,45 @@ class SessionPublishedPayloadTest {
                 .hasMessageContaining("không thuộc địa điểm");
     }
 
+    @Test
+    @DisplayName("toạ độ gửi sang Inventory là toạ độ của mặt bằng, không phải chỉ số hàng/cột")
+    void toa_do_lay_tu_mat_bang() {
+        // Trước khi có hình học, posX/posY là (số ghế, số hàng) — nên mọi sơ đồ đều là lưới đều và
+        // mọi khu đều bắt đầu ở gốc. Đây là chốt chặn cho việc đó không quay lại: ghế giữa của một
+        // hàng 3 ghế phải nằm đúng trên trục của khu, tức là posX = 0.
+        SessionPublishedPayload payload = seatedFixture(2, 3).payload();
+
+        SessionPublishedPayload.Seat giua = payload.seats().stream()
+                .filter(seat -> seat.seatCode().equals("A-1-2"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(giua.posX()).isZero();
+
+        // Hàng 2 phải lùi ra xa sân khấu hơn hàng 1. Dùng chỉ số hàng làm toạ độ cũng thoả điều
+        // này, nên nó không đủ một mình — nhưng thiếu nó thì hai hàng chồng lên nhau.
+        double hang1 = seatOf(payload, "A-1-2").posY();
+        double hang2 = seatOf(payload, "A-2-2").posY();
+        assertThat(hang2).isGreaterThan(hang1);
+    }
+
+    @Test
+    @DisplayName("khu cung: mỗi ghế một chỗ, không ghế nào chồng lên ghế nào")
+    void khu_cung_khong_co_ghe_trung_cho() {
+        // Hai vé chỉ vào cùng một điểm trên sơ đồ là lỗi không ai báo: cả hai đều bán được, và chỉ
+        // đến cửa soát vé mới lộ ra.
+        Fixture fixture = arcFixture(3, 12);
+        SessionPublishedPayload payload = fixture.payload();
+
+        long choKhacNhau = payload.seats().stream()
+                .map(seat -> seat.posX() + ":" + seat.posY())
+                .distinct()
+                .count();
+
+        assertThat(payload.seats()).hasSize(36);
+        assertThat(choKhacNhau).isEqualTo(36);
+    }
+
     // --- dựng dữ liệu ------------------------------------------------------
 
     private record Fixture(Event event, EventSession session, Venue venue) {
@@ -157,6 +197,30 @@ class SessionPublishedPayloadTest {
 
         Event event = Event.draft(
                 venue.organizationId(), venueId, new Slug("su-kien"), "Sự kiện", null, null, "nhac-song", null);
+        UUID sessionId = UUID.randomUUID();
+        EventSession session =
+                session(sessionId, event.id(), List.of(TicketType.create(sessionId, zone.id(), "Hạng A", 500_000, 0)));
+
+        return new Fixture(event, session, venue);
+    }
+
+    private static SessionPublishedPayload.Seat seatOf(SessionPublishedPayload payload, String seatCode) {
+        return payload.seats().stream()
+                .filter(seat -> seat.seatCode().equals(seatCode))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /** Một khu hình cung — khán phòng vây quanh sân khấu, hình dạng của gần như mọi concert. */
+    private static Fixture arcFixture(int rows, int seatsPerRow) {
+        UUID venueId = UUID.randomUUID();
+        VenueZone zone = new VenueZone(
+                        UUID.randomUUID(), venueId, "A", "Khu A", AdmissionKind.SEATED, rows, seatsPerRow, null, 0)
+                .withLayout(ZoneLayout.arc(0, 0, 12, 20, 160));
+        Venue venue = new Venue(venueId, UUID.randomUUID(), "Nhà thi đấu", "Hà Nội", null, List.of(zone));
+
+        Event event = Event.draft(
+                venue.organizationId(), venueId, new Slug("su-kien-cung"), "Sự kiện", null, null, "nhac-song", null);
         UUID sessionId = UUID.randomUUID();
         EventSession session =
                 session(sessionId, event.id(), List.of(TicketType.create(sessionId, zone.id(), "Hạng A", 500_000, 0)));

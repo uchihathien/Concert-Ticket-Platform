@@ -3,12 +3,14 @@ package com.nexaticket.catalog.infrastructure.persistence;
 
 import com.nexaticket.catalog.domain.model.AdmissionKind;
 import com.nexaticket.catalog.domain.model.ConcertTemplate;
+import com.nexaticket.catalog.domain.model.StageArea;
 import com.nexaticket.catalog.domain.model.TemplateStatus;
 import com.nexaticket.catalog.domain.model.TemplateZone;
 import com.nexaticket.catalog.domain.port.ConcertTemplateRepository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,32 +36,42 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
 
     @Override
     public void insert(ConcertTemplate template) {
+        Object[] head = {
+            template.id(),
+            template.code(),
+            template.name(),
+            template.category(),
+            template.description(),
+            template.status().name()
+        };
         jdbc.update(
                 """
-                INSERT INTO concert_templates (id, code, name, category, description, status)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                template.id(),
-                template.code(),
-                template.name(),
-                template.category(),
-                template.description(),
-                template.status().name());
+                INSERT INTO concert_templates (id, code, name, category, description, status, """
+                        + LayoutColumns.STAGE_COLUMNS
+                        + """
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                concat(head, LayoutColumns.stageParams(template.stage())));
     }
 
     @Override
     public void update(ConcertTemplate template) {
+        Object[] head = {
+            template.name(),
+            template.category(),
+            template.description(),
+            template.status().name()
+        };
         jdbc.update(
                 """
                 UPDATE concert_templates
-                   SET name = ?, category = ?, description = ?, status = ?, updated_at = now()
+                   SET name = ?, category = ?, description = ?, status = ?,
+                       stage_shape = ?, stage_x = ?, stage_y = ?, stage_width = ?, stage_height = ?,
+                       updated_at = now()
                  WHERE id = ?
                 """,
-                template.name(),
-                template.category(),
-                template.description(),
-                template.status().name(),
-                template.id());
+                concat(concat(head, LayoutColumns.stageParams(template.stage())), new Object[] {template.id()}));
     }
 
     /**
@@ -80,7 +92,7 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
         }
         List<Object[]> rows = new ArrayList<>(zones.size());
         for (TemplateZone zone : zones) {
-            rows.add(new Object[] {
+            Object[] head = {
                 zone.id(),
                 template.id(),
                 zone.zoneCode(),
@@ -91,15 +103,19 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
                 zone.capacity(),
                 zone.sortOrder(),
                 zone.suggestedPriceVnd()
-            });
+            };
+            rows.add(concat(head, LayoutColumns.zoneParams(zone.layout())));
         }
         jdbc.batchUpdate(
                 """
                 INSERT INTO concert_template_zones (id, template_id, zone_code, name, kind,
                                                     row_count, seats_per_row, capacity,
-                                                    sort_order, suggested_price_vnd)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+                                                    sort_order, suggested_price_vnd, """
+                        + LayoutColumns.ZONE_COLUMNS
+                        + """
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
                 rows);
     }
 
@@ -142,8 +158,11 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
     private static final String SELECT =
             """
             SELECT t.id, t.code, t.name, t.category, t.description, t.status,
+                   t.stage_shape, t.stage_x, t.stage_y, t.stage_width, t.stage_height,
                    z.id AS zone_id, z.zone_code, z.name AS zone_name, z.kind,
-                   z.row_count, z.seats_per_row, z.capacity, z.sort_order, z.suggested_price_vnd
+                   z.row_count, z.seats_per_row, z.capacity, z.sort_order, z.suggested_price_vnd,
+                   z.layout_shape, z.layout_origin_x, z.layout_origin_y, z.layout_rotation_deg,
+                   z.layout_inner_radius, z.layout_start_angle_deg, z.layout_end_angle_deg
               FROM concert_templates t
               LEFT JOIN concert_template_zones z ON z.template_id = t.id
             """;
@@ -157,6 +176,7 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
             String category,
             String description,
             TemplateStatus status,
+            StageArea stage,
             TemplateZone zone) {}
 
     private static Row mapRow(ResultSet rs, int index) throws SQLException {
@@ -174,7 +194,8 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
                         nullableInt(rs, "seats_per_row"),
                         nullableInt(rs, "capacity"),
                         rs.getInt("sort_order"),
-                        nullableLong(rs, "suggested_price_vnd"));
+                        nullableLong(rs, "suggested_price_vnd"),
+                        LayoutColumns.readZone(rs));
         return new Row(
                 templateId,
                 rs.getString("code"),
@@ -182,7 +203,15 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
                 rs.getString("category"),
                 rs.getString("description"),
                 TemplateStatus.valueOf(rs.getString("status")),
+                LayoutColumns.readStage(rs),
                 zone);
+    }
+
+    /** Nối hai mảng tham số — xem {@code JdbcVenueRepository.concat}. */
+    private static Object[] concat(Object[] head, Object[] tail) {
+        Object[] all = Arrays.copyOf(head, head.length + tail.length);
+        System.arraycopy(tail, 0, all, head.length, tail.length);
+        return all;
     }
 
     /** {@code getInt} trả 0 cho NULL, và 0 không hợp lệ ở những cột này — xem {@code JdbcVenueRepository}. */
@@ -217,7 +246,8 @@ public class JdbcConcertTemplateRepository implements ConcertTemplateRepository 
                         header.category(),
                         header.description(),
                         header.status(),
-                        zonesByTemplate.get(header.templateId())))
+                        zonesByTemplate.get(header.templateId()),
+                        header.stage()))
                 .toList();
     }
 }

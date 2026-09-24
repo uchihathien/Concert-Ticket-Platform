@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.application.query;
 
+import com.nexaticket.catalog.domain.model.LayoutShape;
+import com.nexaticket.catalog.domain.model.StageArea;
+import com.nexaticket.catalog.domain.model.ZoneLayout;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -110,8 +113,28 @@ public final class CatalogViews {
     public record AdminTicketType(
             UUID id, UUID venueZoneId, String zoneCode, String zoneName, String name, long priceVnd, int capacity) {}
 
-    public record AdminVenue(UUID id, String name, String city, String address, int capacity, List<AdminZone> zones) {}
+    /**
+     * @param stage {@code null} nghĩa là địa điểm chưa khai sân khấu và dùng sân khấu mặc định.
+     *     Cố ý giữ {@code null} thay vì giải sẵn: đây là DTO của màn hình <b>sửa</b>, và nó phải
+     *     phân biệt được "chưa khai" với "khai đúng bằng mặc định" — gửi lại bản đã giải sẵn qua
+     *     {@code PUT} sẽ biến mọi địa điểm thành đã-khai sau một lần lưu. Bản đã giải nằm ở
+     *     {@code GET /venues/{id}/floor-plan}, nơi không ai gửi ngược lại.
+     */
+    public record AdminVenue(
+            UUID id, String name, String city, String address, int capacity, AdminStage stage, List<AdminZone> zones) {}
 
+    public record AdminStage(String shape, double x, double y, double width, double height) {
+
+        /** {@code null} đi thẳng qua: màn hình sửa phải phân biệt "chưa khai" với "khai bằng mặc định". */
+        public static AdminStage of(StageArea stage) {
+            return stage == null
+                    ? null
+                    : new AdminStage(
+                            stage.shape().name(), stage.x(), stage.y(), stage.width(), stage.effectiveHeight());
+        }
+    }
+
+    /** @param layout {@code null} nghĩa là khu chưa đặt vị trí và bố cục tự động xếp nó */
     public record AdminZone(
             UUID id,
             String zoneCode,
@@ -120,5 +143,36 @@ public final class CatalogViews {
             Integer rowCount,
             Integer seatsPerRow,
             Integer capacity,
-            int seatCount) {}
+            int seatCount,
+            AdminZoneLayout layout) {}
+
+    /**
+     * @param rotationDeg chỉ có nghĩa với {@code GRID}; ba trường sau chỉ có nghĩa với {@code ARC}.
+     *     Trường không dùng được trả {@code null} chứ không trả 0 — 0 là một bán kính hợp lệ về mặt
+     *     kiểu, và màn hình sửa sẽ hiện nó ra như một giá trị đã khai.
+     */
+    public record AdminZoneLayout(
+            String shape,
+            double originX,
+            double originY,
+            Double rotationDeg,
+            Double innerRadius,
+            Double startAngleDeg,
+            Double endAngleDeg) {
+
+        public static AdminZoneLayout of(ZoneLayout layout) {
+            if (layout == null) {
+                return null;
+            }
+            boolean arc = layout.shape() == LayoutShape.ARC;
+            return new AdminZoneLayout(
+                    layout.shape().name(),
+                    layout.originX(),
+                    layout.originY(),
+                    arc ? null : layout.rotationDeg(),
+                    arc ? layout.innerRadius() : null,
+                    arc ? layout.startAngleDeg() : null,
+                    arc ? layout.endAngleDeg() : null);
+        }
+    }
 }

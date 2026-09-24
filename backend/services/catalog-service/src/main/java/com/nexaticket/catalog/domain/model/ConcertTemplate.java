@@ -25,6 +25,7 @@ public final class ConcertTemplate {
     private String category;
     private String description;
     private TemplateStatus status;
+    private StageArea stage;
     private final List<TemplateZone> zones;
 
     public ConcertTemplate(
@@ -35,12 +36,25 @@ public final class ConcertTemplate {
             String description,
             TemplateStatus status,
             List<TemplateZone> zones) {
+        this(id, code, name, category, description, status, zones, null);
+    }
+
+    public ConcertTemplate(
+            UUID id,
+            String code,
+            String name,
+            String category,
+            String description,
+            TemplateStatus status,
+            List<TemplateZone> zones,
+            StageArea stage) {
         this.id = id;
         this.code = code;
         this.name = name;
         this.category = category;
         this.description = description;
         this.status = status;
+        this.stage = stage;
         this.zones = new ArrayList<>(zones);
     }
 
@@ -74,6 +88,16 @@ public final class ConcertTemplate {
         }
         zones.clear();
         zones.addAll(replacement);
+    }
+
+    /**
+     * Đặt sân khấu của khung.
+     *
+     * <p>{@code null} là giá trị hợp lệ và có nghĩa riêng: "dùng sân khấu mặc định". Nền tảng dựng
+     * một khung nhà hát chữ nhật thì không cần khai gì; chỉ khung sân khấu tròn hay chữ U mới cần.
+     */
+    public void placeStage(StageArea newStage) {
+        stage = newStage;
     }
 
     public void rename(String newName, String newCategory, String newDescription) {
@@ -143,6 +167,11 @@ public final class ConcertTemplate {
 
     public TemplateStatus status() {
         return status;
+    }
+
+    /** Sân khấu đã khai; {@code null} nghĩa là {@link StageArea#DEFAULT}. */
+    public StageArea stage() {
+        return stage;
     }
 
     public List<TemplateZone> zones() {

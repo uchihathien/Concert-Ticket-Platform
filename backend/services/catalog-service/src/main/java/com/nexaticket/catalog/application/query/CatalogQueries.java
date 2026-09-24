@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.application.query;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -22,15 +23,41 @@ import java.util.UUID;
 public interface CatalogQueries {
 
     /**
-     * Sự kiện đang bán, cho trang công khai.
+     * Bộ lọc của trang danh sách công khai.
+     *
+     * <p>Gom thành một record thay vì bảy tham số rời: {@code publishedEvents} và
+     * {@code countPublishedEvents} <b>phải</b> lọc giống hệt nhau, và cách chắc chắn nhất để chúng
+     * không lệch là hai hàm nhận đúng cùng một đối tượng. Bảy tham số rời thì một lần thêm điều
+     * kiện sẽ được truyền vào một hàm mà quên hàm kia, và triệu chứng là tổng số trang không khớp
+     * với số dòng thật — một lỗi chỉ lộ ra ở trang cuối.
+     *
+     * <p><b>Lọc trên giá trị dẫn xuất, không trên bảng gốc.</b> {@code from}/{@code to} so với
+     * <i>suất kế tiếp</i> của sự kiện và {@code minPriceVnd}/{@code maxPriceVnd} so với <i>giá thấp
+     * nhất</i> — đúng hai con số hiện trên thẻ sự kiện. Lọc theo "có suất bất kỳ trong khoảng" sẽ
+     * trả về một sự kiện mà thẻ của nó hiện một ngày nằm ngoài khoảng vừa lọc, và người dùng đọc
+     * đó là lỗi.
      *
      * @param query từ khoá tìm trong tiêu đề; null hoặc rỗng thì bỏ qua
      * @param city lọc theo thành phố của địa điểm; null thì bỏ qua
      * @param category lọc theo phân loại; null thì bỏ qua
+     * @param from mốc sớm nhất của suất kế tiếp, lấy cả mốc này
+     * @param to mốc muộn nhất, <b>không</b> lấy mốc này — khoảng nửa mở {@code [from, to)} để hai
+     *     lựa chọn liền nhau ("tháng này", "tháng sau") không cùng nhận một sự kiện
+     * @param maxPriceVnd cũng không lấy mốc trên, cùng lý do: "dưới 500k" và "500k–1tr" phải rời nhau
      */
-    List<CatalogViews.EventCard> publishedEvents(String query, String city, String category, int limit, int offset);
+    record EventFilter(
+            String query, String city, String category, Instant from, Instant to, Long minPriceVnd, Long maxPriceVnd) {
 
-    int countPublishedEvents(String query, String city, String category);
+        /** Không lọc gì — trang danh sách mặc định. */
+        public static EventFilter none() {
+            return new EventFilter(null, null, null, null, null, null, null);
+        }
+    }
+
+    /** Sự kiện đang bán, cho trang công khai. */
+    List<CatalogViews.EventCard> publishedEvents(EventFilter filter, int limit, int offset);
+
+    int countPublishedEvents(EventFilter filter);
 
     Optional<CatalogViews.EventDetail> publishedEventBySlug(String slug);
 

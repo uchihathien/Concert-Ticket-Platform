@@ -7,12 +7,16 @@ import java.util.UUID;
  * Một khu của địa điểm.
  *
  * <p>Khu ngồi khai hình chữ nhật {@code rowCount × seatsPerRow} thay vì liệt kê từng ghế. Khu hình
- * dạng lạ thì tách thành nhiều khu chữ nhật — vẫn tả được, mà màn hình nhập liệu không phải biến
- * thành một trình vẽ.
+ * dạng lạ thì tách thành nhiều khu — vẫn tả được, mà màn hình nhập liệu không phải biến thành một
+ * trình vẽ.
  *
  * @param sourceTemplateZoneId khu này được chép từ khu nào của khung nền tảng; {@code null} nghĩa
  *     là tổ chức tự dựng. Khác {@code null} là chỗ câu "khu vực cố định, không thay đổi được"
  *     được thực thi — {@link #isFixed()} chặn đường sửa sơ đồ.
+ * @param layout vị trí của khu trên mặt bằng; {@code null} nghĩa là tổ chức chưa đặt và hệ thống
+ *     tự xếp (xem {@link FloorPlan}). Cố ý cho phép {@code null} thay vì ép một giá trị mặc định
+ *     lúc ghi: "chưa đặt" và "đặt đúng bằng chỗ mặc định" là hai điều khác nhau — cái đầu đi theo
+ *     bố cục tự động khi thêm khu mới, cái sau thì đứng yên.
  */
 public record VenueZone(
         UUID id,
@@ -24,9 +28,10 @@ public record VenueZone(
         Integer seatsPerRow,
         Integer capacity,
         int sortOrder,
-        UUID sourceTemplateZoneId) {
+        UUID sourceTemplateZoneId,
+        ZoneLayout layout) {
 
-    /** Khu tổ chức tự dựng: không đến từ khung nào. */
+    /** Khu tổ chức tự dựng, chưa đặt vị trí trên mặt bằng. */
     public VenueZone(
             UUID id,
             UUID venueId,
@@ -37,7 +42,22 @@ public record VenueZone(
             Integer seatsPerRow,
             Integer capacity,
             int sortOrder) {
-        this(id, venueId, zoneCode, name, kind, rowCount, seatsPerRow, capacity, sortOrder, null);
+        this(id, venueId, zoneCode, name, kind, rowCount, seatsPerRow, capacity, sortOrder, null, null);
+    }
+
+    /** Khu chép từ khung, chưa đặt vị trí trên mặt bằng. */
+    public VenueZone(
+            UUID id,
+            UUID venueId,
+            String zoneCode,
+            String name,
+            AdmissionKind kind,
+            Integer rowCount,
+            Integer seatsPerRow,
+            Integer capacity,
+            int sortOrder,
+            UUID sourceTemplateZoneId) {
+        this(id, venueId, zoneCode, name, kind, rowCount, seatsPerRow, capacity, sortOrder, sourceTemplateZoneId, null);
     }
 
     public VenueZone {
@@ -76,5 +96,20 @@ public record VenueZone(
      */
     public String seatCode(int row, int seat) {
         return zoneCode + "-" + row + "-" + seat;
+    }
+
+    public VenueZone withLayout(ZoneLayout newLayout) {
+        return new VenueZone(
+                id,
+                venueId,
+                zoneCode,
+                name,
+                kind,
+                rowCount,
+                seatsPerRow,
+                capacity,
+                sortOrder,
+                sourceTemplateZoneId,
+                newLayout);
     }
 }

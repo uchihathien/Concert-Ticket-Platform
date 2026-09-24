@@ -2,12 +2,14 @@
 package com.nexaticket.catalog.infrastructure.persistence;
 
 import com.nexaticket.catalog.domain.model.AdmissionKind;
+import com.nexaticket.catalog.domain.model.StageArea;
 import com.nexaticket.catalog.domain.model.Venue;
 import com.nexaticket.catalog.domain.model.VenueZone;
 import com.nexaticket.catalog.domain.port.VenueRepository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,22 +36,35 @@ public class JdbcVenueRepository implements VenueRepository {
 
     @Override
     public void save(Venue venue) {
+        Object[] head = {
+            venue.id(), venue.organizationId(), venue.name(), venue.city(), venue.address(), venue.sourceTemplateId()
+        };
         jdbc.update(
                 """
-                INSERT INTO venues (id, organization_id, name, city, address, source_template_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                venue.id(),
-                venue.organizationId(),
-                venue.name(),
-                venue.city(),
-                venue.address(),
-                venue.sourceTemplateId());
+                INSERT INTO venues (id, organization_id, name, city, address, source_template_id, """
+                        + LayoutColumns.STAGE_COLUMNS
+                        + """
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                concat(head, LayoutColumns.stageParams(venue.stage())));
     }
 
     @Override
     public void addZone(VenueZone zone) {
         jdbc.update(INSERT_ZONE, zoneRow(zone));
+    }
+
+    @Override
+    public void updateStage(UUID venueId, StageArea stage) {
+        jdbc.update(
+                """
+                UPDATE venues
+                   SET stage_shape = ?, stage_x = ?, stage_y = ?, stage_width = ?, stage_height = ?,
+                       updated_at = now()
+                 WHERE id = ?
+                """,
+                concat(LayoutColumns.stageParams(stage), new Object[] {venueId}));
     }
 
     /**
@@ -115,7 +130,7 @@ public class JdbcVenueRepository implements VenueRepository {
     }
 
     private static Object[] zoneRow(VenueZone zone) {
-        return new Object[] {
+        Object[] head = {
             zone.id(),
             zone.venueId(),
             zone.zoneCode(),
@@ -127,14 +142,25 @@ public class JdbcVenueRepository implements VenueRepository {
             zone.sortOrder(),
             zone.sourceTemplateZoneId()
         };
+        return concat(head, LayoutColumns.zoneParams(zone.layout()));
+    }
+
+    /** Nối hai mảng tham số. Viết tay vì đây là đường nóng của batchUpdate và Stream ở đây là rác. */
+    private static Object[] concat(Object[] head, Object[] tail) {
+        Object[] all = Arrays.copyOf(head, head.length + tail.length);
+        System.arraycopy(tail, 0, all, head.length, tail.length);
+        return all;
     }
 
     private static final String INSERT_ZONE =
             """
             INSERT INTO venue_zones (id, venue_id, zone_code, name, kind,
-                                     row_count, seats_per_row, capacity, sort_order, source_template_zone_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """;
+                                     row_count, seats_per_row, capacity, sort_order, source_template_zone_id, """
+                    + LayoutColumns.ZONE_COLUMNS
+                    + """
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """;
 
     private static final String UPSERT_ZONE = INSERT_ZONE
             + """
@@ -144,7 +170,17 @@ public class JdbcVenueRepository implements VenueRepository {
                 row_count     = EXCLUDED.row_count,
                 seats_per_row = EXCLUDED.seats_per_row,
                 capacity      = EXCLUDED.capacity,
-                sort_order    = EXCLUDED.sort_order
+                sort_order    = EXCLUDED.sort_order,
+                -- Bố cục đi theo phép thay sơ đồ. Giữ lại giá trị cũ nghĩa là kéo một khu sang chỗ
+                -- khác rồi lưu sẽ không có tác dụng gì, và người dùng chỉ biết điều đó sau khi tải
+                -- lại trang.
+                layout_shape           = EXCLUDED.layout_shape,
+                layout_origin_x        = EXCLUDED.layout_origin_x,
+                layout_origin_y        = EXCLUDED.layout_origin_y,
+                layout_rotation_deg    = EXCLUDED.layout_rotation_deg,
+                layout_inner_radius    = EXCLUDED.layout_inner_radius,
+                layout_start_angle_deg = EXCLUDED.layout_start_angle_deg,
+                layout_end_angle_deg   = EXCLUDED.layout_end_angle_deg
             """;
 
     /**
@@ -172,11 +208,36 @@ public class JdbcVenueRepository implements VenueRepository {
                 organizationId));
     }
 
+    /**
+     * Địa điểm của một sự kiện đã publish.
+     *
+     * <p>Điều kiện {@code e.status = 'PUBLISHED'} là thứ thay cho bộ lọc tổ chức, nên nó nằm trong
+     * SQL chứ không ở tầng trên: một lần quên gọi hàm kiểm sẽ mở sơ đồ của mọi sự kiện còn nháp cho
+     * cả internet, còn quên điều kiện ở đây thì câu truy vấn không biên dịch thành thứ khác được.
+     */
+    @Override
+    public Optional<Venue> findByPublishedEventSlug(String slug) {
+        return hydrateAll(jdbc.query(
+                        SELECT_VENUE_WITH_ZONES
+                                + """
+                                  JOIN events e ON e.venue_id = v.id AND e.status = 'PUBLISHED'
+                                 WHERE e.slug = ?
+                                """
+                                + ORDER,
+                        JdbcVenueRepository::mapRow,
+                        slug))
+                .stream()
+                .findFirst();
+    }
+
     private static final String SELECT_VENUE_WITH_ZONES =
             """
             SELECT v.id, v.organization_id, v.name, v.city, v.address, v.source_template_id,
+                   v.stage_shape, v.stage_x, v.stage_y, v.stage_width, v.stage_height,
                    z.id AS zone_id, z.zone_code, z.name AS zone_name, z.kind,
-                   z.row_count, z.seats_per_row, z.capacity, z.sort_order, z.source_template_zone_id
+                   z.row_count, z.seats_per_row, z.capacity, z.sort_order, z.source_template_zone_id,
+                   z.layout_shape, z.layout_origin_x, z.layout_origin_y, z.layout_rotation_deg,
+                   z.layout_inner_radius, z.layout_start_angle_deg, z.layout_end_angle_deg
               FROM venues v
               LEFT JOIN venue_zones z ON z.venue_id = v.id
             """;
@@ -191,6 +252,7 @@ public class JdbcVenueRepository implements VenueRepository {
             String city,
             String address,
             UUID sourceTemplateId,
+            StageArea stage,
             VenueZone zone) {}
 
     private static Row mapRow(ResultSet rs, int index) throws SQLException {
@@ -208,7 +270,8 @@ public class JdbcVenueRepository implements VenueRepository {
                         nullableInt(rs, "seats_per_row"),
                         nullableInt(rs, "capacity"),
                         rs.getInt("sort_order"),
-                        rs.getObject("source_template_zone_id", UUID.class));
+                        rs.getObject("source_template_zone_id", UUID.class),
+                        LayoutColumns.readZone(rs));
         return new Row(
                 venueId,
                 rs.getObject("organization_id", UUID.class),
@@ -216,6 +279,7 @@ public class JdbcVenueRepository implements VenueRepository {
                 rs.getString("city"),
                 rs.getString("address"),
                 rs.getObject("source_template_id", UUID.class),
+                LayoutColumns.readStage(rs),
                 zone);
     }
 
@@ -252,7 +316,8 @@ public class JdbcVenueRepository implements VenueRepository {
                         header.city(),
                         header.address(),
                         zonesByVenue.get(header.venueId()),
-                        header.sourceTemplateId()))
+                        header.sourceTemplateId(),
+                        header.stage()))
                 .toList();
     }
 }
