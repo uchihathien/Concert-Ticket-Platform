@@ -8,7 +8,10 @@ import com.nexaticket.ordering.domain.model.OrderStatus;
 import com.nexaticket.ordering.domain.port.OrderRepository;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
@@ -109,6 +112,28 @@ public class JdbcOrderRepository implements OrderRepository {
                 limit,
                 offset);
         return ids.stream().map(this::findById).flatMap(Optional::stream).toList();
+    }
+
+    /**
+     * Mang cả danh sách id sang database dưới dạng một mảng SQL.
+     *
+     * <p>Nối chuỗi {@code IN (?, ?, …)} thì mỗi kích thước danh sách là một câu lệnh khác nhau, và
+     * Postgres phải parse lại từ đầu mỗi lần — trong khi cùng một trang danh sách vé được mở lại
+     * liên tục với số lượng khác nhau. Cùng lý do với {@code JdbcVenueRepository.replaceZones}.
+     */
+    @Override
+    public Map<UUID, String> statusesOf(Collection<UUID> orderIds) {
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> byId = new HashMap<>(orderIds.size());
+        jdbc.query(
+                "SELECT id, status FROM orders WHERE id = ANY (?)",
+                rs -> {
+                    byId.put(rs.getObject("id", UUID.class), rs.getString("status"));
+                },
+                new Object[] {orderIds.toArray(UUID[]::new)});
+        return byId;
     }
 
     @Override

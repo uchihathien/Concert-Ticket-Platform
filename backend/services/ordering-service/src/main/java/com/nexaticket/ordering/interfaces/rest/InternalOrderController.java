@@ -3,10 +3,16 @@ package com.nexaticket.ordering.interfaces.rest;
 
 import com.nexaticket.ordering.application.command.ConfirmPaymentHandler;
 import com.nexaticket.ordering.application.query.OrderQueries;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,6 +40,24 @@ public class InternalOrderController {
     public OrderQueries.InternalOrderView get(@PathVariable UUID orderId) {
         return queries.internalById(orderId);
     }
+
+    /**
+     * Trạng thái của nhiều đơn cùng lúc — ticketing gọi khi dựng danh sách vé cho ban tổ chức.
+     *
+     * <p>{@code POST} cho một phép đọc, và đó là lựa chọn có chủ đích: danh sách id đi trong body
+     * chứ không trên URL. 50 UUID trên query string là ~1.900 ký tự, đủ gần giới hạn thực tế của
+     * proxy để thành một lỗi 414 chỉ xuất hiện ở production, với những trang danh sách dài nhất.
+     */
+    @PostMapping("/statuses")
+    public StatusesResponse statuses(@Valid @RequestBody StatusesRequest request) {
+        return new StatusesResponse(queries.statusesOf(request.orderIds()));
+    }
+
+    /** Trần 200: đây là phép tra theo trang, không phải đường xuất cả cơ sở dữ liệu đơn hàng. */
+    public record StatusesRequest(@NotEmpty @Size(max = 200) List<UUID> orderIds) {}
+
+    /** Đơn không tồn tại thì vắng mặt trong map — khác hẳn một trạng thái rỗng. */
+    public record StatusesResponse(Map<UUID, String> statuses) {}
 
     /**
      * payment-service gọi sau khi webhook xác nhận. Idempotent — payOS retry tới khi nhận 2xx.

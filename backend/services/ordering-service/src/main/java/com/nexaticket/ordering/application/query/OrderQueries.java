@@ -5,7 +5,9 @@ import com.nexaticket.ordering.application.OrderingErrorCode;
 import com.nexaticket.ordering.domain.model.Order;
 import com.nexaticket.ordering.domain.port.OrderRepository;
 import com.nexaticket.platform.web.error.ApiException;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +36,21 @@ public class OrderQueries {
         return orders.findByUser(userId, limit, offset).stream()
                 .map(OrderView::from)
                 .toList();
+    }
+
+    /**
+     * Trạng thái của nhiều đơn cùng lúc — Open Host Service.
+     *
+     * <p>ticketing-service gọi khi dựng danh sách vé cho ban tổ chức: vé nào thuộc đơn đã hoàn
+     * tiền là thông tin ban tổ chức cần thấy, và nó chỉ có ở đây. Một lời gọi cho cả trang thay vì
+     * một lời gọi cho mỗi vé.
+     *
+     * <p>CỐ Ý không trả gì ngoài trạng thái. Đơn hàng có hoa hồng, và ADR-1010 nói tổ chức không
+     * được thấy con số đó — một endpoint trả cả đơn là một đường để nó lọt ra sau vài lần sửa vội.
+     */
+    @Transactional(readOnly = true)
+    public Map<UUID, String> statusesOf(Collection<UUID> orderIds) {
+        return orders.statusesOf(orderIds);
     }
 
     /** Open Host Service: Ledger và Payout tra chứng từ gốc, nên bản này CÓ hoa hồng. */
