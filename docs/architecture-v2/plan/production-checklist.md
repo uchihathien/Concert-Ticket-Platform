@@ -111,6 +111,15 @@ lượt gọi mô hình, nên nó cần một mục riêng chứ không nằm ch
 - [ ] `AICHATBOX_URL` đã khai ở gateway. Thiếu nó thì route giữ mặc định `localhost:8101` — trỏ vào
       chính container gateway — và cả khung chat của khách lẫn bàn hỗ trợ nhận 503 trong khi
       ai-chatbox-service chạy hoàn toàn tốt ở mạng bên cạnh.
+- [ ] **KHÔNG dùng `AI_PROVIDER=local` ở môi trường có khách thật.** Đo trên máy phát triển với
+      `qwen2.5:7b-instruct`, kho tri thức đã nạp đầy: hỏi "thủ đô nước Pháp là thành phố nào" —
+      không có gì trong kho — thì trợ lý **tự trả lời "Paris"** từ kiến thức riêng, đọc tên phần nội
+      bộ ra cho khách, và hứa "mình sẽ tìm kiếm thông tin cho bạn" (nó không có tool nào làm được).
+      Siết thêm ba dòng cấm vào prompt không sửa được; lần thử lại còn tệ hơn. Rủi ro ở đây không
+      phải "trả lời thiếu" mà là **trả lời dứt khoát về thứ nó không được phép biết** — với một nền
+      tảng bán vé, đó là một câu sai về chính sách nói bằng giọng chắc chắn.
+      Thêm nữa: **1,5 token/giây** trên CPU, tức một câu 150 token mất ~100 giây.
+      `local` là cấu hình để PHÁT TRIỂN — đúng cho việc kiểm luồng, lưu trữ, chuyển tiếp.
 - [ ] **Đã chọn nhà cung cấp, và khai đủ khoá cho lựa chọn đó.** `AI_PROVIDER=local` cần container
       `ollama` (hồ sơ `ai-local`) **và** hai lần `ollama pull` — ảnh không mang mô hình nào theo, và
       chưa pull thì mọi lượt chat trả 503. `AI_PROVIDER=anthropic` cần **cả** `ANTHROPIC_API_KEY`
@@ -129,6 +138,11 @@ lượt gọi mô hình, nên nó cần một mục riêng chứ không nằm ch
       (`STARTER_KNOWLEDGE_ENABLED`); soạn thêm qua `/v1/support/knowledge/**` hoặc màn hình
       **Kho tri thức** ở web-platform, rồi thử bằng `GET …/preview?q=…` — cờ `used` nói đoạn nào
       thật sự vượt ngưỡng.
+- [ ] `AGENT_ASYNC_TIMEOUT` **lớn hơn** ngân sách của một lượt chat. Endpoint chat trả
+      `CompletableFuture` để nhả luồng Tomcat, và Tomcat áp hạn async **mặc định 30 giây** cho mọi
+      request như thế — quá ngắn cho bất kỳ mô hình nào chạy tại chỗ. Hạn này phải là chốt chặn
+      cuối, không phải hạn thực tế: nới `OLLAMA_TIMEOUT` hoặc `AGENT_MAX_TOOL_ITERATIONS` thì phải
+      nới nó theo, nếu không khách nhận 503 "quá hạn" thay vì câu trả lời đang được sinh dở.
 - [ ] `AGENT_MAX_RETRIEVAL_DISTANCE` phù hợp với mô hình nhúng đang dùng. **Đã đo với `bge-m3` trên
       14 đoạn tri thức nền**, và 0.55 (mặc định) nằm giữa hai vùng rất tách biệt:
 

@@ -30,6 +30,23 @@ spring:
         jwt:
           issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
 
+  mvc:
+    async:
+      # Hạn của request async — BẮT BUỘC khai, và đây là một con số học được bằng cách chạy thật.
+      #
+      # `POST /v1/chat/agent/support` trả CompletableFuture để nhả luồng Tomcat (xem
+      # SupportChatController). Cái giá kèm theo mà không ai nói ra: Tomcat áp hạn async MẶC ĐỊNH
+      # 30 GIÂY cho mọi request như thế. Với mô hình chạy tại chỗ trên CPU thì 30 giây không đủ cho
+      # một câu trả lời — đo được 1,5 token/giây, nên một câu 150 token mất 100 giây chỉ để sinh.
+      # Hậu quả đã xảy ra thật: khách nhận 500 "Unexpected error" sau 30 giây trong khi lượt chat
+      # vẫn đang chạy ở phía sau, và nó tiếp tục chiếm chỗ đồng thời của chính người ấy.
+      #
+      # 600s là CHỐT CHẶN CUỐI, không phải hạn thực tế. Ngân sách thật của một lượt là
+      # 60s (nhúng) + max-tool-iterations × timeout của nhà cung cấp = 60 + 4×120 = 540s, và những
+      # hạn đó PHẢI nổ trước — chúng cho ra 503 "trợ lý đang bận" nói đúng chuyện, còn hạn async chỉ
+      # cho ra một lỗi nói về servlet. Nới hạn nhà cung cấp thì phải nới con số này theo.
+      request-timeout: ${AGENT_ASYNC_TIMEOUT:600s}
+
 server:
   port: ${PORT:8101}
   shutdown: graceful
