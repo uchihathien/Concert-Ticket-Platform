@@ -34,15 +34,24 @@ public class PgVectorStoreAdapter implements VectorStorePort {
      * kiểu {@code vector}, và đây là cách nối hai bên mà không cần thêm thư viện.
      */
     @Override
-    public List<KnowledgeChunk> searchSimilar(float[] queryEmbedding, int topK) {
+    public List<KnowledgeChunk> searchSimilar(float[] queryEmbedding, UUID eventId, int topK) {
+        // `event_id is null` = tri thức chung, luôn nằm trong phạm vi. Khi biết sự kiện thì cộng
+        // thêm đoạn của chính sự kiện ấy — không bao giờ của sự kiện khác.
+        //
+        // Mệnh đề WHERE này KHÔNG dùng được index HNSW (index chỉ đánh trên cột vector), nên
+        // Postgres lọc trước rồi mới xếp hạng. Ở quy mô một kho tri thức do người soạn tay — hàng
+        // trăm tới hàng nghìn đoạn — đó là chuyện không đáng đo. Khi kho lớn tới mức thấy chậm thì
+        // câu trả lời là index bộ phận theo event_id, không phải bỏ mệnh đề này đi.
         return db.sql(
                         """
                         select id, event_id, title, content, embedding <=> cast(:q as vector) as distance
                         from event_knowledge_embeddings
+                        where event_id is null or event_id = :eventId
                         order by embedding <=> cast(:q as vector)
                         limit :k
                         """)
                 .param("q", toVectorLiteral(queryEmbedding))
+                .param("eventId", eventId)
                 .param("k", topK)
                 .query((rs, rowNum) -> new KnowledgeChunk(
                         rs.getObject("id", UUID.class),

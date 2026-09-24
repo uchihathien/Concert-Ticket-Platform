@@ -116,10 +116,13 @@ lượt gọi mô hình, nên nó cần một mục riêng chứ không nằm ch
       chưa pull thì mọi lượt chat trả 503. `AI_PROVIDER=anthropic` cần **cả** `ANTHROPIC_API_KEY`
       **và** `VOYAGE_API_KEY`: Claude không có endpoint nhúng, và thiếu khoá Voyage thì service từ
       chối khởi động — cố ý, vì nếu không thì trợ lý vẫn trả lời như thường sau khi mất hẳn RAG.
-- [ ] **Giới hạn tần suất riêng cho `/v1/chat/**`.** Ngưỡng chung `RATE_LIMIT_RPS=50` là hợp lý cho
-      một route đọc database; ở đây nó là 50 lần gọi mô hình mỗi giây, tức một hoá đơn không có
-      trần và một cách làm cạn hạn mức của nhà cung cấp trong vài phút. **Chưa làm** — xem "Việc còn
-      lại" ở cuối trang.
+- [ ] **Trần đồng thời đã khai đúng năng lực mô hình.** `AGENT_MAX_CONCURRENT_TURNS` (mặc định 16)
+      là số lượt chat chạy song song của MỘT instance, và nó nên khớp với năng lực suy luận thật của
+      Ollama — đặt cao hơn chỉ làm mọi người cùng chờ lâu hơn. `AGENT_MAX_TURNS_PER_USER` (mặc định
+      2) chặn một tài khoản chiếm hết chỗ: đây là thứ giới hạn tần suất ở gateway **không thấy
+      được**, vì 200 request chậm vẫn nằm gọn trong 50 rps.
+- [ ] **Trần CHI PHÍ theo người dùng vẫn chưa có.** Hai chốt trên bảo vệ khả năng phục vụ, không
+      bảo vệ hoá đơn: một người hỏi tuần tự cả ngày vẫn hợp lệ với cả hai. Xem "Việc còn lại".
 - [ ] Kho tri thức **đã có nội dung**. RAG đọc `event_knowledge_embeddings`, và bảng rỗng không gây
       lỗi nào: trợ lý vẫn trả lời, chỉ là nó không biết gì ngoài đơn hàng của khách và trả lời "mình
       chưa tra được" cho mọi câu hỏi chính sách. Soạn qua `/v1/support/knowledge/**`, rồi thử lại
@@ -171,13 +174,16 @@ Ghi ở đây để không ai phải đi tìm lại:
 - **Xoá cache thành viên theo sự kiện** (thay vì chờ TTL): thu hồi quyền hiện có độ trễ tối đa bằng
   `membership-cache-ttl`. Chấp nhận được, nhưng không phải mãi mãi.
 - **Kiểm dữ liệu bằng Zod ở biên frontend**: hiện tin vào kiểu TypeScript, vốn biến mất lúc chạy.
-- **Giới hạn tần suất riêng cho `/v1/chat/**`** (mục ở §4b trỏ tới đây). Bộ giới hạn hiện là
-  `default-filters` áp chung cho mọi route, và Spring Cloud Gateway giữ cấu hình rate limiter
-  **theo route id**: thêm một `RequestRateLimiter` thứ hai lên cùng route ấy thì hai filter dùng
-  chung một bộ đếm Redis với một cấu hình, và hạn mức thực tế thành một nửa của con số ghi trong
-  file — đúng kiểu cấu hình chạy được mà không ai đọc ra được ý nghĩa. Nên hoặc tách hạn mức theo
-  route ở một chỗ hiểu được, hoặc đặt trần theo người dùng trong chính ai-chatbox-service. Chọn
-  cách nào cũng phải đo được, nên nó cần một quyết định chứ không phải một dòng YAML thêm vào.
+- **Trần chi phí theo người dùng cho `/v1/chat/**`** (mục ở §4b trỏ tới đây). Phần *khả năng phục
+  vụ* đã xong trong service (`TurnAdmission` + pool có hàng đợi hữu hạn). Phần còn thiếu là số
+  **lượt mỗi khoảng thời gian** — thứ chặn một tài khoản hỏi tuần tự cả ngày.
+
+  Không làm ở gateway được một cách sạch sẽ: bộ giới hạn hiện là `default-filters` áp chung mọi
+  route, và Spring Cloud Gateway giữ cấu hình rate limiter **theo route id** — thêm một
+  `RequestRateLimiter` thứ hai lên cùng route thì hai filter dùng chung một bộ đếm Redis với một
+  cấu hình, và hạn mức thực tế thành một nửa con số ghi trong file. Chỗ đúng là trong service, đếm
+  trên `chat_messages` (join `chat_sessions` theo `user_id`, index đã có sẵn), nên nó không cần hạ
+  tầng mới. Cần một quyết định về con số, không phải về cách làm.
 - **Nhúng lại kho tri thức hàng loạt**: đổi mô hình nhúng hiện phải xoá và soạn lại từng đoạn.
 - **Vòng đời dữ liệu hội thoại**: `chat_messages` giữ mã đơn và số tiền, chưa có TTL và chưa có
   đường xoá theo yêu cầu của khách.

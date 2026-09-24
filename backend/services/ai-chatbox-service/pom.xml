@@ -34,6 +34,13 @@
       <groupId>com.nexaticket</groupId>
       <artifactId>starter-security</artifactId>
     </dependency>
+    <!-- Chống gửi trùng cho POST /support. Đây là endpoint tốn tiền nhất hệ thống: một lần gửi lại
+         vì mạng chập là một lần gọi mô hình nữa đã tính tiền, cộng một cặp tin nhắn trùng trong
+         hội thoại. Starter mang theo bảng `idempotency_records` (migration platform V0002). -->
+    <dependency>
+      <groupId>com.nexaticket</groupId>
+      <artifactId>starter-idempotency</artifactId>
+    </dependency>
 
     <!-- SDK chính thức của Anthropic. Version quản ở backend/pom.xml. -->
     <dependency>

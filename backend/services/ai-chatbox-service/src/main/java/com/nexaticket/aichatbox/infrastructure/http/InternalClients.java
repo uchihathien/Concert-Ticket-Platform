@@ -5,7 +5,6 @@ import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -29,10 +28,9 @@ public class InternalClients {
     public RestClient orderingClient(RestClient.Builder builder) {
         // Builder ĐƯỢC TIÊM, không phải RestClient.builder() tĩnh: chỉ bản này mang correlation id
         // và trace span sang service được gọi. Xem CorrelationPropagation của starter-web.
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(timeout);
-        factory.setReadTimeout(timeout);
-        return builder.baseUrl(orderingUrl).requestFactory(factory).build();
+        return builder.baseUrl(orderingUrl)
+                .requestFactory(PooledHttpFactory.create(timeout, timeout))
+                .build();
     }
 
     public void setOrderingUrl(String orderingUrl) {

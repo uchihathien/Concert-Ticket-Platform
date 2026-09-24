@@ -50,7 +50,7 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
         knowledge.addChunk(null, "Chính sách hoàn vé", "Vé đã thanh toán được hoàn tiền trong bảy ngày đầu.");
         knowledge.addChunk(null, "Giờ mở cửa", "Cửa soát vé mở trước giờ diễn sáu mươi phút.");
 
-        var retrieved = knowledge.preview("chính sách hoàn vé thế nào");
+        var retrieved = knowledge.preview(null, "chính sách hoàn vé thế nào");
 
         assertThat(retrieved).isNotEmpty();
         assertThat(retrieved.get(0).title()).isEqualTo("Chính sách hoàn vé");
@@ -65,7 +65,7 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
 
     @Test
     void kho_rong_thi_khong_tra_ve_gi() {
-        assertThat(knowledge.preview("một câu hỏi về thứ chưa ai soạn bao giờ"))
+        assertThat(knowledge.preview(null, "một câu hỏi về thứ chưa ai soạn bao giờ"))
                 .allSatisfy(row -> assertThat(row.used()).isFalse());
     }
 
@@ -96,6 +96,36 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
         assertThat(knowledge.listChunks(eventId, 100, 0))
                 .extracting(KnowledgeViews.ChunkRow::title)
                 .containsExactly("Quy định riêng");
+    }
+
+    @Test
+    void doan_cua_su_kien_khac_khong_lot_vao_cau_tra_loi_chung() {
+        UUID eventId = UUID.randomUUID();
+        knowledge.addChunk(eventId, "Quy định Đêm nhạc Hạ", "Đêm nhạc Hạ cấm mang chai thuỷ tinh.");
+
+        // Không có ngữ cảnh sự kiện ⇒ CHỈ tri thức chung. Trước khi có phạm vi, đoạn trên là kết
+        // quả gần nhất cho câu hỏi này và trợ lý sẽ trả lời quy định của một sự kiện mà khách
+        // không hề nhắc tới — sai, mà nghe rất hợp lý.
+        assertThat(knowledge.preview(null, "cấm mang chai thuỷ tinh à"))
+                .extracting(KnowledgeViews.RetrievedRow::title)
+                .doesNotContain("Quy định Đêm nhạc Hạ");
+
+        // Khai đúng sự kiện thì thấy.
+        assertThat(knowledge.preview(eventId, "cấm mang chai thuỷ tinh à"))
+                .extracting(KnowledgeViews.RetrievedRow::title)
+                .contains("Quy định Đêm nhạc Hạ");
+    }
+
+    @Test
+    void tri_thuc_chung_luon_nam_trong_pham_vi() {
+        UUID eventId = UUID.randomUUID();
+        knowledge.addChunk(null, "Chính sách chung", "Vé đã thanh toán được hoàn trong bảy ngày.");
+
+        // Hỏi trong ngữ cảnh một sự kiện vẫn phải thấy chính sách của nền tảng — nếu không thì mọi
+        // câu hỏi gắn sự kiện đều mất phần tri thức quan trọng nhất.
+        assertThat(knowledge.preview(eventId, "chính sách hoàn vé"))
+                .extracting(KnowledgeViews.RetrievedRow::title)
+                .contains("Chính sách chung");
     }
 
     @Test

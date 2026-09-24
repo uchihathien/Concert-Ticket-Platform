@@ -15,10 +15,26 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxRetrievalDistance ngưỡng khoảng cách cosine để giữ một đoạn. pgvector luôn trả đủ
  *     {@code topK} kể cả khi không có gì liên quan; không cắt theo ngưỡng thì những đoạn lạc đề đi
  *     thẳng vào prompt và trở thành nguyên liệu để mô hình bịa.
+ * @param maxConcurrentTurns số lượt chat chạy song song tối đa của MỘT instance. Đặt theo năng lực
+ *     của nhà cung cấp mô hình, không theo số luồng của Tomcat: một container Ollama chỉ suy luận
+ *     song song được vài luồng, và cho phép nhiều hơn chỉ làm mọi người cùng chờ lâu hơn.
+ * @param maxQueuedTurns số lượt được xếp hàng khi đã đủ {@code maxConcurrentTurns}. Hàng đợi hữu
+ *     hạn là chốt chặn nhận tải: đầy thì từ chối ngay bằng 503, và một câu "thử lại sau" trong
+ *     5 mili-giây tử tế hơn nhiều so với hai phút chờ rồi hết hạn.
+ * @param maxConcurrentTurnsPerUser trần đồng thời cho MỘT người dùng. Một người chỉ hợp lý khi có
+ *     một câu hỏi đang chạy; trần 2 là chỗ cho một lần bấm lại. Không có nó thì một tài khoản duy
+ *     nhất chiếm sạch {@code maxConcurrentTurns} và mọi khách khác nhận 503.
  */
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.agent")
 public record AgentProperties(
-        String model, int maxToolIterations, int historyTurns, int retrievalTopK, double maxRetrievalDistance) {
+        String model,
+        int maxToolIterations,
+        int historyTurns,
+        int retrievalTopK,
+        double maxRetrievalDistance,
+        int maxConcurrentTurns,
+        int maxQueuedTurns,
+        int maxConcurrentTurnsPerUser) {
 
     public AgentProperties {
         if (model == null || model.isBlank()) {
@@ -35,6 +51,15 @@ public record AgentProperties(
         }
         if (maxRetrievalDistance <= 0) {
             maxRetrievalDistance = 0.55;
+        }
+        if (maxConcurrentTurns <= 0) {
+            maxConcurrentTurns = 16;
+        }
+        if (maxQueuedTurns < 0) {
+            maxQueuedTurns = 32;
+        }
+        if (maxConcurrentTurnsPerUser <= 0) {
+            maxConcurrentTurnsPerUser = 2;
         }
     }
 }

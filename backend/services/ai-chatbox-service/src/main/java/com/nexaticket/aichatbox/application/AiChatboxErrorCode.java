@@ -17,6 +17,27 @@ public enum AiChatboxErrorCode implements ErrorCode {
      */
     ASSISTANT_UNAVAILABLE(503),
 
+    /**
+     * Trợ lý đang đủ tải — không phải hỏng.
+     *
+     * <p>Tách khỏi {@link #ASSISTANT_UNAVAILABLE} vì hai bên nói hai chuyện khác nhau với người
+     * vận hành: cái kia là "nhà cung cấp mô hình có vấn đề", cái này là "chúng ta đang nhận nhiều
+     * hơn năng lực đã khai". Gộp lại thì một biểu đồ 503 tăng vọt không nói được nên đi xem
+     * Anthropic hay nên nâng {@code max-concurrent-turns}.
+     *
+     * <p>Với khách thì cả hai đều hiện "thử lại sau ít phút" — nhưng client nên tôn trọng header
+     * {@code Retry-After} ở trường hợp này, vì hàng đợi rỗng đi trong vài giây chứ không vài phút.
+     */
+    ASSISTANT_BUSY(503),
+
+    /**
+     * Cùng một {@code Idempotency-Key} nhưng nội dung khác.
+     *
+     * <p>Đây là lỗi của client, không phải một lần gửi lại — và trả về câu trả lời cũ cho một câu
+     * hỏi mới sẽ là kiểu hỏng tệ nhất: im lặng và sai.
+     */
+    IDEMPOTENCY_KEY_REUSED(409),
+
     // --- Chuyển tiếp sang người thật --------------------------------------
 
     HANDOFF_NOT_FOUND(404),

@@ -249,6 +249,12 @@ services:
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      # Trần đồng thời của lượt chat, tách hẳn khỏi số luồng của Tomcat. Khai tường minh ở đây vì
+      # con số đúng phụ thuộc nhà cung cấp: với Ollama một container thì vài chục là đã quá năng
+      # lực suy luận thật; với Anthropic thì nới rộng được nhiều.
+      AGENT_MAX_CONCURRENT_TURNS: ${AGENT_MAX_CONCURRENT_TURNS:-16}
+      AGENT_MAX_QUEUED_TURNS: ${AGENT_MAX_QUEUED_TURNS:-32}
+      AGENT_MAX_TURNS_PER_USER: ${AGENT_MAX_TURNS_PER_USER:-2}
     # Mô hình local nạp vào RAM và giữ ở đó; 768m của service-base không liên quan tới Ollama
     # (nó là container riêng), nhưng một lượt chat giữ cả bản ghi hội thoại nên nới nhẹ.
     mem_limit: ${AICHATBOX_MEMORY:-1g}

@@ -2,6 +2,7 @@
 package com.nexaticket.aichatbox.application.handoff;
 
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
+import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
@@ -45,11 +46,13 @@ public class HandoffUseCase {
     private final HandoffRepository handoffs;
     private final ChatHistoryPort history;
     private final Clock clock;
+    private final AgentMetrics metrics;
 
-    public HandoffUseCase(HandoffRepository handoffs, ChatHistoryPort history, Clock clock) {
+    public HandoffUseCase(HandoffRepository handoffs, ChatHistoryPort history, Clock clock, AgentMetrics metrics) {
         this.handoffs = handoffs;
         this.history = history;
         this.clock = clock;
+        this.metrics = metrics;
     }
 
     /**
@@ -105,12 +108,18 @@ public class HandoffUseCase {
      */
     @Transactional
     public Handoff escalate(UUID sessionId, UUID userId, HandoffTrigger trigger, String reason, String question) {
-        Handoff opened = handoffs.openOrExisting(
-                Handoff.request(sessionId, userId, trigger, reason, preview(question), clock.instant()));
+        Instant now = clock.instant();
+        Handoff opened =
+                handoffs.openOrExisting(Handoff.request(sessionId, userId, trigger, reason, preview(question), now));
 
         // Ghi ở mức INFO chứ không DEBUG: tỷ lệ chuyển tiếp là chỉ số sức khoẻ của trợ lý, và nó
         // phải đọc được từ log của môi trường chạy thật chứ không chỉ lúc bật gỡ lỗi.
         log.info("Phiên {} chuyển sang người thật ({}): {}", sessionId, trigger, reason);
+        // Đếm phiếu MỞ, không đếm lần gọi: openOrExisting là idempotent, và một khách bấm nút ba
+        // lần không phải ba lần trợ lý thất bại.
+        if (opened.requestedAt().equals(now)) {
+            metrics.recordHandoff(trigger.name());
+        }
         return opened;
     }
 
