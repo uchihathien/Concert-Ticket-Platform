@@ -146,6 +146,29 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 .update();
     }
 
+    /**
+     * Một lệnh UPDATE, không phải đọc-rồi-ghi từng phiếu.
+     *
+     * <p>`status = 'WAITING'` trong mệnh đề WHERE vừa là bộ lọc vừa là chốt chặn tranh chấp: một
+     * người trực vừa bấm Nhận đúng lúc job chạy thì phiếu đã sang ASSIGNED và lệnh này không đụng
+     * tới nó. Ghi thêm lý do vào `reason` chứ không xoá dấu vết — "phiếu này tự đóng vì quá hạn"
+     * là dữ liệu cần để biết hàng đợi đang bỏ rơi bao nhiêu người.
+     */
+    @Override
+    public int closeAbandoned(Instant before, Instant now) {
+        return db.sql(
+                        """
+                        update chat_handoffs
+                           set status = 'RESOLVED',
+                               resolved_at = :now,
+                               reason = reason || ' [tự đóng: quá hạn chờ]'
+                         where status = 'WAITING' and requested_at < :before
+                        """)
+                .param("now", Timestamp.from(now))
+                .param("before", Timestamp.from(before))
+                .update();
+    }
+
     private static Handoff map(ResultSet rs, int rowNum) throws SQLException {
         return new Handoff(
                 rs.getObject("id", UUID.class),

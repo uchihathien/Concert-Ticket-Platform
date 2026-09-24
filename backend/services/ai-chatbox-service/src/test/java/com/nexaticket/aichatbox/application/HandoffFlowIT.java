@@ -16,11 +16,14 @@ import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import com.nexaticket.aichatbox.support.AiChatboxTestBase;
 import com.nexaticket.aichatbox.support.FakeAiProviders;
 import com.nexaticket.platform.web.error.ApiException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** Đường chuyển cuộc chat sang người thật, chạy trên database thật. */
 class HandoffFlowIT extends AiChatboxTestBase {
@@ -39,6 +42,9 @@ class HandoffFlowIT extends AiChatboxTestBase {
 
     @Autowired
     FakeAiProviders.FakeLlm llm;
+
+    @Autowired
+    JdbcClient jdbc;
 
     @BeforeEach
     void resetModel() {
@@ -257,6 +263,55 @@ class HandoffFlowIT extends AiChatboxTestBase {
                 .toList();
 
         assertThat(queue).containsSubsequence(som, muon);
+    }
+
+    @Test
+    void phieu_bo_quen_duoc_tu_dong() {
+        UUID conNguoiCho = openHandoff();
+        UUID daBoDi = openHandoff();
+        // Đẩy một phiếu về quá khứ — cách duy nhất kiểm được ngưỡng mà không phải chờ 24 giờ.
+        repository.save(repository.findById(daBoDi).orElseThrow());
+        jdbc.sql("update chat_handoffs set requested_at = now() - interval '48 hours' where id = :id")
+                .param("id", daBoDi)
+                .update();
+
+        int closed = repository.closeAbandoned(Instant.now().minus(Duration.ofHours(24)), Instant.now());
+
+        assertThat(closed).isEqualTo(1);
+        assertThat(repository.findById(daBoDi).orElseThrow().isOpen()).isFalse();
+        // Phiếu còn trong hạn không bị đụng tới.
+        assertThat(repository.findById(conNguoiCho).orElseThrow().isOpen()).isTrue();
+    }
+
+    @Test
+    void khong_tu_dong_phieu_da_co_nguoi_nhan() {
+        UUID handoffId = openHandoff();
+        handoffs.claim(handoffId, UUID.randomUUID());
+        jdbc.sql("update chat_handoffs set requested_at = now() - interval '48 hours' where id = :id")
+                .param("id", handoffId)
+                .update();
+
+        // Người trực chậm vẫn là người trực. Tự đóng một cuộc đang được trả lời là cắt ngang nó.
+        assertThat(repository.closeAbandoned(Instant.now().minus(Duration.ofHours(24)), Instant.now()))
+                .isZero();
+    }
+
+    @Test
+    void dong_phieu_bo_quen_thi_tro_ly_tra_loi_tro_lai() {
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        agent.executeAgentProcess(sessionId, userId, "cho tôi gặp nhân viên");
+        jdbc.sql("update chat_handoffs set requested_at = now() - interval '48 hours' where session_id = :id")
+                .param("id", sessionId)
+                .update();
+        repository.closeAbandoned(Instant.now().minus(Duration.ofHours(24)), Instant.now());
+        llm.willAnswer("Mình trả lời tiếp nhé.");
+
+        // Đây mới là lý do thật của job dọn: phiếu treo vĩnh viễn nghĩa là khách quay lại sau ba
+        // ngày vẫn chỉ nhận được câu "đang chờ nhân viên".
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "còn đó không");
+
+        assertThat(reply.answer()).isEqualTo("Mình trả lời tiếp nhé.");
     }
 
     /** Một phiếu đang chờ, trên một phiên có thật. */

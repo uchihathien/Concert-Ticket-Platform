@@ -3,12 +3,12 @@ package com.nexaticket.aichatbox.infrastructure.embedding;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
+import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
 import com.nexaticket.aichatbox.infrastructure.llm.LlmProvider;
 import com.nexaticket.aichatbox.infrastructure.llm.OllamaProperties;
 import java.time.Duration;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -40,13 +40,11 @@ public class OllamaEmbeddingAdapter implements EmbeddingPort {
     private final OllamaProperties properties;
 
     public OllamaEmbeddingAdapter(RestClient.Builder builder, OllamaProperties properties) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofSeconds(5));
-        // Nhúng một câu hỏi rẻ hơn hẳn một lượt chat, nhưng vẫn phải rộng hơn API trả phí: lần gọi
-        // đầu tiên sau khi khởi động còn phải nạp mô hình vào bộ nhớ.
-        factory.setReadTimeout(Duration.ofSeconds(30));
-        this.client =
-                builder.baseUrl(properties.baseUrl()).requestFactory(factory).build();
+        // Nhúng một câu hỏi rẻ hơn hẳn một lượt chat, nhưng hạn đọc vẫn phải rộng hơn API trả phí:
+        // lần gọi đầu tiên sau khi khởi động còn phải nạp mô hình vào bộ nhớ.
+        this.client = builder.baseUrl(properties.baseUrl())
+                .requestFactory(PooledHttpFactory.create(Duration.ofSeconds(5), Duration.ofSeconds(30)))
+                .build();
         this.properties = properties;
     }
 

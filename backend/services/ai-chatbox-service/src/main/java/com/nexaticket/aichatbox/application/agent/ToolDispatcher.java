@@ -49,19 +49,28 @@ public class ToolDispatcher {
     private final VectorStorePort knowledge;
     private final CallerCredentialsPort credentials;
     private final ObjectMapper json;
+    private final AgentMetrics metrics;
 
     public ToolDispatcher(
             OrderingClientPort ordering,
             VectorStorePort knowledge,
             CallerCredentialsPort credentials,
-            ObjectMapper json) {
+            ObjectMapper json,
+            AgentMetrics metrics) {
         this.ordering = ordering;
         this.knowledge = knowledge;
         this.credentials = credentials;
         this.json = json;
+        this.metrics = metrics;
     }
 
     public ToolOutcome dispatch(ToolInvocation call) {
+        ToolOutcome outcome = run(call);
+        metrics.recordTool(call.toolName(), outcome.failed() ? "failed" : "ok");
+        return outcome;
+    }
+
+    private ToolOutcome run(ToolInvocation call) {
         try {
             return switch (call.toolName()) {
                 case SupportAgentTools.GET_ORDER_STATUS -> getOrderStatus(call);

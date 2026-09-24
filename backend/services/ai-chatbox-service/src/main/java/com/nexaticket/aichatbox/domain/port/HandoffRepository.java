@@ -46,4 +46,17 @@ public interface HandoffRepository {
     Optional<Handoff> claim(UUID handoffId, UUID agentId, java.time.Instant now);
 
     void save(Handoff handoff);
+
+    /**
+     * Đóng những phiếu chờ quá lâu mà chưa ai nhận.
+     *
+     * <p>Phiếu mồ côi là chuyện bình thường chứ không phải sự cố: khách bấm "gặp nhân viên" rồi
+     * đóng tab, hoặc tự tìm ra câu trả lời. Không dọn thì chúng nằm lại hàng đợi vĩnh viễn — người
+     * trực đọc một hàng đợi mà phần lớn là người đã bỏ đi, và số "đang chờ" mất hết ý nghĩa để
+     * theo dõi. Chỉ đụng tới phiếu WAITING: phiếu đã có người nhận là việc của người ấy, dù họ
+     * chậm.
+     *
+     * @return số phiếu đã đóng
+     */
+    int closeAbandoned(java.time.Instant before, java.time.Instant now);
 }

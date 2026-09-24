@@ -13,6 +13,17 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration/platform,classpath:db/migration/aichatbox
+    # BẮT BUỘC kể từ khi service này nhận thêm starter-idempotency.
+    #
+    # Starter mang theo migration platform V0002, một số hiệu THẤP HƠN V0100/V0101 mà database
+    # hiện có đã chạy. Với mặc định `out-of-order=false`, Flyway coi đó là lỗi nghiêm trọng
+    # ("Detected resolved migration not applied to database: 0002") và service TỪ CHỐI KHỞI ĐỘNG —
+    # trên database đang chạy thật, không phải trên máy sạch, nên CI xanh mà production đỏ.
+    #
+    # Bật cờ này cho phép chèn một migration số thấp vào sau. Nó nới lỏng một phép kiểm, và đánh
+    # đổi ấy chấp nhận được vì mỗi service ở đây sở hữu trọn database của mình: không có ai khác
+    # chen migration vào giữa.
+    out-of-order: true
   security:
     oauth2:
       resourceserver:
@@ -56,6 +67,16 @@ nexaticket:
       max-tool-iterations: ${AGENT_MAX_TOOL_ITERATIONS:4}
       history-turns: ${AGENT_HISTORY_TURNS:10}
       retrieval-top-k: ${AGENT_RETRIEVAL_TOP_K:5}
+      # Trần đồng thời của MỘT instance. Đặt theo năng lực nhà cung cấp mô hình, KHÔNG theo số
+      # luồng của Tomcat: một container Ollama chỉ suy luận song song được vài luồng, và nhận
+      # nhiều hơn chỉ làm mọi người cùng chờ lâu hơn. Với AI_PROVIDER=anthropic thì nới rộng được.
+      max-concurrent-turns: ${AGENT_MAX_CONCURRENT_TURNS:16}
+      # Hàng đợi hữu hạn là chốt chặn nhận tải. Đầy thì trả 503 ngay — tử tế hơn hẳn việc cho xếp
+      # hàng rồi hết hạn sau hai phút, và không giữ kết nối nào trong lúc chờ.
+      max-queued-turns: ${AGENT_MAX_QUEUED_TURNS:32}
+      # Một người chỉ hợp lý khi có một câu hỏi đang chạy; 2 là chỗ cho một lần bấm lại. Đây là
+      # thứ mà giới hạn tần suất ở gateway KHÔNG thấy: 200 request chậm vẫn nằm trong 50 rps.
+      max-concurrent-turns-per-user: ${AGENT_MAX_TURNS_PER_USER:2}
       # Ngưỡng khoảng cách cosine. pgvector luôn trả đủ top-k kể cả khi không có gì liên quan;
       # không cắt thì đoạn lạc đề đi thẳng vào prompt.
       max-retrieval-distance: ${AGENT_MAX_RETRIEVAL_DISTANCE:0.55}
@@ -78,6 +99,16 @@ nexaticket:
       # PHẢI khớp vector(n) trong V0100. Đổi mô hình ⇒ đổi cột ⇒ nhúng lại toàn bộ kho tri thức.
       dimensions: ${EMBEDDING_DIMENSIONS:1024}
       timeout: ${EMBEDDING_TIMEOUT:10s}
+    handoff:
+      # Chat không có kết nối thường trực nên không có sự kiện "khách đã rời đi". Phiếu của người
+      # đã đóng tab chỉ dọn được bằng một job theo lịch — xem AbandonedHandoffReaper.
+      #
+      # 24 giờ, không phải 30 phút: bàn hỗ trợ làm theo giờ hành chính, và một phiếu mở lúc 22h
+      # đêm phải sống qua đêm để ca sáng còn thấy.
+      abandoned-after: ${HANDOFF_ABANDONED_AFTER:24h}
+      reaper:
+        enabled: ${HANDOFF_REAPER_ENABLED:true}
+        interval: ${HANDOFF_REAPER_INTERVAL:1h}
     services:
       ordering-url: ${ORDERING_URL:http://localhost:8093}
       # Ngắn hơn hạn của mô hình: lời gọi này nằm bên trong một lượt chat mà khách đang chờ.

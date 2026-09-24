@@ -2,6 +2,7 @@
 package com.nexaticket.aichatbox.infrastructure.embedding;
 
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
+import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
 import com.nexaticket.aichatbox.infrastructure.llm.LlmProvider;
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
@@ -9,7 +10,6 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -72,10 +72,10 @@ public class VoyageEmbeddingAdapter implements EmbeddingPort {
         }
         // Dựng luôn ở đây, không dựng lười lúc gọi: khởi tạo lười trên một bean dùng chung bởi nhiều
         // luồng request là một cuộc đua vô ích để tiết kiệm một lần tạo object.
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(timeout);
-        factory.setReadTimeout(timeout);
-        client = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        client = RestClient.builder()
+                .baseUrl(baseUrl)
+                .requestFactory(PooledHttpFactory.create(timeout, timeout))
+                .build();
     }
 
     /**

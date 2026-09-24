@@ -56,6 +56,7 @@ public class CustomerSupportAgentUseCase {
     private final ToolDispatcher tools;
     private final HandoffUseCase handoffs;
     private final AgentProperties properties;
+    private final AgentMetrics metrics;
 
     public CustomerSupportAgentUseCase(
             ChatHistoryPort history,
@@ -64,7 +65,8 @@ public class CustomerSupportAgentUseCase {
             LlmProviderPort llm,
             ToolDispatcher tools,
             HandoffUseCase handoffs,
-            AgentProperties properties) {
+            AgentProperties properties,
+            AgentMetrics metrics) {
         this.history = history;
         this.embeddings = embeddings;
         this.knowledge = knowledge;
@@ -72,6 +74,7 @@ public class CustomerSupportAgentUseCase {
         this.tools = tools;
         this.handoffs = handoffs;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /**
@@ -119,7 +122,8 @@ public class CustomerSupportAgentUseCase {
         // Bước 4 — vòng ReAct.
         Set<String> toolsUsed = new LinkedHashSet<>();
         String answer = null;
-        for (int round = 0; round < properties.maxToolIterations() && answer == null; round++) {
+        int round = 0;
+        for (; round < properties.maxToolIterations() && answer == null; round++) {
             LlmProviderPort.LlmTurn turn = ask(transcript);
             switch (turn) {
                 case LlmProviderPort.LlmTurn.Answer a -> answer = a.text();
@@ -151,6 +155,8 @@ public class CustomerSupportAgentUseCase {
                 }
             }
         }
+
+        metrics.recordRounds(round);
 
         if (answer == null) {
             // Hết vòng mà chưa có câu trả lời — đây ĐÚNG là định nghĩa của "độ tin cậy thấp", nên
@@ -205,8 +211,8 @@ public class CustomerSupportAgentUseCase {
 
     private LlmProviderPort.LlmTurn ask(List<Exchange> transcript) {
         try {
-            return llm.complete(new LlmProviderPort.LlmRequest(
-                    SupportAgentPrompts.systemPrompt(), transcript, SupportAgentTools.all()));
+            return metrics.recordLlmCall(() -> llm.complete(new LlmProviderPort.LlmRequest(
+                    SupportAgentPrompts.systemPrompt(), transcript, SupportAgentTools.all())));
         } catch (LlmUnavailableException e) {
             // 503, không phải 500: nhà cung cấp quá tải là chuyện tạm thời và client nên hiện
             // "thử lại" chứ không phải "đã có lỗi xảy ra".
@@ -228,7 +234,11 @@ public class CustomerSupportAgentUseCase {
     private List<KnowledgeChunk> retrieve(String question) {
         try {
             float[] embedding = embeddings.embedQuery(question);
-            return knowledge.searchSimilar(embedding, properties.retrievalTopK()).stream()
+            // Phạm vi null = CHỈ tri thức chung của nền tảng. Khung chat hỗ trợ không mang ngữ
+            // cảnh sự kiện nào, nên tìm trên cả kho là mời quy định của một sự kiện bất kỳ đi vào
+            // câu trả lời cho khách đang hỏi về sự kiện khác. Quy định theo sự kiện có đường
+            // riêng và chính xác: tool getEventRules.
+            return knowledge.searchSimilar(embedding, null, properties.retrievalTopK()).stream()
                     .filter(chunk -> chunk.distance() <= properties.maxRetrievalDistance())
                     .toList();
         } catch (RuntimeException e) {

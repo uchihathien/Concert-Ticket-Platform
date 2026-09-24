@@ -8,6 +8,7 @@ import com.nexaticket.aichatbox.domain.model.ToolOutcome;
 import com.nexaticket.aichatbox.domain.model.ToolSpec;
 import com.nexaticket.aichatbox.domain.port.LlmProviderPort;
 import com.nexaticket.aichatbox.domain.port.LlmUnavailableException;
+import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,7 +17,6 @@ import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -50,11 +50,9 @@ public class OllamaLlmAdapter implements LlmProviderPort {
     private final OllamaProperties properties;
 
     public OllamaLlmAdapter(RestClient.Builder builder, OllamaProperties properties) {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(java.time.Duration.ofSeconds(5));
-        factory.setReadTimeout(properties.timeout());
-        this.client =
-                builder.baseUrl(properties.baseUrl()).requestFactory(factory).build();
+        this.client = builder.baseUrl(properties.baseUrl())
+                .requestFactory(PooledHttpFactory.create(java.time.Duration.ofSeconds(5), properties.timeout()))
+                .build();
         this.properties = properties;
     }
 

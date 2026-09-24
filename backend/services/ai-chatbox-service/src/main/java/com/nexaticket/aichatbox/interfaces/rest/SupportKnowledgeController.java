@@ -100,9 +100,10 @@ public class SupportKnowledgeController {
      * kèm cờ {@code used} nói rõ đoạn nào vượt được ngưỡng.
      */
     @GetMapping("/preview")
-    public List<KnowledgeViews.RetrievedRow> preview(@RequestParam @NotBlank @Size(max = 2000) String q) {
+    public List<KnowledgeViews.RetrievedRow> preview(
+            @RequestParam @NotBlank @Size(max = 2000) String q, @RequestParam(required = false) UUID eventId) {
         access.requireSupportAgent();
-        return knowledge.preview(q);
+        return knowledge.preview(eventId, q);
     }
 
     /** Ghi đè trọn bản quy định của một sự kiện. {@code published=false} là bản nháp. */

@@ -13,12 +13,22 @@ import java.util.UUID;
 public interface VectorStorePort {
 
     /**
-     * Tìm các đoạn gần câu hỏi nhất.
+     * Tìm các đoạn gần câu hỏi nhất, <b>trong phạm vi đã khai</b>.
      *
-     * <p>Luôn trả về đủ {@code topK} nếu kho có đủ dữ liệu, <b>kể cả khi chẳng đoạn nào liên
+     * <p>Luôn trả về đủ {@code topK} nếu phạm vi có đủ dữ liệu, <b>kể cả khi chẳng đoạn nào liên
      * quan</b> — lọc theo ngưỡng khoảng cách là việc của người gọi.
+     *
+     * <p><b>Phạm vi là một chốt chặn đúng/sai, không phải một bộ lọc cho tiện.</b> Tìm trên cả kho
+     * nghĩa là câu hỏi về sự kiện A có thể nhận về quy định của sự kiện B chỉ vì nó gần nghĩa hơn —
+     * và câu trả lời sai kiểu đó nghe hoàn toàn hợp lý. Ngưỡng khoảng cách không cứu được: nó đo
+     * "gần nghĩa", không đo "đúng sự kiện". Chính ghi chú trong V0100 đã nói ra điều này khi tách
+     * {@code event_rules} ra khỏi bảng vector.
+     *
+     * @param eventId {@code null} thì CHỈ tìm tri thức chung của nền tảng — mặc định an toàn cho
+     *     khung chat hỗ trợ, nơi không có ngữ cảnh sự kiện nào. Quy định của một sự kiện cụ thể đi
+     *     qua tool {@code getEventRules}, tra chính xác theo id, không tra ngữ nghĩa.
      */
-    List<KnowledgeChunk> searchSimilar(float[] queryEmbedding, int topK);
+    List<KnowledgeChunk> searchSimilar(float[] queryEmbedding, UUID eventId, int topK);
 
     /**
      * Tra quy định của một sự kiện. Tra chính xác theo id, không phải tìm ngữ nghĩa.

@@ -62,8 +62,16 @@ public class KnowledgeBaseUseCase {
      *
      * @param eventId {@code null} cho tri thức chung của nền tảng
      */
-    @Transactional
     public UUID addChunk(UUID eventId, String title, String content) {
+        // Nhúng NGOÀI transaction, và thứ tự này là bắt buộc.
+        //
+        // Không có LazyConnectionDataSourceProxy trong hệ thống, nên @Transactional lấy kết nối
+        // Hikari NGAY khi mở transaction. Gói lời gọi nhúng vào trong đó nghĩa là giữ một trong
+        // MƯỜI kết nối của service suốt 30 giây chờ mạng — mười lần bấm nút là pool cạn, và thứ
+        // chết không chỉ là kho tri thức mà là mọi lượt chat của mọi khách, với một thông báo
+        // ("Connection is not available") không hề nói ra rằng nguyên nhân nằm ở đây.
+        // Và KHÔNG có @Transactional ở đây: phần ghi là đúng một câu INSERT, vốn đã nguyên tử tự
+        // thân. Thêm transaction chỉ để bọc một câu lệnh là thêm đúng cái vòng giữ kết nối vừa nói.
         float[] embedding = embed(title + "\n\n" + content);
         UUID id = knowledge.addChunk(eventId, title, content, embedding);
         log.info("Thêm đoạn tri thức {} (sự kiện {}): {}", id, eventId, title);
@@ -93,10 +101,11 @@ public class KnowledgeBaseUseCase {
      * nào biết một đoạn vừa viết có lấy ra được không; họ chỉ biết qua câu trả lời của trợ lý với
      * khách thật, tức là biết muộn.
      */
-    @Transactional(readOnly = true)
-    public List<KnowledgeViews.RetrievedRow> preview(String question) {
+    public List<KnowledgeViews.RetrievedRow> preview(UUID eventId, String question) {
+        // Cùng lý do với addChunk: nhúng là lời gọi mạng, và nó không được đứng trong một
+        // transaction đang giữ kết nối database.
         float[] embedding = embed(question);
-        return knowledge.searchSimilar(embedding, agent.retrievalTopK()).stream()
+        return knowledge.searchSimilar(embedding, eventId, agent.retrievalTopK()).stream()
                 .map(chunk -> KnowledgeViews.RetrievedRow.of(chunk, agent.maxRetrievalDistance()))
                 .toList();
     }
