@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -107,6 +108,52 @@ class OrganizationDashboardIT extends CatalogTestBase {
                 }
             };
         }
+    }
+
+    @Test
+    @DisplayName("tổng quan: số bán gộp theo TỪNG sự kiện, không chỉ có tổng")
+    void tong_quan_co_so_ban_tung_su_kien() throws Exception {
+        Fixture a = draft();
+        Fixture b = draft();
+        // Hai suất của cùng sự kiện A phải được cộng lại thành MỘT dòng — analytics trả theo suất,
+        // còn màn hình xếp hạng theo sự kiện.
+        SALES.add(new SalesReportPort.SessionSales(a.sessionId(), a.eventId(), 10, 5_000_000, 10, 0, 0));
+        SALES.add(new SalesReportPort.SessionSales(UUID.randomUUID(), a.eventId(), 4, 2_000_000, 4, 0, 0));
+        SALES.add(new SalesReportPort.SessionSales(b.sessionId(), b.eventId(), 3, 1_500_000, 3, 0, 0));
+
+        JsonNode dashboard = json.readTree(perform(get("/v1/organizations/" + ORG + "/dashboard"))
+                .getResponse()
+                .getContentAsString());
+
+        JsonNode eventSales = dashboard.path("eventSales");
+        assertThat(eventSales).hasSize(2);
+
+        JsonNode cuaA = StreamSupport.stream(eventSales.spliterator(), false)
+                .filter(row -> row.path("eventId").asText().equals(a.eventId().toString()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(cuaA.path("ticketsSold").asInt()).isEqualTo(14);
+        assertThat(cuaA.path("grossVnd").asLong()).isEqualTo(7_000_000);
+
+        // Và tổng vẫn phải khớp phần cộng lại: hai con số đến từ cùng một danh sách, nên lệch nhau
+        // nghĩa là một trong hai phép gộp sai.
+        assertThat(dashboard.path("totals").path("grossVnd").asLong()).isEqualTo(8_500_000);
+    }
+
+    @Test
+    @DisplayName("tổng quan: analytics im lặng thì eventSales RỖNG, không phải một danh sách toàn 0")
+    void analytics_im_lang_thi_khong_bia_so_khong() throws Exception {
+        draft();
+        analyticsDown = true;
+
+        JsonNode dashboard = json.readTree(perform(get("/v1/organizations/" + ORG + "/dashboard"))
+                .getResponse()
+                .getContentAsString());
+
+        // Rỗng + có tên trong `degraded` là cặp thông tin để giao diện hiện "—" thay vì "0đ". Một
+        // danh sách toàn 0 sẽ được đọc thành "chưa bán được gì" — báo sai về chính tiền của họ.
+        assertThat(dashboard.path("eventSales")).isEmpty();
+        assertThat(dashboard.path("degraded")).isNotEmpty();
     }
 
     @Test

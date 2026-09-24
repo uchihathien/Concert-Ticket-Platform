@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -103,7 +104,23 @@ public class OrganizationDashboardQuery {
                         .sum(),
                 sales.stream().mapToLong(SalesReportPort.SessionSales::grossVnd).sum());
 
-        return new DashboardViews.OrganizationDashboard(organizationId, totals, rows, List.copyOf(degraded));
+        // Gộp theo sự kiện từ CHÍNH danh sách vừa hỏi: analytics trả về từng suất kèm `eventId`, nên
+        // đây là một phép gộp trong bộ nhớ, không phải một lời gọi nữa. Trước đây những con số này
+        // bị cộng thẳng vào tổng rồi bỏ đi — màn hình muốn xếp hạng sự kiện thì không có gì để xếp.
+        List<DashboardViews.EventSales> eventSales =
+                sales.stream().collect(Collectors.groupingBy(SalesReportPort.SessionSales::eventId)).entrySet().stream()
+                        .map(entry -> new DashboardViews.EventSales(
+                                entry.getKey(),
+                                entry.getValue().stream()
+                                        .mapToInt(SalesReportPort.SessionSales::ticketsSold)
+                                        .sum(),
+                                entry.getValue().stream()
+                                        .mapToLong(SalesReportPort.SessionSales::grossVnd)
+                                        .sum()))
+                        .toList();
+
+        return new DashboardViews.OrganizationDashboard(
+                organizationId, totals, rows, eventSales, List.copyOf(degraded));
     }
 
     /**
