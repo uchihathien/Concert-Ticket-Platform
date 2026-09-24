@@ -4,6 +4,7 @@ package com.nexaticket.catalog.application.command;
 import com.nexaticket.catalog.application.CatalogAccess;
 import com.nexaticket.catalog.application.CatalogErrorCode;
 import com.nexaticket.catalog.application.SlugAllocator;
+import com.nexaticket.catalog.application.media.PosterUrlPolicy;
 import com.nexaticket.catalog.domain.model.Event;
 import com.nexaticket.catalog.domain.port.EventRepository;
 import com.nexaticket.catalog.domain.port.VenueRepository;
@@ -20,13 +21,19 @@ public class CreateEventHandler {
     private final VenueRepository venues;
     private final CatalogAccess access;
     private final SlugAllocator slugs;
+    private final PosterUrlPolicy posters;
 
     public CreateEventHandler(
-            EventRepository events, VenueRepository venues, CatalogAccess access, SlugAllocator slugs) {
+            EventRepository events,
+            VenueRepository venues,
+            CatalogAccess access,
+            SlugAllocator slugs,
+            PosterUrlPolicy posters) {
         this.events = events;
         this.venues = venues;
         this.access = access;
         this.slugs = slugs;
+        this.posters = posters;
     }
 
     /** @return id của sự kiện vừa tạo; kiểu của domain không đi ra khỏi tầng application */
@@ -56,7 +63,9 @@ public class CreateEventHandler {
                 summary,
                 description,
                 category,
-                posterUrl);
+                // Kiểm ở handler chứ không ở controller: cả ba đường tạo/sửa sự kiện đều phải qua
+                // cùng một luật, và annotation trên request record chỉ canh được đúng một đường.
+                posters.validate(posterUrl));
         events.insert(event);
         return event.id();
     }

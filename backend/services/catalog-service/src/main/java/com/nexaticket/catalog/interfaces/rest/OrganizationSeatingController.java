@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.interfaces.rest;
 
+import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.application.command.ConfigureVenueZonesHandler;
 import com.nexaticket.catalog.application.command.CreateEventFromTemplateHandler;
 import com.nexaticket.catalog.application.query.AdminCatalogQuery;
 import com.nexaticket.catalog.application.query.CatalogViews;
+import com.nexaticket.catalog.application.query.FloorPlanQuery;
+import com.nexaticket.catalog.application.query.FloorPlanViews;
 import com.nexaticket.catalog.application.query.TemplateQueries;
 import com.nexaticket.catalog.application.query.TemplateViews;
 import jakarta.validation.Valid;
@@ -56,16 +59,19 @@ public class OrganizationSeatingController {
     private final ConfigureVenueZonesHandler configureZones;
     private final TemplateQueries templateQueries;
     private final AdminCatalogQuery adminQuery;
+    private final FloorPlanQuery floorPlans;
 
     public OrganizationSeatingController(
             CreateEventFromTemplateHandler fromTemplate,
             ConfigureVenueZonesHandler configureZones,
             TemplateQueries templateQueries,
-            AdminCatalogQuery adminQuery) {
+            AdminCatalogQuery adminQuery,
+            FloorPlanQuery floorPlans) {
         this.fromTemplate = fromTemplate;
         this.configureZones = configureZones;
         this.templateQueries = templateQueries;
         this.adminQuery = adminQuery;
+        this.floorPlans = floorPlans;
     }
 
     // --- Khung của Tổng công ty --------------------------------------------
@@ -130,6 +136,14 @@ public class OrganizationSeatingController {
         ConfigureVenueZonesHandler.Result result = configureZones.handle(
                 organizationId,
                 venueId,
+                request.stage() == null
+                        ? null
+                        : new LayoutSpecs.StageSpec(
+                                request.stage().shape(),
+                                request.stage().x(),
+                                request.stage().y(),
+                                request.stage().width(),
+                                request.stage().height()),
                 request.zones().stream()
                         .map(z -> new ConfigureVenueZonesHandler.ZoneSpec(
                                 z.zoneCode(),
@@ -138,7 +152,15 @@ public class OrganizationSeatingController {
                                 z.rowCount(),
                                 z.seatsPerRow(),
                                 z.capacity(),
-                                z.sortOrder()))
+                                z.sortOrder(),
+                                new LayoutSpecs.ZoneLayoutSpec(
+                                        z.layoutShape(),
+                                        z.originX(),
+                                        z.originY(),
+                                        z.rotationDeg(),
+                                        z.innerRadius(),
+                                        z.startAngleDeg(),
+                                        z.endAngleDeg())))
                         .toList());
 
         CatalogViews.AdminVenue venue = adminQuery.venues(organizationId).stream()
@@ -148,6 +170,19 @@ public class OrganizationSeatingController {
 
         return new ZonesResponse(
                 venue, result.inserted(), result.updated(), result.removedZones(), result.removedTicketTypes());
+    }
+
+    /**
+     * Mặt bằng đã giải: sân khấu, đường bao từng khu, và toạ độ từng ghế.
+     *
+     * <p>Có ghế ở đây, khác với bản công khai: ban tổ chức xem trước sơ đồ <b>trước khi publish</b>,
+     * lúc inventory chưa dựng ghế nào. Không có toạ độ thì màn hình phải tự tính lại bằng một bản
+     * sao của công thức trong {@code ZoneLayout}, viết bằng TypeScript — và nó sẽ lệch ở lần sửa
+     * thứ hai, với triệu chứng là bản xem trước không giống thứ khách nhìn thấy.
+     */
+    @GetMapping("/venues/{venueId}/floor-plan")
+    public FloorPlanViews.FloorPlanView floorPlan(@PathVariable UUID organizationId, @PathVariable UUID venueId) {
+        return floorPlans.forVenue(organizationId, venueId);
     }
 
     // --- Hình dạng request --------------------------------------------------
@@ -178,9 +213,30 @@ public class OrganizationSeatingController {
             @Positive Integer maxTicketsPerCustomer,
             Map<String, @PositiveOrZero Long> zonePrices) {}
 
-    /** Sơ đồ rỗng bị từ chối: một địa điểm không có khu là một địa điểm không bán được gì. */
-    public record ZonesRequest(@NotEmpty @Valid List<ZoneRequest> zones) {}
+    /**
+     * Sơ đồ rỗng bị từ chối: một địa điểm không có khu là một địa điểm không bán được gì.
+     *
+     * @param stage {@code null} đưa địa điểm về sân khấu mặc định. Đi cùng tập khu chứ không có
+     *     endpoint riêng — sân khấu và khu là một mặt bằng, và toạ độ khu chỉ có nghĩa so với chỗ
+     *     sân khấu đứng.
+     */
+    public record ZonesRequest(@Valid StageRequest stage, @NotEmpty @Valid List<ZoneRequest> zones) {}
 
+    /** @param height bỏ qua với {@code CIRCLE} — sân khấu tròn lấy {@code width} làm đường kính */
+    public record StageRequest(
+            @NotNull @Pattern(regexp = "RECTANGLE|CIRCLE|THRUST") String shape,
+            @NotNull Double x,
+            @NotNull Double y,
+            @NotNull @Positive Double width,
+            @PositiveOrZero Double height) {}
+
+    /**
+     * @param layoutShape bỏ trống thì bố cục tự động xếp khu này xuống dưới sân khấu. Ba trường
+     *     cung ({@code innerRadius}, {@code startAngleDeg}, {@code endAngleDeg}) chỉ đọc khi
+     *     {@code layoutShape = ARC}, còn {@code rotationDeg} chỉ đọc khi {@code GRID} — ràng buộc
+     *     ấy nằm ở handler chứ không ở annotation, vì nó phụ thuộc giá trị của một trường khác và
+     *     Bean Validation tả kiểu phụ thuộc đó bằng một annotation tuỳ biến mà không ai đọc lại.
+     */
     public record ZoneRequest(
             @NotBlank @Size(max = 16) String zoneCode,
             @NotBlank @Size(max = 100) String name,
@@ -188,7 +244,14 @@ public class OrganizationSeatingController {
             @Positive Integer rowCount,
             @Positive Integer seatsPerRow,
             @Positive Integer capacity,
-            Integer sortOrder) {}
+            Integer sortOrder,
+            @Pattern(regexp = "GRID|ARC") String layoutShape,
+            Double originX,
+            Double originY,
+            Double rotationDeg,
+            @PositiveOrZero Double innerRadius,
+            Double startAngleDeg,
+            Double endAngleDeg) {}
 
     /**
      * @param removedTicketTypes số hạng vé bị xoá theo khu không còn nữa. Có mặt trong phản hồi

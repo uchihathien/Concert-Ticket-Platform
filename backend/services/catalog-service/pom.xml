@@ -44,6 +44,15 @@
       <artifactId>starter-outbox</artifactId>
     </dependency>
 
+    <!--
+      Chỉ dùng cho ảnh bìa sự kiện: ký URL tải lên và kiểm lại vật thể sau khi trình duyệt đã tải
+      xong. Byte ảnh KHÔNG đi qua service này — xem ObjectStoragePort.
+    -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-core</artifactId>

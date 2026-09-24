@@ -42,6 +42,33 @@ public enum CatalogErrorCode implements ErrorCode {
     VENUE_IN_USE(409),
     /** Khung không gợi ý giá cho khu này và request cũng không khai — không có giá thì không bán được. */
     ZONE_PRICE_REQUIRED(422),
+    /**
+     * Hình học mặt bằng không dựng được: bán kính ≤ 0, cung quét ngược, sân khấu không có bề ngang.
+     *
+     * <p>422 chứ không 400: request đúng cú pháp và đúng kiểu, chỉ là những con số ấy không tả nên
+     * một hình có thật. Phân biệt đó là thứ cho màn hình sơ đồ nói "cung này quét ngược" thay vì
+     * "dữ liệu không hợp lệ".
+     */
+    ZONE_LAYOUT_INVALID(422),
+
+    // --- Ảnh bìa sự kiện --------------------------------------------------
+
+    /**
+     * Đường dẫn ảnh không dùng được: sai scheme, host lạ khi cấu hình cấm, hoặc vật thể không tồn
+     * tại trong kho.
+     *
+     * <p>422 chứ không 400: chuỗi đúng cú pháp URL, chỉ là nó không trỏ tới một tấm ảnh dùng được.
+     */
+    POSTER_URL_INVALID(422),
+
+    /**
+     * Ảnh vượt trần kích thước.
+     *
+     * <p>Tách khỏi {@link #POSTER_URL_INVALID} vì người dùng xử lý khác hẳn: một bên là dán sai
+     * đường dẫn, một bên là nén lại ảnh rồi tải lên lần nữa. Gộp chung thì màn hình chỉ nói được
+     * một câu chung chung cho cả hai.
+     */
+    POSTER_TOO_LARGE(413),
 
     /**
      * Mã khuyến mãi không dùng được cho suất diễn này.

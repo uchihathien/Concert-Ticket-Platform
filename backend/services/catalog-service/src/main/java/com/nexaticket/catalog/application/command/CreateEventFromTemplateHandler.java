@@ -4,6 +4,7 @@ package com.nexaticket.catalog.application.command;
 import com.nexaticket.catalog.application.CatalogAccess;
 import com.nexaticket.catalog.application.CatalogErrorCode;
 import com.nexaticket.catalog.application.SlugAllocator;
+import com.nexaticket.catalog.application.media.PosterUrlPolicy;
 import com.nexaticket.catalog.domain.model.ConcertTemplate;
 import com.nexaticket.catalog.domain.model.Event;
 import com.nexaticket.catalog.domain.model.EventSession;
@@ -47,18 +48,21 @@ public class CreateEventFromTemplateHandler {
     private final EventRepository events;
     private final CatalogAccess access;
     private final SlugAllocator slugs;
+    private final PosterUrlPolicy posters;
 
     public CreateEventFromTemplateHandler(
             ConcertTemplateRepository templates,
             VenueRepository venues,
             EventRepository events,
             CatalogAccess access,
-            SlugAllocator slugs) {
+            SlugAllocator slugs,
+            PosterUrlPolicy posters) {
         this.templates = templates;
         this.venues = venues;
         this.events = events;
         this.access = access;
         this.slugs = slugs;
+        this.posters = posters;
     }
 
     /**
@@ -87,8 +91,15 @@ public class CreateEventFromTemplateHandler {
         // dùng cần thấy nó thay vì thấy một sự kiện dựng dở.
         Map<String, Long> prices = resolvePrices(template, command.zonePrices());
 
+        // Sân khấu chép theo khung: khung tả cả khán phòng, và toạ độ khu chỉ có nghĩa khi sân khấu
+        // đứng đúng chỗ khung đã đặt nó.
         Venue venue = Venue.fromTemplate(
-                organizationId, command.venueName(), command.city(), command.address(), template.id());
+                organizationId,
+                command.venueName(),
+                command.city(),
+                command.address(),
+                template.id(),
+                template.stage());
         List<VenueZone> zones = template.zones().stream()
                 .map(zone -> zone.materialize(venue.id()))
                 .toList();
@@ -102,7 +113,7 @@ public class CreateEventFromTemplateHandler {
                 command.summary(),
                 command.description(),
                 command.category() == null || command.category().isBlank() ? template.category() : command.category(),
-                command.posterUrl());
+                posters.validate(command.posterUrl()));
         events.insert(event);
 
         EventSession session = EventSession.create(

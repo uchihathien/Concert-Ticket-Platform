@@ -3,6 +3,7 @@ package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogAccess;
 import com.nexaticket.catalog.application.CatalogErrorCode;
+import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.domain.model.AdmissionKind;
 import com.nexaticket.catalog.domain.model.Venue;
 import com.nexaticket.catalog.domain.model.VenueZone;
@@ -50,11 +51,15 @@ public class ConfigureVenueZonesHandler {
     }
 
     /**
+     * @param stage sân khấu mới; {@code null} đưa địa điểm về sân khấu mặc định. Đi cùng lệnh đặt
+     *     khu chứ không có endpoint riêng: sân khấu và khu là <b>một</b> mặt bằng, và toạ độ khu
+     *     chỉ có nghĩa so với chỗ sân khấu đứng. Hai lệnh riêng nghĩa là có một khoảnh khắc mặt
+     *     bằng đã lưu nhưng chưa đúng, và ảnh poster sinh trong khoảnh khắc đó sẽ sai.
      * @param zones tập khu mới, thay hoàn toàn tập cũ. Khu giữ nguyên {@code zoneCode} thì giữ
      *     nguyên id — nên hạng vé đã khai cho nó không mất khi chỉ sửa số ghế.
      */
     @Transactional
-    public Result handle(UUID organizationId, UUID venueId, List<ZoneSpec> zones) {
+    public Result handle(UUID organizationId, UUID venueId, LayoutSpecs.StageSpec stage, List<ZoneSpec> zones) {
         access.requireCatalogManager(organizationId);
 
         Venue venue = venues.findById(organizationId, venueId)
@@ -93,9 +98,12 @@ public class ConfigureVenueZonesHandler {
                     spec.rowCount(),
                     spec.seatsPerRow(),
                     spec.capacity(),
-                    spec.sortOrder() == null ? i : spec.sortOrder()));
+                    spec.sortOrder() == null ? i : spec.sortOrder(),
+                    null,
+                    LayoutSpecs.toLayout(spec.layout())));
         }
 
+        venues.updateStage(venueId, LayoutSpecs.toStage(stage));
         VenueRepository.ZoneReplacement applied = venues.replaceZones(venueId, replacement);
         return new Result(applied.inserted(), applied.updated(), applied.removedZones(), applied.removedTicketTypes());
     }
@@ -111,7 +119,11 @@ public class ConfigureVenueZonesHandler {
      */
     public record Result(int inserted, int updated, int removedZones, int removedTicketTypes) {}
 
-    /** Hình dạng đầu vào của một khu; {@code kind} là chuỗi vì tầng interfaces không chạm domain. */
+    /**
+     * Hình dạng đầu vào của một khu; mọi enum là chuỗi vì tầng interfaces không chạm domain.
+     *
+     * @param layout {@code null} nghĩa là khu chưa đặt vị trí và bố cục tự động sẽ xếp nó
+     */
     public record ZoneSpec(
             String zoneCode,
             String name,
@@ -119,7 +131,21 @@ public class ConfigureVenueZonesHandler {
             Integer rowCount,
             Integer seatsPerRow,
             Integer capacity,
-            Integer sortOrder) {}
+            Integer sortOrder,
+            LayoutSpecs.ZoneLayoutSpec layout) {
+
+        /** Khu không khai vị trí — dùng ở những đường gọi chỉ quan tâm số ghế. */
+        public ZoneSpec(
+                String zoneCode,
+                String name,
+                String kind,
+                Integer rowCount,
+                Integer seatsPerRow,
+                Integer capacity,
+                Integer sortOrder) {
+            this(zoneCode, name, kind, rowCount, seatsPerRow, capacity, sortOrder, null);
+        }
+    }
 
     private static AdmissionKind parseKind(String kind) {
         try {
