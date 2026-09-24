@@ -210,7 +210,8 @@ class TicketCheckinIT extends TicketingTestBase {
             lines.add(new IssueTicketsHandler.Command.SeatLine(
                     UUID.randomUUID(), UUID.randomUUID(), "A-" + i, "A", "SEATED", String.valueOf(i), "Ve ngoi"));
         }
-        return new IssueTicketsHandler.Command(UUID.randomUUID(), sessionId, organizationId, userId, lines);
+        return new IssueTicketsHandler.Command(
+                UUID.randomUUID(), sessionId, organizationId, userId, "Nguyễn Văn A", lines);
     }
 
     private UUID issueOne() {

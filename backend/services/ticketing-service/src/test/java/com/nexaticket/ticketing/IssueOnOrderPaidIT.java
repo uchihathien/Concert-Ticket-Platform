@@ -50,6 +50,12 @@ class IssueOnOrderPaidIT extends TicketingTestBase {
             /** Giữ nguyên giữa hai lần gọi để kiểm chống phát hành trùng. */
             final List<Line> lines = new ArrayList<>();
 
+            /** Không dùng trong luồng phát vé; đường tra cứu mới mới hỏi tới. */
+            @Override
+            public java.util.Map<UUID, String> statusesOf(java.util.Collection<UUID> orderIds) {
+                return java.util.Map.of();
+            }
+
             @Override
             public PaidOrder fetch(UUID orderId) {
                 if (unavailable) {

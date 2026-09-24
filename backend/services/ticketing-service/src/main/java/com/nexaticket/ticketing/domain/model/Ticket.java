@@ -24,6 +24,7 @@ public final class Ticket {
     private final String admissionType;
     private final String seatLabel;
     private final String ticketTypeName;
+    private final String holderName;
 
     private TicketStatus status;
     private Instant checkedInAt;
@@ -43,6 +44,7 @@ public final class Ticket {
             String admissionType,
             String seatLabel,
             String ticketTypeName,
+            String holderName,
             TicketStatus status,
             Instant checkedInAt,
             UUID checkedInBy) {
@@ -58,6 +60,7 @@ public final class Ticket {
         this.admissionType = admissionType;
         this.seatLabel = seatLabel;
         this.ticketTypeName = ticketTypeName;
+        this.holderName = holderName;
         this.status = status;
         this.checkedInAt = checkedInAt;
         this.checkedInBy = checkedInBy;
@@ -75,7 +78,8 @@ public final class Ticket {
             String zoneCode,
             String admissionType,
             String seatLabel,
-            String ticketTypeName) {
+            String ticketTypeName,
+            String holderName) {
         return new Ticket(
                 UUID.randomUUID(),
                 orderId,
@@ -89,6 +93,7 @@ public final class Ticket {
                 admissionType,
                 seatLabel,
                 ticketTypeName,
+                holderName,
                 TicketStatus.VALID,
                 null,
                 null);
@@ -108,6 +113,7 @@ public final class Ticket {
             String admissionType,
             String seatLabel,
             String ticketTypeName,
+            String holderName,
             TicketStatus status,
             Instant checkedInAt,
             UUID checkedInBy) {
@@ -124,6 +130,7 @@ public final class Ticket {
                 admissionType,
                 seatLabel,
                 ticketTypeName,
+                holderName,
                 status,
                 checkedInAt,
                 checkedInBy);
@@ -194,6 +201,16 @@ public final class Ticket {
 
     public String zoneCode() {
         return zoneCode;
+    }
+
+    /**
+     * Tên người mua, chụp lại lúc phát vé.
+     *
+     * <p>{@code null} khi identity-service không trả lời được lúc đó. Phát vé không được hỏng vì
+     * một cái tên — khách đã trả tiền rồi.
+     */
+    public String holderName() {
+        return holderName;
     }
 
     public String admissionType() {

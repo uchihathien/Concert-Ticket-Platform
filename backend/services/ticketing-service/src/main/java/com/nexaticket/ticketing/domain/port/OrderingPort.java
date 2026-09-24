@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.ticketing.domain.port;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -17,6 +19,16 @@ public interface OrderingPort {
      * @throws OrderingUnavailableException khi không đọc được — consumer sẽ để message giao lại
      */
     PaidOrder fetch(UUID orderId);
+
+    /**
+     * Trạng thái hiện tại của nhiều đơn — dùng để vá lại bản chụp {@code tickets.payment_status}.
+     *
+     * <p>Trả map rỗng khi Ordering không trả lời được, KHÔNG ném. Khác hẳn {@link #fetch}: ở đó
+     * không đọc được đơn nghĩa là không phát vé được và message phải được giao lại, còn ở đây chỉ
+     * nghĩa là trang danh sách hiện bản chụp cũ thêm một lúc. Ném lỗi sẽ làm cả màn hình tra cứu
+     * của ban tổ chức sập vì một service phụ — mất tất cả để khỏi mất một cột.
+     */
+    Map<UUID, String> statusesOf(Collection<UUID> orderIds);
 
     record PaidOrder(
             UUID orderId, UUID eventSessionId, UUID organizationId, UUID userId, String status, List<Line> items) {
