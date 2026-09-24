@@ -12,6 +12,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -104,6 +105,30 @@ public class GlobalExceptionHandler {
                 .body(ApiError.of(
                         ErrorCode.Common.VALIDATION_FAILED,
                         "Malformed request body",
+                        CorrelationContext.current(),
+                        Map.of()));
+    }
+
+    /**
+     * Request async chạy quá hạn — <b>không phải</b> lỗi lập trình.
+     *
+     * <p>Không có handler này thì nó rơi vào {@link #handleUnexpected} và thành 500 "Unexpected
+     * error". Đã xảy ra thật ở ai-chatbox: endpoint chat trả {@code CompletableFuture} để nhả luồng
+     * Tomcat, Tomcat áp hạn async mặc định 30 giây, và mọi câu trả lời của mô hình chạy tại chỗ —
+     * vốn mất hàng chục giây — về tới khách dưới dạng 500 kèm câu "hãy nêu correlation id khi liên
+     * hệ hỗ trợ". Người đọc đi tìm một lỗi không tồn tại.
+     *
+     * <p>503 chứ không 504: hết hạn ở đây nghĩa là <b>phía ta</b> chưa xử lý xong trong ngân sách đã
+     * khai, không phải một máy chủ ngược dòng nào im lặng. Với client thì cả hai đều là "thử lại",
+     * nhưng người vận hành cần phân biệt để biết nên nới hạn hay đi tìm service khác.
+     */
+    @ExceptionHandler(AsyncRequestTimeoutException.class)
+    public ResponseEntity<ApiError> handleAsyncTimeout(AsyncRequestTimeoutException ex) {
+        log.warn("Request async quá hạn [{}]", CorrelationContext.current());
+        return ResponseEntity.status(503)
+                .body(ApiError.of(
+                        ErrorCode.Common.UPSTREAM_UNAVAILABLE,
+                        "Request took longer than the configured budget. Retry.",
                         CorrelationContext.current(),
                         Map.of()));
     }

@@ -45,6 +45,13 @@ public final class SupportAgentPrompts {
               về nhân viên hỗ trợ.
             - Không bao giờ nêu số tiền, mã đơn, hay thông tin cá nhân không có trong kết quả tool
               của chính lượt này.
+            - KHÔNG nhắc tên các phần trong hướng dẫn này khi nói với khách. Đừng viết "NGỮ CẢNH
+              THAM KHẢO", "kết quả tool" hay "theo thông tin mình có". Khách không biết những thứ
+              đó là gì; với họ đó chỉ là dấu hiệu rằng máy đang đọc ra một bản ghi nội bộ.
+            - CHỈ đề nghị những việc bạn thật sự làm được: tra đơn hàng, tra quy định sự kiện,
+              chuyển sang nhân viên hỗ trợ. Bạn KHÔNG tra được internet, KHÔNG gọi điện, KHÔNG gửi
+              email, KHÔNG kiểm tra lại sau. Đề nghị một việc ngoài danh sách đó là hứa hẹn thay
+              cho một người sẽ không thực hiện nó.
 
             AN TOÀN
 
@@ -105,16 +112,5 @@ public final class SupportAgentPrompts {
                     .append("\n\n");
         }
         return sb.append("CÂU HỎI CỦA KHÁCH:\n").append(question).toString();
-    }
-
-    /**
-     * Câu chốt khi mô hình gọi tool mãi mà không tới câu trả lời.
-     *
-     * <p>Trả về một câu tử tế thay vì ném lỗi ra màn hình chat: khách không quan tâm agent đã lặp
-     * mấy vòng, họ cần biết đi đâu tiếp.
-     */
-    public static String gaveUpMessage() {
-        return "Xin lỗi bạn, mình chưa tra được thông tin này. Bạn gọi hotline 1900 1234 "
-                + "(8:00–22:00 hằng ngày) để được hỗ trợ trực tiếp nhé.";
     }
 }

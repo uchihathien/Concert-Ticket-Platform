@@ -99,6 +99,17 @@ public class CustomerSupportAgentUseCase {
         // có nhánh nào bên dưới còn đúng. Trợ lý trả lời xen vào giữa nghĩa là khách nhận hai câu
         // trả lời khác nhau cho cùng một câu hỏi và không biết tin câu nào.
         if (handoffs.openFor(sessionId).isPresent()) {
+            // Ghi lời khách, KHÔNG ghi câu báo đang chờ — và sự bất đối xứng đó là có chủ đích.
+            //
+            // `handoffOpenedMessage` được lưu (xem escalate) vì nó đánh dấu một SỰ KIỆN trong hội
+            // thoại: từ đây người thật tiếp quản. Câu báo đang chờ thì không đánh dấu gì — nó là
+            // một lời xác nhận lặp lại, và lưu nó nghĩa là người trực mở phiếu ra đọc phải lội qua
+            // năm dòng "bạn chờ giúp mình một chút nhé" để tìm ba câu khách thật sự nói. Đúng chỗ
+            // cần đọc nhanh nhất thì lại nhiều nhiễu nhất.
+            //
+            // Cái giá: hội thoại của khách có những lượt không kèm trả lời. Giao diện đã nói ra
+            // điều đó bằng dải "đang chờ nhân viên hỗ trợ" (xem SupportChat), nên nó không gây bối
+            // rối — nhưng nó là một đánh đổi, không phải một thiếu sót.
             history.append(sessionId, userId, ChatRole.USER, userQuery);
             return new AgentReply(sessionId, SupportAgentPrompts.waitingForAgentMessage(), List.of());
         }
