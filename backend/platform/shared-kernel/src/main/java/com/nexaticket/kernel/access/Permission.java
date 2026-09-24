@@ -65,7 +65,20 @@ public enum Permission {
      */
     PLATFORM_FINANCE_VIEW,
     /** Đọc nhật ký kiểm toán xuyên tổ chức. */
-    PLATFORM_AUDIT_READ;
+    PLATFORM_AUDIT_READ,
+    /**
+     * Trực bàn hỗ trợ: nhận cuộc chat mà trợ lý AI chuyển sang, trả lời khách, đóng phiếu.
+     *
+     * <p>Phạm vi nền tảng chứ không phải tổ chức: khách chat với <b>nền tảng</b> về đơn hàng của
+     * chính họ, và một cuộc chat có thể nhắc tới sự kiện của nhiều tổ chức. Cho ban tổ chức quyền
+     * này nghĩa là họ đọc được hội thoại của khách với tổ chức khác.
+     *
+     * <p>Hiện chỉ {@code SUPER_ADMIN} có. Đó là trạng thái tạm và biết trước: bàn hỗ trợ thật sẽ
+     * cần một vai trò riêng, nhưng thêm vai trò thì phải sửa ràng buộc CHECK của database và realm
+     * Keycloak. Thêm <b>quyền</b> thì không — và khi vai trò ấy ra đời, nó chỉ cần khai thêm một
+     * dòng ở {@link Role}, không chỗ gọi nào phải sửa. Đó đúng là lý do lớp quyền này tồn tại.
+     */
+    PLATFORM_SUPPORT_HANDLE;
 
     /** Quyền của nền tảng thì không hỏi kèm tổ chức — xem {@code TenantContext.requirePermission}. */
     public boolean isPlatformScoped() {

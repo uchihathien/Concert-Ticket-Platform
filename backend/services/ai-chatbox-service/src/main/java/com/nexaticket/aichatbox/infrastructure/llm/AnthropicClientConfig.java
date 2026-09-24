@@ -3,10 +3,12 @@ package com.nexaticket.aichatbox.infrastructure.llm;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /** Dựng client của SDK Anthropic. */
+@ConditionalOnProperty(name = LlmProvider.PROPERTY, havingValue = "anthropic")
 @Configuration
 public class AnthropicClientConfig {
 

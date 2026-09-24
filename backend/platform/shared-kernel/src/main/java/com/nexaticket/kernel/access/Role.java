@@ -38,7 +38,8 @@ public enum Role {
             Permission.PLATFORM_TEMPLATE_MANAGE,
             Permission.PLATFORM_USER_MANAGE,
             Permission.PLATFORM_FINANCE_VIEW,
-            Permission.PLATFORM_AUDIT_READ),
+            Permission.PLATFORM_AUDIT_READ,
+            Permission.PLATFORM_SUPPORT_HANDLE),
 
     /** Như {@link #ORG_ADMIN}; khác ở chỗ chỉ chủ sở hữu mới phong được chủ sở hữu khác. */
     ORG_OWNER(

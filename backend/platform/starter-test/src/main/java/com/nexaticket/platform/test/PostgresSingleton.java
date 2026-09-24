@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.platform.test;
 
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -43,11 +46,30 @@ public final class PostgresSingleton {
      *
      * @param database tên database, ví dụ {@code ledger_db}; cũng dùng làm user và password
      */
-    @SuppressWarnings("resource") // Cố ý: container sống hết JVM, đóng nó là hỏng các lớp test sau.
     public static PostgreSQLContainer<?> forDatabase(String database) {
+        return forDatabase(database, IMAGE);
+    }
+
+    /**
+     * Container dùng ảnh khác, kèm những extension phải tạo bằng <b>superuser</b>.
+     *
+     * <p>Sinh ra vì ai-chatbox cần {@code vector}, và migration của nó cố ý KHÔNG tạo extension đó:
+     * pgvector không phải extension "trusted" nên {@code CREATE EXTENSION} đòi superuser, trong khi
+     * Flyway chạy bằng role chủ database. Ở production việc ấy do {@code initdb} làm; ở test thì làm
+     * ở đây, vì user của container chính là superuser của cụm ấy.
+     *
+     * <p>Không tạo được extension thì hỏng ngay tại đây với câu nói đúng vấn đề. Để nó hỏng ở lệnh
+     * migration đầu tiên thì thông báo là {@code type "vector" does not exist}, và người đọc đi soi
+     * migration thay vì ảnh Docker.
+     *
+     * @param image ảnh Docker, phải là bản có sẵn extension cần dùng
+     * @param extensions tên extension — hằng số viết trong mã test, không phải dữ liệu từ ngoài
+     */
+    @SuppressWarnings("resource") // Cố ý: container sống hết JVM, đóng nó là hỏng các lớp test sau.
+    public static PostgreSQLContainer<?> forDatabase(String database, String image, String... extensions) {
         return CONTAINERS.computeIfAbsent(database, name -> {
             String user = name.endsWith("_db") ? name.substring(0, name.length() - 3) : name;
-            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(IMAGE)
+            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(image)
                     .withDatabaseName(name)
                     .withUsername(user)
                     .withPassword(user)
@@ -60,8 +82,27 @@ public final class PostgresSingleton {
                                 + "'. Integration test cần Docker đang chạy — kiểm tra `docker info`.",
                         e);
             }
+            createExtensions(container, name, extensions);
             return container;
         });
+    }
+
+    private static void createExtensions(PostgreSQLContainer<?> container, String database, String... extensions) {
+        if (extensions.length == 0) {
+            return;
+        }
+        try (Connection connection = container.createConnection("");
+                Statement statement = connection.createStatement()) {
+            for (String extension : extensions) {
+                statement.execute("CREATE EXTENSION IF NOT EXISTS " + extension);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "Không tạo được extension %s trong '%s'. Ảnh Docker phải là bản có sẵn extension ấy — ví dụ "
+                                    .formatted(String.join(", ", extensions), database)
+                            + "`pgvector/pgvector:pg16` cho `vector`.",
+                    e);
+        }
     }
 
     /** Trỏ datasource của Spring vào container. Gọi từ {@code @DynamicPropertySource}. */
