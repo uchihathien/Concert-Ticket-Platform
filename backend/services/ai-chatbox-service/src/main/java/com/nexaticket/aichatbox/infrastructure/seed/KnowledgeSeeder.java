@@ -66,20 +66,30 @@ public class KnowledgeSeeder implements ApplicationRunner {
                 return;
             }
 
+            int total = StarterKnowledge.all().size();
             int added = 0;
             for (StarterKnowledge.Chunk chunk : StarterKnowledge.all()) {
-                // Một đoạn hỏng không được làm hỏng cả mẻ: mười ba đoạn đúng vẫn hơn không đoạn nào.
                 try {
                     knowledge.addChunk(null, chunk.title(), chunk.content());
                     added++;
                 } catch (RuntimeException e) {
-                    log.warn("Không nạp được đoạn tri thức nền '{}': {}", chunk.title(), e.getMessage());
+                    // DỪNG ở lỗi đầu tiên thay vì thử tiếp những đoạn còn lại.
+                    //
+                    // Mọi đoạn đi qua đúng một bộ nhúng, nên đoạn đầu hỏng vì nó chưa sẵn sàng thì
+                    // các đoạn sau hỏng y hệt. Thử tiếp chỉ biến một dòng WARN đọc được thành mười
+                    // bốn dòng WARN kèm mười bốn stack trace ở MỖI lần khởi động một máy chưa chạy
+                    // Ollama — đo bằng lần chạy thật, không phải suy đoán. Log như thế là log người
+                    // ta thôi đọc.
+                    log.warn(
+                            "Dừng nạp tri thức nền ở đoạn '{}' ({}/{} đã nạp): {}",
+                            chunk.title(),
+                            added,
+                            total,
+                            e.getMessage());
+                    return;
                 }
             }
-            log.info(
-                    "Đã nạp {}/{} đoạn tri thức nền",
-                    added,
-                    StarterKnowledge.all().size());
+            log.info("Đã nạp {}/{} đoạn tri thức nền", added, total);
 
         } catch (RuntimeException e) {
             // Mô hình nhúng chưa chạy là chuyện thường ở máy phát triển. Trợ lý khi đó vẫn tra được

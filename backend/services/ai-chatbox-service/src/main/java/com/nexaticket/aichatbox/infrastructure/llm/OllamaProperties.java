@@ -19,10 +19,22 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param timeout rộng hơn hẳn hạn của API trả phí. Mô hình local chạy trên CPU thì một lượt 30–60
  *     giây là bình thường, và cắt ở 60s như cấu hình Anthropic sẽ biến máy chậm thành "trợ lý luôn
  *     hỏng".
+ * @param embeddingTimeout hạn RIÊNG cho nhúng, và nó tồn tại vì một con số đo được: khi mô hình
+ *     chưa nằm trong bộ nhớ, lời gọi nhúng đầu tiên mất <b>21 giây</b> trên máy phát triển (những
+ *     lời gọi sau: 130 mili-giây). Hạn 30s từng được dùng cho cả hai và nó đã hỏng thật — lần khởi
+ *     động đầu tiên sau khi pull mô hình, Ollama vừa nạp mô hình vừa tranh I/O, và toàn bộ việc nạp
+ *     tri thức nền chết ở {@code CancellationException} sau đúng 30 giây. Không gộp vào
+ *     {@code timeout} của chat: 120 giây cho một lời gọi nhúng chỉ làm người soạn kho tri thức chờ
+ *     hai phút để biết Ollama không chạy.
  */
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.ollama")
 public record OllamaProperties(
-        String baseUrl, String chatModel, String embeddingModel, int dimensions, Duration timeout) {
+        String baseUrl,
+        String chatModel,
+        String embeddingModel,
+        int dimensions,
+        Duration timeout,
+        Duration embeddingTimeout) {
 
     public OllamaProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -39,6 +51,9 @@ public record OllamaProperties(
         }
         if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             timeout = Duration.ofSeconds(120);
+        }
+        if (embeddingTimeout == null || embeddingTimeout.isZero() || embeddingTimeout.isNegative()) {
+            embeddingTimeout = Duration.ofSeconds(60);
         }
     }
 }

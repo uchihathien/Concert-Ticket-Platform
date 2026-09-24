@@ -125,8 +125,20 @@ lượt gọi mô hình, nên nó cần một mục riêng chứ không nằm ch
       bảo vệ hoá đơn: một người hỏi tuần tự cả ngày vẫn hợp lệ với cả hai. Xem "Việc còn lại".
 - [ ] Kho tri thức **đã có nội dung**. RAG đọc `event_knowledge_embeddings`, và bảng rỗng không gây
       lỗi nào: trợ lý vẫn trả lời, chỉ là nó không biết gì ngoài đơn hàng của khách và trả lời "mình
-      chưa tra được" cho mọi câu hỏi chính sách. Soạn qua `/v1/support/knowledge/**`, rồi thử lại
-      bằng `GET /v1/support/knowledge/preview?q=…` — cờ `used` nói đoạn nào thật sự vượt ngưỡng.
+      chưa tra được" cho mọi câu hỏi chính sách. 14 đoạn nền được nạp tự động khi kho trống
+      (`STARTER_KNOWLEDGE_ENABLED`); soạn thêm qua `/v1/support/knowledge/**` hoặc màn hình
+      **Kho tri thức** ở web-platform, rồi thử bằng `GET …/preview?q=…` — cờ `used` nói đoạn nào
+      thật sự vượt ngưỡng.
+- [ ] `AGENT_MAX_RETRIEVAL_DISTANCE` phù hợp với mô hình nhúng đang dùng. **Đã đo với `bge-m3` trên
+      14 đoạn tri thức nền**, và 0.55 (mặc định) nằm giữa hai vùng rất tách biệt:
+
+      | Loại câu hỏi | Khoảng cách đoạn gần nhất |
+      | --- | --- |
+      | Đúng chủ đề ("giữ chỗ được bao lâu", "tôi muốn hoàn vé", "mua tối đa mấy vé") | **0,31 – 0,38** |
+      | Lạc đề ("trời hôm nay mưa không", "cách nấu phở bò") | **0,60 – 0,66** |
+
+      Khoảng an toàn thực tế là 0,50–0,58. Đổi mô hình nhúng thì **phải đo lại** — thang khoảng cách
+      của mỗi mô hình khác nhau, và một ngưỡng sai chỉ lộ ra qua chất lượng câu trả lời.
 - [ ] Đổi mô hình nhúng (hoặc đổi `AI_PROVIDER`) thì phải **nhúng lại toàn bộ** kho tri thức. Vector
       của hai mô hình không nằm trong cùng một không gian kể cả khi cùng số chiều, và truy vấn trộn
       hai loại vẫn chạy trơn tru với kết quả vô nghĩa. Chưa có đường nhúng lại hàng loạt.

@@ -40,10 +40,12 @@ public class OllamaEmbeddingAdapter implements EmbeddingPort {
     private final OllamaProperties properties;
 
     public OllamaEmbeddingAdapter(RestClient.Builder builder, OllamaProperties properties) {
-        // Nhúng một câu hỏi rẻ hơn hẳn một lượt chat, nhưng hạn đọc vẫn phải rộng hơn API trả phí:
-        // lần gọi đầu tiên sau khi khởi động còn phải nạp mô hình vào bộ nhớ.
+        // Hạn đọc là tham số, không phải hằng số, và mặc định 60s đến từ một con số ĐO ĐƯỢC: lời gọi
+        // nhúng đầu tiên mất 21 giây vì Ollama nạp mô hình vào bộ nhớ, những lời gọi sau mất 130ms.
+        // Con số 30s viết cứng trước đây đã làm cả việc nạp tri thức nền chết ở lần khởi động đầu
+        // tiên sau khi pull mô hình. Xem OllamaProperties.embeddingTimeout.
         this.client = builder.baseUrl(properties.baseUrl())
-                .requestFactory(PooledHttpFactory.create(Duration.ofSeconds(5), Duration.ofSeconds(30)))
+                .requestFactory(PooledHttpFactory.create(Duration.ofSeconds(5), properties.embeddingTimeout()))
                 .build();
         this.properties = properties;
     }
