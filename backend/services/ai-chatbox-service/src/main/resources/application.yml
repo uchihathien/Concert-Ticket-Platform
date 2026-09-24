@@ -99,6 +99,17 @@ nexaticket:
       # PHẢI khớp vector(n) trong V0100. Đổi mô hình ⇒ đổi cột ⇒ nhúng lại toàn bộ kho tri thức.
       dimensions: ${EMBEDDING_DIMENSIONS:1024}
       timeout: ${EMBEDDING_TIMEOUT:10s}
+    starter-knowledge:
+      # Nạp tri thức nền khi kho còn TRỐNG — xem KnowledgeSeeder.
+      #
+      # Bật mặc định ở MỌI môi trường, kể cả production, và tên khoá cố ý không phải `demo-data`:
+      # nội dung ấy mô tả hành vi thật của hệ thống (giữ chỗ 10 phút, hạn thanh toán 15 phút, nhận
+      # vé ở ví vé), không phải dữ liệu giả. Kho rỗng ở production nghĩa là trợ lý chỉ tra được đơn
+      # hàng và trả lời "mình chưa tra được" cho mọi câu hỏi chính sách.
+      #
+      # Đội vận hành sửa hoặc xoá đoạn nào cũng được: điều kiện nạp là kho trống, nên lần khởi động
+      # sau không dựng lại những gì họ vừa bỏ đi.
+      enabled: ${STARTER_KNOWLEDGE_ENABLED:true}
     handoff:
       # Chat không có kết nối thường trực nên không có sự kiện "khách đã rời đi". Phiếu của người
       # đã đóng tab chỉ dọn được bằng một job theo lịch — xem AbandonedHandoffReaper.
