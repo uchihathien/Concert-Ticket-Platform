@@ -32,7 +32,22 @@ public final class DashboardViews {
             UUID organizationId,
             DashboardTotals totals,
             List<CatalogViews.AdminEventRow> events,
+            /**
+             * Số bán của TỪNG sự kiện, để màn hình xếp hạng và vẽ được.
+             *
+             * <p>Danh sách rời chứ không nhét hai cột vào {@link CatalogViews.AdminEventRow}: kiểu
+             * đó là view chung của cả khu quản trị (danh sách sự kiện, bộ chọn ở màn tra vé), và
+             * thêm hai trường chỉ một màn hình cần sẽ buộc mọi đường đọc khác phải điền chúng —
+             * hoặc điền 0, tức là nói sai.
+             *
+             * <p>Rỗng khi analytics im lặng, và lúc đó {@code degraded} có tên nó. Hai thứ ấy phải
+             * đọc cùng nhau: một danh sách rỗng KHÔNG có nghĩa là chưa bán được gì.
+             */
+            List<EventSales> eventSales,
             List<String> degraded) {}
+
+    /** @param grossVnd tổng khách trả của một sự kiện, KHÔNG phải số tổ chức sẽ nhận (ADR-1010) */
+    public record EventSales(UUID eventId, int ticketsSold, long grossVnd) {}
 
     /** @param capacity tổng sức chứa đã khai của mọi sự kiện, kể cả bản nháp */
     public record DashboardTotals(
