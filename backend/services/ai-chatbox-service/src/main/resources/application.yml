@@ -59,6 +59,11 @@ nexaticket:
       # Rộng hơn hẳn hạn của API trả phí: mô hình local chạy CPU thì một lượt 30–60 giây là bình
       # thường, và cắt ở 60s sẽ biến máy chậm thành "trợ lý luôn hỏng".
       timeout: ${OLLAMA_TIMEOUT:120s}
+      # Hạn RIÊNG cho nhúng. 60s vì lời gọi đầu tiên mất ~21 giây (Ollama nạp mô hình vào bộ nhớ);
+      # những lời gọi sau ~130ms. Con số 30s trước đây đã làm việc nạp tri thức nền chết ở lần khởi
+      # động đầu tiên sau khi pull mô hình. Không dùng chung 120s của chat: hai phút chờ chỉ để biết
+      # Ollama không chạy là quá lâu cho người đang soạn kho tri thức.
+      embedding-timeout: ${OLLAMA_EMBEDDING_TIMEOUT:60s}
     agent:
       # Mô hình mặc định. Đổi model là đổi cả hành vi lẫn giá — nên nó nằm ở cấu hình, không nằm
       # trong mã nguồn.
