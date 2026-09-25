@@ -78,9 +78,11 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
                 Timestamp.from(Instant.now()));
 
         if (!Boolean.TRUE.equals(inserted)) {
+            int moved = syncSeatPositions(manifest);
             log.info(
-                    "Suất {} đã có tồn kho: đã đồng bộ lại cửa bán và trần mua vé, không dựng lại chỗ",
-                    manifest.eventSessionId());
+                    "Suất {} đã có tồn kho: đã đồng bộ lại cửa bán, trần mua vé và toạ độ {} chỗ, không dựng lại chỗ",
+                    manifest.eventSessionId(),
+                    moved);
             return 0;
         }
 
@@ -121,6 +123,48 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
 
         log.info("Đã dựng {} đơn vị tồn kho cho suất {}", rows.size(), manifest.eventSessionId());
         return rows.size();
+    }
+
+    /**
+     * Cập nhật <b>toạ độ</b> chỗ ngồi của một suất đã dựng.
+     *
+     * <h2>Vì sao cần, và vì sao chỉ toạ độ</h2>
+     *
+     * <p>Toạ độ được chốt lúc publish lần đầu và không có đường nào sửa. Những suất publish trước
+     * khi Catalog biết tính hình học đã chốt <b>chỉ số hàng/cột</b> thay vì toạ độ mét trên mặt
+     * bằng — trên dữ liệu thật của hệ thống này là 52 trên 63 suất. Sơ đồ của chúng vẽ ra ghế của
+     * mọi khu chồng lên nhau, nên giao diện phải phát hiện rồi từ chối vẽ
+     * ({@code seatPositionsFitFloorPlan}). Đây là đường chữa: publish lại thì toạ độ đúng theo.
+     *
+     * <p>Chỉ toạ độ, cố ý. Giá, trạng thái, người đang giữ đều KHÔNG đụng tới: một suất đã bán vé
+     * mà bị đồng bộ lại giá là hoá đơn nói một đằng, tồn kho một nẻo; còn ghi đè trạng thái thì
+     * xoá sạch mọi lần giữ chỗ đang chạy. Toạ độ thì an toàn — nó chỉ quyết định chỗ ấy được vẽ ở
+     * đâu, và thứ tự cấp phát "gần sân khấu trước".
+     *
+     * @return số chỗ thật sự đổi vị trí; 0 là trường hợp thường, nghĩa là toạ độ đã đúng sẵn
+     */
+    private int syncSeatPositions(SessionManifest manifest) {
+        List<Object[]> rows = new ArrayList<>();
+        for (SeatLine seat : manifest.seats()) {
+            rows.add(new Object[] {seat.posX(), seat.posY(), manifest.eventSessionId(), seat.seatCode()});
+        }
+        if (rows.isEmpty()) {
+            return 0;
+        }
+
+        // `IS DISTINCT FROM` chứ không `<>`: pos_x cũ có thể NULL, và `NULL <> 1` cho ra NULL —
+        // tức là không hàng nào khớp, và câu lệnh âm thầm không làm gì.
+        int[] affected = jdbc.batchUpdate(
+                """
+                UPDATE session_seats SET pos_x = ?, pos_y = ?
+                 WHERE event_session_id = ? AND seat_code = ?
+                   AND (pos_x IS DISTINCT FROM ? OR pos_y IS DISTINCT FROM ?)
+                """,
+                rows.stream()
+                        .map(row -> new Object[] {row[0], row[1], row[2], row[3], row[0], row[1]})
+                        .toList());
+
+        return java.util.Arrays.stream(affected).map(n -> Math.max(n, 0)).sum();
     }
 
     /**

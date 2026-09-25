@@ -5,6 +5,7 @@ import com.nexaticket.inventory.application.InventoryErrorCode;
 import com.nexaticket.inventory.domain.model.HoldRequest;
 import com.nexaticket.inventory.domain.model.LimitViolation;
 import com.nexaticket.inventory.domain.model.SeatHold;
+import com.nexaticket.inventory.domain.model.SeatedZoneRequest;
 import com.nexaticket.inventory.domain.model.SessionInventory;
 import com.nexaticket.inventory.domain.model.StandingRequest;
 import com.nexaticket.inventory.domain.port.AvailabilityGate;
@@ -82,15 +83,28 @@ public class PlaceHoldHandler {
      * @param eventSessionId suất diễn
      * @param userId khách đang giữ chỗ
      * @param seatIds các chỗ ngồi khách chỉ đích danh
+     * @param seatedZones số lượng vé ngồi theo khu, để hệ thống chọn chỗ hộ
      * @param standing số lượng vé đứng theo zone
      */
-    public record Command(UUID eventSessionId, UUID userId, List<UUID> seatIds, List<StandingLine> standing) {
+    public record Command(
+            UUID eventSessionId,
+            UUID userId,
+            List<UUID> seatIds,
+            List<ZoneLine> seatedZones,
+            List<StandingLine> standing) {
 
         public record StandingLine(String zoneCode, int quantity) {}
+
+        public record ZoneLine(String zoneCode, int quantity) {}
 
         HoldRequest toDomain() {
             return new HoldRequest(
                     seatIds == null ? List.of() : seatIds,
+                    seatedZones == null
+                            ? List.of()
+                            : seatedZones.stream()
+                                    .map(line -> new SeatedZoneRequest(line.zoneCode(), line.quantity()))
+                                    .toList(),
                     standing == null
                             ? List.of()
                             : standing.stream()
@@ -147,8 +161,14 @@ public class PlaceHoldHandler {
         UUID holdId = UUID.randomUUID();
         List<UUID> acquired = new ArrayList<>();
 
-        if (request.hasSeated()) {
+        if (request.hasNamedSeats()) {
             acquired.addAll(acquireSeated(cmd, inventory, holdId, request));
+        }
+        // Vé ngồi theo khu đi TRƯỚC vé đứng, và thứ tự ấy không ngẫu nhiên: cả hai đều có thể làm
+        // cả giao dịch rollback khi khu không đủ chỗ, nên nhánh nào đắt hơn thì chạy trước để
+        // nhánh kia khỏi làm không công. Vé ngồi đắt hơn vì nó sắp xếp theo vị trí.
+        for (SeatedZoneRequest zone : request.seatedZones()) {
+            acquired.addAll(allocateSeatedZone(cmd, zone));
         }
         for (StandingRequest standing : request.standing()) {
             acquired.addAll(allocateStanding(cmd, standing));
@@ -202,13 +222,16 @@ public class PlaceHoldHandler {
         // unique index nổ — đều phải trả key về, nếu không ghế bị kẹt tới hết TTL.
         releaseGateOnRollback(cmd.eventSessionId(), request.seatIds());
 
+        // So với SỐ GHẾ ĐÍCH DANH, không phải seatedCount(): từ khi có mua theo khu, seatedCount()
+        // còn cộng cả những vé chưa biết là ghế nào — so với nó thì một lần mua "2 ghế đích danh +
+        // 1 vé khu A" luôn tự báo mình thất bại.
         int affected = seats.holdSeated(cmd.eventSessionId(), request.seatIds(), cmd.userId());
-        if (affected != request.seatedCount()) {
+        if (affected != request.seatIds().size()) {
             // Redis và database lệch nhau — hiếm, và database thắng.
             log.info(
                     "Cổng Redis cho qua nhưng database từ chối: suất {}, xin {} chỗ, giữ được {}",
                     cmd.eventSessionId(),
-                    request.seatedCount(),
+                    request.seatIds().size(),
                     affected);
             throw seatTaken(List.of());
         }
@@ -220,6 +243,23 @@ public class PlaceHoldHandler {
                 InventoryErrorCode.SEAT_UNAVAILABLE,
                 "One or more seats were just taken",
                 Map.of("unavailableSeatIds", taken));
+    }
+
+    private List<UUID> allocateSeatedZone(Command cmd, SeatedZoneRequest zone) {
+        List<UUID> allocated =
+                seats.allocateSeatedInZone(cmd.eventSessionId(), zone.zoneCode(), zone.quantity(), cmd.userId());
+        if (allocated.size() < zone.quantity()) {
+            // Cùng mã lỗi với vé đứng: với khách thì hai chuyện là một — "khu này không còn đủ chỗ
+            // cho số vé bạn xin". Tách mã lỗi ra chỉ bắt giao diện dịch hai câu giống nhau.
+            throw new ApiException(
+                    InventoryErrorCode.ZONE_SOLD_OUT,
+                    "Seated zone does not have enough inventory",
+                    Map.of(
+                            "zoneCode", zone.zoneCode(),
+                            "requested", zone.quantity(),
+                            "available", allocated.size()));
+        }
+        return allocated;
     }
 
     private List<UUID> allocateStanding(Command cmd, StandingRequest standing) {

@@ -158,6 +158,6 @@ class SeatReleaseIT extends InventoryTestBase {
     }
 
     private static PlaceHoldHandler.Command command(UUID sessionId, UUID user, List<UUID> seatIds) {
-        return new PlaceHoldHandler.Command(sessionId, user, seatIds, List.of());
+        return new PlaceHoldHandler.Command(sessionId, user, seatIds, List.of(), List.of());
     }
 }

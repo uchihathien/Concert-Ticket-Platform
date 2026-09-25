@@ -76,7 +76,8 @@ class OversellBackstopIT extends InventoryTestBase {
         List<Callable<UUID>> jobs = new ArrayList<>();
         for (int i = 0; i < 200; i++) {
             jobs.add(() -> placeHold
-                    .handle(new PlaceHoldHandler.Command(session.id(), UUID.randomUUID(), List.of(theSeat), List.of()))
+                    .handle(new PlaceHoldHandler.Command(
+                            session.id(), UUID.randomUUID(), List.of(theSeat), List.of(), List.of()))
                     .holdId());
         }
 

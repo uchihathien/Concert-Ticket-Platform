@@ -58,7 +58,7 @@ class SeatMapIT extends InventoryTestBase {
         assertThat(before.remaining()).isEqualTo(10);
 
         placeHold.handle(new PlaceHoldHandler.Command(
-                session.id(), user, List.of(), List.of(new PlaceHoldHandler.Command.StandingLine("GA", 4))));
+                session.id(), user, List.of(), List.of(), List.of(new PlaceHoldHandler.Command.StandingLine("GA", 4))));
 
         var after = queries.seatMap(session.id(), user).purchaseAllowance();
         assertThat(after.used()).isEqualTo(4);
@@ -81,7 +81,7 @@ class SeatMapIT extends InventoryTestBase {
         assertThat(second).isEqualTo(first);
 
         placeHold.handle(new PlaceHoldHandler.Command(
-                session.id(), UUID.randomUUID(), List.of(session.seatIds().get(0)), List.of()));
+                session.id(), UUID.randomUUID(), List.of(session.seatIds().get(0)), List.of(), List.of()));
 
         assertThat(queries.seatMap(session.id(), null).availabilityVersion()).isGreaterThan(first);
     }

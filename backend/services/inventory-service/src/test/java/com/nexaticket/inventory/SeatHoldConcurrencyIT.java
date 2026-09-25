@@ -39,7 +39,8 @@ class SeatHoldConcurrencyIT extends InventoryTestBase {
         List<Callable<UUID>> jobs = new ArrayList<>();
         for (int i = 0; i < 200; i++) {
             jobs.add(() -> placeHold
-                    .handle(new PlaceHoldHandler.Command(session.id(), UUID.randomUUID(), List.of(theSeat), List.of()))
+                    .handle(new PlaceHoldHandler.Command(
+                            session.id(), UUID.randomUUID(), List.of(theSeat), List.of(), List.of()))
                     .holdId());
         }
 
@@ -65,6 +66,7 @@ class SeatHoldConcurrencyIT extends InventoryTestBase {
                             session.id(),
                             UUID.randomUUID(),
                             List.of(),
+                            List.of(),
                             List.of(new PlaceHoldHandler.Command.StandingLine("GA", 1))))
                     .holdId());
         }
@@ -85,7 +87,11 @@ class SeatHoldConcurrencyIT extends InventoryTestBase {
 
         UUID user = UUID.randomUUID();
         var command = new PlaceHoldHandler.Command(
-                session.id(), user, session.seatIds(), List.of(new PlaceHoldHandler.Command.StandingLine("GA", 2)));
+                session.id(),
+                user,
+                session.seatIds(),
+                List.of(),
+                List.of(new PlaceHoldHandler.Command.StandingLine("GA", 2)));
 
         assertThat(catchCode(() -> placeHold.handle(command))).isEqualTo("ZONE_SOLD_OUT");
 
@@ -110,6 +116,7 @@ class SeatHoldConcurrencyIT extends InventoryTestBase {
                             session.id(),
                             sameUser,
                             List.of(),
+                            List.of(),
                             List.of(new PlaceHoldHandler.Command.StandingLine("GA", 1))))
                     .holdId());
         }
@@ -127,8 +134,8 @@ class SeatHoldConcurrencyIT extends InventoryTestBase {
         var session = fixture.materialize(1, 0);
         UUID seat = session.seatIds().get(0);
 
-        var result = placeHold.handle(
-                new PlaceHoldHandler.Command(session.id(), UUID.randomUUID(), List.of(seat, seat), List.of()));
+        var result = placeHold.handle(new PlaceHoldHandler.Command(
+                session.id(), UUID.randomUUID(), List.of(seat, seat), List.of(), List.of()));
 
         assertThat(result.seatIds()).containsExactly(seat);
         assertThat(fixture.countByStatus(session.id(), "HELD")).isEqualTo(1);

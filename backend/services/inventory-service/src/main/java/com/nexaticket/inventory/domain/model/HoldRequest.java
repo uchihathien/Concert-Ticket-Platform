@@ -16,14 +16,32 @@ import java.util.stream.Collectors;
  * của client, và nếu để lọt xuống thì unique index sẽ báo {@code SEAT_UNAVAILABLE} — một thông báo
  * sai, vì ghế đó thật ra vẫn trống.
  *
+ * <p>Vé ngồi tới đây bằng HAI đường, và cả hai đều là vé ngồi: khách bấm đúng ô ghế trên sơ đồ
+ * ({@code seatIds}), hoặc khách chỉ nói khu và số lượng ({@code seatedZones}) rồi hệ thống chọn hộ.
+ * Đường thứ hai là đường chính của giao diện hiện nay — xem {@link SeatedZoneRequest}.
+ *
  * @param seatIds các đơn vị vé ngồi khách chỉ đích danh, đã khử trùng lặp, giữ nguyên thứ tự nhập
+ * @param seatedZones các nhóm vé ngồi xin theo khu, đã gộp theo zone
  * @param standing các nhóm vé đứng, đã gộp theo zone
  */
-public record HoldRequest(List<UUID> seatIds, List<StandingRequest> standing) {
+public record HoldRequest(List<UUID> seatIds, List<SeatedZoneRequest> seatedZones, List<StandingRequest> standing) {
 
     public HoldRequest {
         seatIds = List.copyOf(new LinkedHashSet<>(seatIds == null ? List.<UUID>of() : seatIds));
+        seatedZones = mergeSeatedByZone(seatedZones == null ? List.of() : seatedZones);
         standing = mergeByZone(standing == null ? List.of() : standing);
+    }
+
+    /** Gộp hai dòng cùng zone thành một — cùng lý do với vé đứng bên dưới. */
+    private static List<SeatedZoneRequest> mergeSeatedByZone(List<SeatedZoneRequest> raw) {
+        Map<String, Integer> byZone = raw.stream()
+                .collect(Collectors.groupingBy(
+                        SeatedZoneRequest::zoneCode,
+                        java.util.LinkedHashMap::new,
+                        Collectors.summingInt(SeatedZoneRequest::quantity)));
+        return byZone.entrySet().stream()
+                .map(e -> new SeatedZoneRequest(e.getKey(), e.getValue()))
+                .toList();
     }
 
     /** Gộp hai dòng cùng zone thành một — nếu không, trần sẽ đếm đúng nhưng cấp phát chạy hai lượt. */
@@ -38,8 +56,10 @@ public record HoldRequest(List<UUID> seatIds, List<StandingRequest> standing) {
                 .toList();
     }
 
+    /** Cả hai đường vé ngồi cộng lại — đây là con số trần {@code maxSeatedPerHold} nói tới. */
     public int seatedCount() {
-        return seatIds.size();
+        return seatIds.size()
+                + seatedZones.stream().mapToInt(SeatedZoneRequest::quantity).sum();
     }
 
     public int standingCount() {
@@ -50,8 +70,13 @@ public record HoldRequest(List<UUID> seatIds, List<StandingRequest> standing) {
         return seatedCount() + standingCount();
     }
 
-    public boolean hasSeated() {
+    /** Có ghế nào khách chỉ đích danh không — tức có phải đi qua cổng Redis không. */
+    public boolean hasNamedSeats() {
         return !seatIds.isEmpty();
+    }
+
+    public boolean hasSeated() {
+        return seatedCount() > 0;
     }
 
     public boolean hasStanding() {

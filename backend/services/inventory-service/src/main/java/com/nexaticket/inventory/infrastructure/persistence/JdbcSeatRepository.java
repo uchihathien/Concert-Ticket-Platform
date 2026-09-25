@@ -113,6 +113,38 @@ public class JdbcSeatRepository implements SeatRepository {
     }
 
     @Override
+    public List<UUID> allocateSeatedInZone(UUID eventSessionId, String zoneCode, int quantity, UUID userId) {
+        // Cùng khuôn với vé đứng, khác đúng hai chỗ: lọc SEATED, và ORDER BY theo vị trí thay vì
+        // theo id — hàng gần sân khấu (pos_y nhỏ) được cấp trước. Xem idx_seat_seated_alloc.
+        //
+        // NULLS LAST không phải để cho đẹp: những suất materialize trước khi có hình học không có
+        // toạ độ, và mặc định của Postgres là NULLS LAST khi ASC — viết ra để nói rằng những ghế
+        // ấy xếp sau chứ không phải trước, rồi seat_code phá hoà cho chúng.
+        List<UUID> picked = jdbc.query(
+                """
+                SELECT id FROM session_seats
+                 WHERE event_session_id = ? AND zone_code = ?
+                   AND admission_type = 'SEATED' AND status = 'AVAILABLE'
+                 ORDER BY pos_y NULLS LAST, pos_x NULLS LAST, seat_code
+                 LIMIT ?
+                   FOR UPDATE SKIP LOCKED
+                """,
+                (rs, i) -> rs.getObject("id", UUID.class),
+                eventSessionId,
+                zoneCode,
+                quantity);
+
+        if (picked.isEmpty()) {
+            return List.of();
+        }
+        jdbc.update("UPDATE session_seats SET status = 'HELD', holder_user_id = ? WHERE id = ANY(?)", ps -> {
+            ps.setObject(1, userId);
+            ps.setArray(2, UuidArrays.of(ps, picked));
+        });
+        return picked;
+    }
+
+    @Override
     public int reserve(List<UUID> seatIds) {
         return transition(seatIds, "RESERVED", List.of("HELD"), true);
     }

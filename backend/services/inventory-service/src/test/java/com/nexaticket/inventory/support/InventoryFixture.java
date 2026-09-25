@@ -136,6 +136,79 @@ public class InventoryFixture {
         return new Session(sessionId, List.copyOf(seatedIds));
     }
 
+    /**
+     * Một khu ngồi có HÌNH: {@code rows} hàng × {@code perRow} ghế, kèm toạ độ.
+     *
+     * <p>{@link #materialize} cố ý để {@code pos_x}/{@code pos_y} rỗng — phần lớn test không quan
+     * tâm ghế nằm đâu. Nhưng cấp phát theo khu thì có: nó hứa chọn chỗ gần sân khấu trước, và lời
+     * hứa ấy chỉ kiểm được khi ghế có vị trí. Hàng 1 mang {@code pos_y = 1}, tức gần sân khấu nhất.
+     *
+     * @return các ghế theo đúng thứ tự hàng rồi tới ghế — thứ tự mà cấp phát phải cấp
+     */
+    public Session materializeSeatedGrid(int rows, int perRow) {
+        UUID sessionId = UUID.randomUUID();
+        UUID seatedType = UUID.randomUUID();
+        Instant now = Instant.now();
+
+        jdbc.update(
+                """
+                INSERT INTO session_inventory (
+                    id, event_session_id, event_id, organization_id,
+                    sales_open_at, sales_close_at,
+                    max_seated_per_hold, max_standing_per_hold,
+                    max_units_per_hold, max_tickets_per_customer,
+                    hold_ttl_seconds, materialized_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                UUID.randomUUID(),
+                sessionId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                Timestamp.from(now.minus(1, ChronoUnit.HOURS)),
+                Timestamp.from(now.plus(30, ChronoUnit.DAYS)),
+                8,
+                10,
+                10,
+                10,
+                600,
+                Timestamp.from(now));
+
+        List<UUID> ordered = new ArrayList<>();
+        List<Object[]> batch = new ArrayList<>();
+        for (int row = 1; row <= rows; row++) {
+            for (int seat = 1; seat <= perRow; seat++) {
+                UUID id = UUID.randomUUID();
+                ordered.add(id);
+                batch.add(new Object[] {
+                    id,
+                    sessionId,
+                    "A-%d-%d".formatted(row, seat),
+                    "A",
+                    "SEATED",
+                    "Khan dai A",
+                    String.valueOf(row),
+                    String.valueOf(seat),
+                    seat,
+                    row,
+                    seatedType,
+                    "Ve ngoi",
+                    1_500_000L
+                });
+            }
+        }
+        jdbc.batchUpdate(
+                """
+                INSERT INTO session_seats (
+                    id, event_session_id, seat_code, zone_code, admission_type,
+                    section_label, row_label, seat_label, pos_x, pos_y,
+                    ticket_type_id, ticket_type_name, price_vnd)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                batch);
+
+        return new Session(sessionId, List.copyOf(ordered));
+    }
+
     public record Session(UUID id, List<UUID> seatIds) {}
 
     public int countByStatus(UUID sessionId, String status) {
