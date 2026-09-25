@@ -87,6 +87,61 @@ class CatalogFlowIT extends CatalogTestBase {
     }
 
     @Test
+    @DisplayName("gửi lại hình học cho Inventory: thêm một message, sự kiện vẫn đang bán")
+    void gui_lai_hinh_hoc() throws Exception {
+        UUID venueId = createVenue("Nhà hát Tây Đô", "Cần Thơ");
+        createZone(venueId, "A", "Khu A", 4, 5);
+        UUID eventId = createEvent(venueId, "Đêm nhạc gửi lại", "dem-nhac-gui-lai");
+        JsonNode withSession = createSession(eventId);
+        UUID sessionId =
+                UUID.fromString(withSession.path("sessions").get(0).path("id").asText());
+        UUID zoneId = UUID.fromString(
+                withSession.path("venue").path("zones").get(0).path("id").asText());
+        createTicketType(eventId, sessionId, zoneId, "Hạng A", 300_000);
+        publish(eventId);
+
+        MvcResult result = mockMvc.perform(post("/v1/organizations/" + ORG + "/events/" + eventId + "/resync-inventory")
+                        .header("Authorization", BEARER))
+                .andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        assertThat(json.readTree(result.getResponse().getContentAsString())
+                        .path("sessions")
+                        .asInt())
+                .isEqualTo(1);
+
+        // Hai message cho cùng một suất: một của lần publish, một của lần gửi lại. Inventory xử lý
+        // được cả hai — cái sau chỉ đồng bộ toạ độ.
+        assertThat(jdbc.queryForList(
+                        "SELECT payload::text FROM outbox WHERE event_type = 'session.published'", String.class))
+                .hasSize(2);
+
+        // Và sự kiện KHÔNG bị rút xuống trong lúc đó — đó là cả lý do có đường này thay vì bảo ban
+        // tổ chức unpublish rồi publish lại.
+        mockMvc.perform(get("/v1/events/dem-nhac-gui-lai"))
+                .andExpect(res -> assertThat(res.getResponse().getStatus()).isEqualTo(200));
+    }
+
+    @Test
+    @DisplayName("gửi lại hình học cho sự kiện còn nháp: từ chối, vì nó sẽ dựng tồn kho lén")
+    void gui_lai_hinh_hoc_cho_ban_nhap() throws Exception {
+        UUID venueId = createVenue("Nhà hát Nháp", "Huế");
+        createZone(venueId, "A", "Khu A", 2, 2);
+        UUID eventId = createEvent(venueId, "Bản nháp", "ban-nhap-gui-lai");
+
+        MvcResult result = mockMvc.perform(post("/v1/organizations/" + ORG + "/events/" + eventId + "/resync-inventory")
+                        .header("Authorization", BEARER))
+                .andReturn();
+
+        // Sự kiện chưa bán thì chưa có tồn kho để đồng bộ, và gửi message cho nó sẽ DỰNG tồn kho —
+        // tức publish qua một cửa không chạy preflight.
+        assertThat(result.getResponse().getStatus()).isEqualTo(409);
+        assertThat(jdbc.queryForList(
+                        "SELECT payload::text FROM outbox WHERE event_type = 'session.published'", String.class))
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("không phải thành viên: 404 chứ không phải 403")
     void to_chuc_khac_thi_khong_thay() throws Exception {
         // 404 chứ không phải 403 là có chủ đích: 403 xác nhận rằng tài nguyên của tổ chức kia tồn
