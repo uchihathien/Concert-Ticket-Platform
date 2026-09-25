@@ -223,6 +223,21 @@ public class AdminCatalogController {
         return adminQuery.event(organizationId, eventId).orElseThrow();
     }
 
+    /**
+     * Gửi lại hình học của sự kiện sang Inventory, không đổi trạng thái bán.
+     *
+     * <p>Dùng khi sơ đồ chỗ của khách vẽ sai hoặc không hiện: toạ độ ghế ở Inventory được chốt lúc
+     * publish lần đầu, và những suất publish từ bản cũ đang giữ chỉ số hàng/cột thay vì toạ độ mặt
+     * bằng. Xem {@code PublishEventHandler.resyncInventory}.
+     */
+    @PostMapping("/events/{eventId}/resync-inventory")
+    public ResyncResult resyncInventory(@PathVariable UUID organizationId, @PathVariable UUID eventId) {
+        return new ResyncResult(publishEvent.resyncInventory(organizationId, eventId));
+    }
+
+    /** @param sessions số suất đã gửi lại */
+    public record ResyncResult(int sessions) {}
+
     @PostMapping("/events/{eventId}/unpublish")
     public CatalogViews.AdminEventDetail unpublish(@PathVariable UUID organizationId, @PathVariable UUID eventId) {
         unpublishEvent.handle(organizationId, eventId);

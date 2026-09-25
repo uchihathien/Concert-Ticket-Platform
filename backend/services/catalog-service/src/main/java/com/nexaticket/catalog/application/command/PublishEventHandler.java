@@ -82,6 +82,40 @@ public class PublishEventHandler {
     }
 
     /**
+     * Phát lại {@code session.published} cho một sự kiện <b>đang bán</b>, không đổi trạng thái gì.
+     *
+     * <h2>Vì sao cần một đường riêng thay vì bảo họ rút xuống rồi bán lại</h2>
+     *
+     * <p>Toạ độ chỗ ngồi nằm ở Inventory và được chốt lúc publish lần đầu. Những suất publish
+     * trước khi Catalog biết tính hình học đã chốt chỉ số hàng/cột thay vì toạ độ mét, nên sơ đồ
+     * của chúng vẽ sai và giao diện phải từ chối vẽ. Đường chữa là gửi lại payload — Inventory
+     * đồng bộ toạ độ mà không đụng tới giá, trạng thái hay người đang giữ chỗ.
+     *
+     * <p>Rút xuống rồi bán lại cũng phát lại message, nhưng nó <b>gỡ sự kiện khỏi trang khách</b>
+     * trong khoảng giữa và huỷ luôn những link đang được chia sẻ. Đổi một tấm sơ đồ không đáng
+     * giá đó.
+     *
+     * @return số suất đã phát lại
+     */
+    @Transactional
+    public int resyncInventory(UUID organizationId, UUID eventId) {
+        access.requireCatalogManager(organizationId);
+
+        Event event = events.findByIdForOrganization(organizationId, eventId)
+                .orElseThrow(() -> new ApiException(CatalogErrorCode.EVENT_NOT_FOUND, "Event not found"));
+        Venue venue = venues.findById(organizationId, event.venueId())
+                .orElseThrow(() -> new ApiException(CatalogErrorCode.VENUE_NOT_FOUND, "Venue not found"));
+
+        if (event.status() != com.nexaticket.catalog.domain.model.EventStatus.PUBLISHED) {
+            // Sự kiện chưa bán thì chưa có tồn kho nào để đồng bộ, và gửi message cho nó sẽ DỰNG
+            // tồn kho — tức là publish lén qua một cửa không kiểm preflight.
+            throw new ApiException(CatalogErrorCode.INVALID_EVENT_STATE, "Chỉ đồng bộ được sự kiện đang bán");
+        }
+
+        return emitSessions(event, venue);
+    }
+
+    /**
      * Cơ chế publish, KHÔNG kiểm quyền.
      *
      * <p>Tách ra để bộ dựng dữ liệu mẫu dùng lại. Nó chạy lúc khởi động, không có người dùng nào
@@ -108,6 +142,12 @@ public class PublishEventHandler {
         event.publish(clock.instant());
         events.update(event);
 
+        emitSessions(event, venue);
+        return event;
+    }
+
+    /** Một message cho mỗi suất — xem tính chất 2 ở đầu lớp. */
+    private int emitSessions(Event event, Venue venue) {
         PurchaseLimits cap = properties.platformCap();
         for (EventSession session : event.sessions()) {
             PurchaseLimits limits = PurchaseLimits.resolve(
@@ -123,6 +163,6 @@ public class PublishEventHandler {
                     EVENT_TYPE,
                     SessionPublishedPayload.of(event, session, venue, limits));
         }
-        return event;
+        return event.sessions().size();
     }
 }
