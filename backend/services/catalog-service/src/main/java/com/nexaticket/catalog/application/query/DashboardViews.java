@@ -106,6 +106,17 @@ public final class DashboardViews {
      * @param materializedSeats số chỗ thật sự đã dựng ở inventory; lệch với {@code declaredCapacity}
      *     nghĩa là sơ đồ đã đổi sau lần publish gần nhất, và đó là thứ đáng để mắt
      */
+    /**
+     * @param seatsAvailable chỗ CÒN BÁN ĐƯỢC, đếm từ tồn kho. Không suy ra bằng phép trừ
+     *     {@code materializedSeats - seatsSold}: hiệu ấy còn gộp cả chỗ đang giữ, chỗ đã đặt chưa
+     *     trả tiền và chỗ bị khoá — bốn thứ khác nhau, và ban tổ chức nhìn con số này để quyết
+     *     định có mở thêm suất hay không.
+     */
     public record MasterDataTotals(
-            int declaredCapacity, int materializedSeats, int seatsSold, int ticketsSold, long grossVnd) {}
+            int declaredCapacity,
+            int materializedSeats,
+            int seatsAvailable,
+            int seatsSold,
+            int ticketsSold,
+            long grossVnd) {}
 }

@@ -96,6 +96,14 @@ class OrganizationDashboardIT extends CatalogTestBase {
                 }
 
                 @Override
+                public List<UUID> trendingEventIds(int limit) {
+                    // Bảng điều khiển của ban tổ chức không dùng bảng xếp hạng bán chạy — nó thuộc
+                    // đường trang chủ. Trả rỗng chứ không ném: một stub biết ném sẽ làm test đỏ ở
+                    // chỗ không liên quan nếu sau này có ai gọi tới.
+                    return List.of();
+                }
+
+                @Override
                 public List<SessionSales> forOrganization(UUID organizationId) {
                     return sales();
                 }
@@ -214,6 +222,12 @@ class OrganizationDashboardIT extends CatalogTestBase {
         assertThat(sales.path("grossVnd").asLong()).isEqualTo(11_000_000);
 
         assertThat(master.path("totals").path("materializedSeats").asInt()).isEqualTo(600);
+
+        // Còn bán được: 80 + 490. KHÔNG phải 600 − 22: hiệu ấy còn cộng nhầm 5 chỗ đang giữ và 3
+        // chỗ đã đặt chưa trả tiền vào phần "còn vé", và ban tổ chức nhìn đúng con số này để
+        // quyết định có mở thêm suất hay không.
+        assertThat(master.path("totals").path("seatsAvailable").asInt()).isEqualTo(570);
+        assertThat(master.path("totals").path("seatsSold").asInt()).isEqualTo(22);
         assertThat(master.path("degraded")).isEmpty();
     }
 
@@ -281,6 +295,44 @@ class OrganizationDashboardIT extends CatalogTestBase {
                 .andReturn();
 
         assertThat(result.getResponse().getStatus()).isEqualTo(404);
+    }
+
+    @Test
+    @DisplayName("mượn đường dẫn của CHÍNH MÌNH để đọc sự kiện của tổ chức khác: vẫn 404")
+    void khong_muon_duoc_duong_dan_cua_minh() throws Exception {
+        // Ca nguy hiểm hơn ca trên, và là ca duy nhất mà bộ lọc tenant KHÔNG chặn: người gọi là
+        // thành viên thật của ORG, nên đường dẫn /organizations/{ORG}/… đi lọt. Thứ duy nhất còn
+        // đứng giữa họ và doanh thu của tổ chức khác là mệnh đề organization_id trong câu truy vấn
+        // (`findByIdForOrganization`). Bài kiểm này khoá đúng mệnh đề đó.
+        Fixture f = draft();
+        jdbc.update("UPDATE events SET organization_id = ? WHERE id = ?", OTHER_ORG, f.eventId());
+
+        MvcResult result = mockMvc.perform(get("/v1/organizations/" + ORG + "/events/" + f.eventId() + "/master-data")
+                        .header("Authorization", BEARER))
+                .andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+        // Và 404 phải tới TRƯỚC khi hỏi doanh thu: một 200 kèm số 0 cũng đã là xác nhận rằng sự
+        // kiện ấy tồn tại, còn một lời gọi sang analytics là đã đọc dữ liệu của tổ chức khác.
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("grossVnd");
+    }
+
+    @Test
+    @DisplayName("bảng điều khiển chỉ cộng sự kiện của chính tổ chức mình")
+    void tong_quan_khong_gom_su_kien_to_chuc_khac() throws Exception {
+        Fixture mine = draft();
+        Fixture theirs = draft();
+        jdbc.update("UPDATE events SET organization_id = ? WHERE id = ?", OTHER_ORG, theirs.eventId());
+
+        JsonNode dashboard = json.readTree(perform(get("/v1/organizations/" + ORG + "/dashboard"))
+                .getResponse()
+                .getContentAsString());
+
+        List<String> ids = new ArrayList<>();
+        dashboard.path("events").forEach(row -> ids.add(row.path("id").asText()));
+        assertThat(ids)
+                .contains(mine.eventId().toString())
+                .doesNotContain(theirs.eventId().toString());
     }
 
     // --- dựng dữ liệu ------------------------------------------------------
