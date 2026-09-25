@@ -230,6 +230,10 @@ public class OrganizationDashboardQuery {
                 .filter(r -> r.seating() != null)
                 .mapToInt(r -> r.seating().totals().total())
                 .sum();
+        int seatsAvailable = reports.stream()
+                .filter(r -> r.seating() != null)
+                .mapToInt(r -> r.seating().totals().available())
+                .sum();
         int seatsSold = reports.stream()
                 .filter(r -> r.seating() != null)
                 .mapToInt(r -> r.seating().totals().sold())
@@ -244,6 +248,6 @@ public class OrganizationDashboardQuery {
                 .sum();
 
         return new DashboardViews.MasterDataTotals(
-                venue.capacity() * reports.size(), materialized, seatsSold, ticketsSold, grossVnd);
+                venue.capacity() * reports.size(), materialized, seatsAvailable, seatsSold, ticketsSold, grossVnd);
     }
 }
