@@ -40,11 +40,31 @@ public class HoldController {
 
     /**
      * @param seatIds các chỗ ngồi khách chỉ đích danh
+     * @param seatedZones số lượng vé ngồi theo khu — hệ thống chọn chỗ hộ, gần sân khấu trước
      * @param standing số lượng vé đứng theo zone
      */
-    public record PlaceHoldRequest(List<UUID> seatIds, List<@Valid StandingLine> standing) {
+    public record PlaceHoldRequest(
+            List<UUID> seatIds, List<@Valid ZoneLine> seatedZones, List<@Valid ZoneLine> standing) {
 
-        public record StandingLine(@NotBlank String zoneCode, @Positive int quantity) {}
+        /**
+         * Một dòng "khu này, ngần này vé".
+         *
+         * <p>Dùng chung một kiểu cho cả hai danh sách, nhưng <b>hai danh sách</b> chứ không phải
+         * một danh sách kèm cờ loại vé. Lý do nằm ở phía server: khu được cấp phát bằng câu lệnh
+         * lọc {@code admission_type}, nên nếu khách khai sai loại thì kết quả là "khu không đủ
+         * chỗ" — không có đường nào để một lời khai sai biến thành vé ngồi bán dưới giá vé đứng.
+         * Gộp làm một danh sách thì server phải tự tra loại của từng khu, tức thêm một câu truy
+         * vấn trên đúng đường nóng nhất của hệ thống.
+         */
+        public record ZoneLine(@NotBlank String zoneCode, @Positive int quantity) {}
+
+        List<PlaceHoldHandler.Command.ZoneLine> seatedZoneLines() {
+            return seatedZones == null
+                    ? List.of()
+                    : seatedZones.stream()
+                            .map(line -> new PlaceHoldHandler.Command.ZoneLine(line.zoneCode(), line.quantity()))
+                            .toList();
+        }
 
         List<PlaceHoldHandler.Command.StandingLine> standingLines() {
             return standing == null
@@ -65,6 +85,7 @@ public class HoldController {
                 eventSessionId,
                 userId,
                 request.seatIds() == null ? List.of() : request.seatIds(),
+                request.seatedZoneLines(),
                 request.standingLines()));
         return new HoldCreated(result.holdId(), result.expiresAt(), result.seatIds(), result.availabilityVersion());
     }

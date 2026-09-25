@@ -46,6 +46,19 @@ public interface SeatRepository {
      */
     List<UUID> allocateStanding(UUID eventSessionId, String zoneCode, int quantity, UUID userId);
 
+    /**
+     * Cấp phát vé <b>ngồi</b> theo khu, cũng bằng {@code FOR UPDATE SKIP LOCKED}.
+     *
+     * <p>Khác vé đứng ở thứ tự chọn: gần sân khấu trước. Khách không chỉ đích danh ghế thì việc
+     * chọn hộ phải chọn chỗ tốt nhất còn lại — cấp phát theo {@code id} như vé đứng sẽ rải người
+     * mua khắp khán phòng một cách ngẫu nhiên, và hai vé mua cùng lúc có thể rơi vào hai đầu.
+     *
+     * <p>Trả về ít hơn số lượng yêu cầu ⇒ khu không đủ chỗ, caller rollback.
+     *
+     * @return id các ghế đã cấp, tối đa {@code quantity} phần tử
+     */
+    List<UUID> allocateSeatedInZone(UUID eventSessionId, String zoneCode, int quantity, UUID userId);
+
     /** HELD → RESERVED khi giữ chỗ thành đơn hàng. */
     int reserve(List<UUID> seatIds);
 

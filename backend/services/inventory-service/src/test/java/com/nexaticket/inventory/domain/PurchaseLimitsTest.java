@@ -50,14 +50,15 @@ class PurchaseLimitsTest {
     @DisplayName("Ghế trùng lặp trong một request tính là một")
     void ghe_trung_lap_tinh_la_mot() {
         UUID seat = UUID.randomUUID();
-        var request = new HoldRequest(List.of(seat, seat, seat), List.of());
+        var request = new HoldRequest(List.of(seat, seat, seat), List.of(), List.of());
         assertThat(request.seatedCount()).isEqualTo(1);
     }
 
     @Test
     @DisplayName("Hai dòng cùng zone được gộp thành một")
     void gop_dong_cung_zone() {
-        var request = new HoldRequest(List.of(), List.of(new StandingRequest("GA", 2), new StandingRequest("GA", 3)));
+        var request = new HoldRequest(
+                List.of(), List.of(), List.of(new StandingRequest("GA", 2), new StandingRequest("GA", 3)));
         assertThat(request.standing()).hasSize(1);
         assertThat(request.standing().get(0).quantity()).isEqualTo(5);
         assertThat(request.standingCount()).isEqualTo(5);

@@ -135,6 +135,71 @@ class MaterializeSessionIT extends InventoryTestBase {
     }
 
     @Test
+    @DisplayName("Publish lại với toạ độ mới: chỗ dịch đúng vị trí, trạng thái và người giữ không đổi")
+    void publish_lai_thi_dong_bo_toa_do() {
+        // Đây là đường chữa cho những suất đang giữ CHỈ SỐ hàng/cột thay vì toạ độ mặt bằng — 52
+        // trên 63 suất trong dữ liệu thật. Không có nó thì sơ đồ của chúng sai vĩnh viễn, vì tồn
+        // kho chỉ ghi toạ độ đúng một lần và không có đường nào sửa.
+        var first = manifest(3, 0);
+        materialize.handle(first);
+
+        UUID sessionId = first.eventSessionId();
+        UUID holder = UUID.randomUUID();
+        jdbc.update(
+                "UPDATE session_seats SET status = 'SOLD', holder_user_id = ? WHERE event_session_id = ? AND seat_code = 'A-1'",
+                holder,
+                sessionId);
+
+        List<SessionMaterializer.SeatLine> moved = first.seats().stream()
+                .map(seat -> new SessionMaterializer.SeatLine(
+                        seat.seatCode(),
+                        seat.zoneCode(),
+                        seat.sectionLabel(),
+                        seat.rowLabel(),
+                        seat.seatLabel(),
+                        seat.posX().subtract(BigDecimal.valueOf(100)),
+                        seat.posY().subtract(BigDecimal.valueOf(100)),
+                        seat.ticketTypeId(),
+                        seat.ticketTypeName(),
+                        seat.priceVnd(),
+                        seat.blocked()))
+                .toList();
+
+        materialize.handle(new SessionMaterializer.SessionManifest(
+                sessionId,
+                first.eventId(),
+                first.organizationId(),
+                first.salesOpenAt(),
+                first.salesCloseAt(),
+                first.maxSeatedPerHold(),
+                first.maxStandingPerHold(),
+                first.maxUnitsPerHold(),
+                first.maxTicketsPerCustomer(),
+                moved,
+                first.standingBlocks()));
+
+        assertThat(jdbc.queryForObject(
+                        "SELECT pos_y FROM session_seats WHERE event_session_id = ? AND seat_code = 'A-1'",
+                        BigDecimal.class,
+                        sessionId))
+                .isEqualByComparingTo(BigDecimal.valueOf(-99));
+
+        // Phần quan trọng hơn: một chỗ ĐÃ BÁN cũng dịch được vị trí mà không mất trạng thái hay
+        // chủ của nó. Đồng bộ toạ độ phải là thao tác an toàn trên một suất đang bán, nếu không
+        // thì không ai dám chạy nó.
+        assertThat(jdbc.queryForObject(
+                        "SELECT status FROM session_seats WHERE event_session_id = ? AND seat_code = 'A-1'",
+                        String.class,
+                        sessionId))
+                .isEqualTo("SOLD");
+        assertThat(jdbc.queryForObject(
+                        "SELECT holder_user_id FROM session_seats WHERE event_session_id = ? AND seat_code = 'A-1'",
+                        UUID.class,
+                        sessionId))
+                .isEqualTo(holder);
+    }
+
+    @Test
     @DisplayName("Tồn kho vừa dựng dùng được ngay cho đường giữ chỗ")
     void ton_kho_dung_duoc_ngay() {
         // Kiểm nối thật giữa hai mắt xích: nếu materialize ghi thiếu một cột mà đường giữ chỗ
@@ -143,8 +208,8 @@ class MaterializeSessionIT extends InventoryTestBase {
         materialize.handle(manifest);
         List<UUID> seatIds = seatIdsOf(manifest.eventSessionId(), 2);
 
-        var hold = placeHold.handle(
-                new PlaceHoldHandler.Command(manifest.eventSessionId(), UUID.randomUUID(), seatIds, List.of()));
+        var hold = placeHold.handle(new PlaceHoldHandler.Command(
+                manifest.eventSessionId(), UUID.randomUUID(), seatIds, List.of(), List.of()));
 
         assertThat(hold.seatIds()).hasSize(2);
     }
@@ -159,7 +224,7 @@ class MaterializeSessionIT extends InventoryTestBase {
         List<UUID> seatIds = seatIdsOf(manifest.eventSessionId(), 3);
 
         assertThat(codeOf(() -> placeHold.handle(new PlaceHoldHandler.Command(
-                        manifest.eventSessionId(), UUID.randomUUID(), seatIds, List.of()))))
+                        manifest.eventSessionId(), UUID.randomUUID(), seatIds, List.of(), List.of()))))
                 .isEqualTo("HOLD_LIMIT_EXCEEDED");
     }
 

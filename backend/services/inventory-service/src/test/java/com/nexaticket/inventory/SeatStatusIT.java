@@ -55,7 +55,7 @@ class SeatStatusIT extends InventoryTestBase {
     void giu_cho_doi_trang_thai() {
         InventoryFixture.Session session = fixture.materialize(20, 0);
         placeHold.handle(new PlaceHoldHandler.Command(
-                session.id(), UUID.randomUUID(), session.seatIds().subList(0, 3), List.of()));
+                session.id(), UUID.randomUUID(), session.seatIds().subList(0, 3), List.of(), List.of()));
 
         SeatStatusView view = queries.seatStatus(session.id());
 
