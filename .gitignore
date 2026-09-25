@@ -36,3 +36,7 @@ logs/
 # Bản sao lưu database. Chúng chứa dữ liệu người dùng thật và mỗi file hàng chục MB — không có
 # thứ gì trong đó thuộc về lịch sử mã nguồn.
 /deploy/compose/backups/
+
+# Python bytecode của script tiện ích trong scripts/
+__pycache__/
+*.pyc
