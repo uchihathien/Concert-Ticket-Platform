@@ -56,6 +56,20 @@ public class JdbcVenueRepository implements VenueRepository {
     }
 
     @Override
+    public int updateSeatMapImage(UUID organizationId, UUID venueId, String imageUrl) {
+        // Chuỗi rỗng → NULL: "gỡ ảnh" và "chưa có ảnh" phải là cùng một trạng thái trong database,
+        // nếu không mọi câu đọc đều phải nhớ kiểm cả hai.
+        return jdbc.update(
+                """
+                UPDATE venues SET seat_map_image_url = ?, updated_at = now()
+                 WHERE id = ? AND organization_id = ?
+                """,
+                imageUrl == null || imageUrl.isEmpty() ? null : imageUrl,
+                venueId,
+                organizationId);
+    }
+
+    @Override
     public void updateStage(UUID venueId, StageArea stage) {
         jdbc.update(
                 """

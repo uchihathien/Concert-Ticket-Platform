@@ -81,6 +81,53 @@ public class JdbcCatalogQueries implements CatalogQueries {
     }
 
     /**
+     * Thẻ sự kiện theo danh sách id, giữ nguyên thứ tự truyền vào.
+     *
+     * <p>{@code array_position} là thứ giữ thứ tự: không có nó thì PostgreSQL trả về theo thứ tự
+     * nào nó thấy tiện, và danh sách "đang hot" xếp sai mà không ai thấy nó sai.
+     *
+     * <p>Không dùng lại {@link #CARDS_CTE}: CTE đó không chọn {@code e.id} (thẻ công khai khoá
+     * theo slug) và nó mang theo ba bộ lọc mà đường này không cần. Chép phần dẫn xuất là chấp nhận
+     * được ở đây vì hai câu trả lời hai câu hỏi khác nhau — gộp lại sẽ thành một CTE có năm tham
+     * số mà mỗi nơi gọi chỉ dùng một nửa.
+     */
+    @Override
+    public List<CatalogViews.EventCard> publishedEventsByIds(List<UUID> eventIds) {
+        if (eventIds == null || eventIds.isEmpty()) {
+            return List.of();
+        }
+        UUID[] ids = eventIds.toArray(UUID[]::new);
+        return jdbc.query(
+                """
+                SELECT e.slug, e.title, e.summary, e.category, e.poster_url,
+                       v.city, v.name AS venue_name,
+                       (SELECT min(s.starts_at) FROM event_sessions s
+                         WHERE s.event_id = e.id AND s.starts_at > now())        AS next_session_at,
+                       (SELECT min(t.price_vnd) FROM ticket_types t
+                          JOIN event_sessions s2 ON s2.id = t.event_session_id
+                         WHERE s2.event_id = e.id)                               AS from_price_vnd,
+                       (SELECT count(*) FROM event_sessions s3 WHERE s3.event_id = e.id) AS session_count
+                  FROM events e
+                  JOIN venues v ON v.id = e.venue_id
+                 WHERE e.status = 'PUBLISHED' AND e.id = ANY (?)
+                 ORDER BY array_position(?, e.id)
+                """,
+                (rs, i) -> new CatalogViews.EventCard(
+                        rs.getString("slug"),
+                        rs.getString("title"),
+                        rs.getString("summary"),
+                        rs.getString("category"),
+                        rs.getString("poster_url"),
+                        rs.getString("city"),
+                        rs.getString("venue_name"),
+                        instant(rs, "next_session_at"),
+                        nullableLong(rs, "from_price_vnd"),
+                        rs.getInt("session_count")),
+                ids,
+                ids);
+    }
+
+    /**
      * Đếm đúng tập dòng mà {@link #publishedEvents} trả về.
      *
      * <p>Dùng chung {@link #CARDS_CTE}, {@link #DERIVED_FILTERS} và {@link #filterParams} với câu
@@ -195,7 +242,11 @@ public class JdbcCatalogQueries implements CatalogQueries {
         List<EventHeader> headers = jdbc.query(
                 """
                 SELECT e.id, e.slug, e.title, e.summary, e.description, e.category, e.poster_url,
-                       v.city, v.name AS venue_name, v.address AS venue_address
+                       v.city, v.name AS venue_name, v.address AS venue_address,
+                       -- Ảnh riêng của sự kiện thắng ảnh chung của địa điểm. COALESCE ở đây chứ
+                       -- không ở Java: hai cột này không bao giờ được đọc rời nhau bởi trang công
+                       -- khai, nên trả cả hai lên là mở đường cho một chỗ nào đó quên thứ tự ưu tiên.
+                       COALESCE(e.seat_map_image_url, v.seat_map_image_url) AS seat_map_image_url
                   FROM events e
                   JOIN venues v ON v.id = e.venue_id
                  WHERE e.status = 'PUBLISHED' AND e.slug = ?
@@ -210,7 +261,8 @@ public class JdbcCatalogQueries implements CatalogQueries {
                         rs.getString("poster_url"),
                         rs.getString("city"),
                         rs.getString("venue_name"),
-                        rs.getString("venue_address")),
+                        rs.getString("venue_address"),
+                        rs.getString("seat_map_image_url")),
                 slug);
 
         if (headers.isEmpty()) {
@@ -227,7 +279,28 @@ public class JdbcCatalogQueries implements CatalogQueries {
                 header.city(),
                 header.venueName(),
                 header.venueAddress(),
+                header.seatMapImageUrl(),
                 sessionsOf(header.id())));
+    }
+
+    @Override
+    public Optional<CatalogViews.SeatMapImages> seatMapImages(UUID organizationId, UUID eventId) {
+        // organization_id nằm trong WHERE, không kiểm ở tầng trên: cùng lý do với mọi đường đọc
+        // quản trị khác — lọc trong câu truy vấn biến IDOR thành "không tìm thấy".
+        return jdbc
+                .query(
+                        """
+                        SELECT e.seat_map_image_url AS event_image, v.seat_map_image_url AS venue_image
+                          FROM events e
+                          JOIN venues v ON v.id = e.venue_id
+                         WHERE e.id = ? AND e.organization_id = ?
+                        """,
+                        (rs, i) -> new CatalogViews.SeatMapImages(
+                                rs.getString("event_image"), rs.getString("venue_image")),
+                        eventId,
+                        organizationId)
+                .stream()
+                .findFirst();
     }
 
     @Override
@@ -334,7 +407,8 @@ public class JdbcCatalogQueries implements CatalogQueries {
             String posterUrl,
             String city,
             String venueName,
-            String venueAddress) {}
+            String venueAddress,
+            String seatMapImageUrl) {}
 
     /** Chuỗi rỗng từ query string phải thành null, nếu không bộ lọc "để trống" sẽ lọc mất hết. */
     private static String blankToNull(String value) {

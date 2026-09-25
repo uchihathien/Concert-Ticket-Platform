@@ -40,6 +40,18 @@ public interface EventRepository {
     boolean slugExists(Slug slug);
 
     /**
+     * Đặt ảnh sơ đồ khu vực ghế riêng của sự kiện, đè lên ảnh của địa điểm.
+     *
+     * <p>Không đi qua {@link Event} — cùng lý do với {@code VenueRepository.updateSeatMapImage}:
+     * không luật nghiệp vụ nào đọc trường này. Nó cũng KHÔNG mang ngữ nghĩa patch của
+     * {@code Event.rename}: đây là một endpoint riêng, gọi nó tức là muốn đổi, nên {@code null} ở
+     * đây nghĩa là gỡ ảnh chứ không phải "để nguyên".
+     *
+     * @return số hàng đổi — 0 nghĩa là sự kiện không tồn tại hoặc không thuộc tổ chức này
+     */
+    int updateSeatMapImage(UUID organizationId, UUID eventId, String imageUrl);
+
+    /**
      * Đọc sự kiện kèm suất diễn và hạng vé, giới hạn trong một tổ chức.
      *
      * <p>Cùng lý do với {@code VenueRepository#findById}: tổ chức nằm trong mệnh đề WHERE, không

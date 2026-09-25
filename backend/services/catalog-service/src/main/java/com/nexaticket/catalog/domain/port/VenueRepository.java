@@ -75,4 +75,18 @@ public interface VenueRepository {
      * {@code GET /v1/events/{slug}}.
      */
     Optional<Venue> findByPublishedEventSlug(String slug);
+
+    /**
+     * Đặt ảnh sơ đồ khu vực ghế của địa điểm.
+     *
+     * <p>Không đi qua {@link Venue}, và đó là chủ ý: {@code Venue} mang hình học — khu, hàng, ghế,
+     * sân khấu — tức những thứ có luật nghiệp vụ đọc tới (sức chứa, publish được hay chưa, dựng
+     * tồn kho). Ảnh sơ đồ thì không có luật nào đọc; thêm nó vào aggregate buộc mọi hàm dựng
+     * {@code Venue}, mọi khung mẫu và mọi test phải mang theo một trường không ai quyết định gì
+     * trên đó.
+     *
+     * @param imageUrl đã qua {@code PosterUrlPolicy}; chuỗi rỗng nghĩa là gỡ ảnh
+     * @return số hàng đổi — 0 nghĩa là địa điểm không tồn tại hoặc không thuộc tổ chức này
+     */
+    int updateSeatMapImage(UUID organizationId, UUID venueId, String imageUrl);
 }
