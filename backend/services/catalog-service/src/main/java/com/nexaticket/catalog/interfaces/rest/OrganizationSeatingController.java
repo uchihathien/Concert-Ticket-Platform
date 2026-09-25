@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.interfaces.rest;
 
+import com.nexaticket.catalog.application.CatalogErrorCode;
 import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.application.command.ConfigureVenueZonesHandler;
 import com.nexaticket.catalog.application.command.CreateEventFromTemplateHandler;
+import com.nexaticket.catalog.application.media.SeatMapImageUseCase;
 import com.nexaticket.catalog.application.query.AdminCatalogQuery;
+import com.nexaticket.catalog.application.query.CatalogQueries;
 import com.nexaticket.catalog.application.query.CatalogViews;
 import com.nexaticket.catalog.application.query.FloorPlanQuery;
 import com.nexaticket.catalog.application.query.FloorPlanViews;
 import com.nexaticket.catalog.application.query.TemplateQueries;
 import com.nexaticket.catalog.application.query.TemplateViews;
+import com.nexaticket.platform.web.error.ApiException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
@@ -60,18 +64,24 @@ public class OrganizationSeatingController {
     private final TemplateQueries templateQueries;
     private final AdminCatalogQuery adminQuery;
     private final FloorPlanQuery floorPlans;
+    private final SeatMapImageUseCase seatMapImages;
+    private final CatalogQueries queries;
 
     public OrganizationSeatingController(
             CreateEventFromTemplateHandler fromTemplate,
             ConfigureVenueZonesHandler configureZones,
             TemplateQueries templateQueries,
             AdminCatalogQuery adminQuery,
-            FloorPlanQuery floorPlans) {
+            FloorPlanQuery floorPlans,
+            SeatMapImageUseCase seatMapImages,
+            CatalogQueries queries) {
         this.fromTemplate = fromTemplate;
         this.configureZones = configureZones;
         this.templateQueries = templateQueries;
         this.adminQuery = adminQuery;
         this.floorPlans = floorPlans;
+        this.seatMapImages = seatMapImages;
+        this.queries = queries;
     }
 
     // --- Khung của Tổng công ty --------------------------------------------
@@ -136,14 +146,7 @@ public class OrganizationSeatingController {
         ConfigureVenueZonesHandler.Result result = configureZones.handle(
                 organizationId,
                 venueId,
-                request.stage() == null
-                        ? null
-                        : new LayoutSpecs.StageSpec(
-                                request.stage().shape(),
-                                request.stage().x(),
-                                request.stage().y(),
-                                request.stage().width(),
-                                request.stage().height()),
+                toStageSpec(request.stage()),
                 request.zones().stream()
                         .map(z -> new ConfigureVenueZonesHandler.ZoneSpec(
                                 z.zoneCode(),
@@ -153,14 +156,7 @@ public class OrganizationSeatingController {
                                 z.seatsPerRow(),
                                 z.capacity(),
                                 z.sortOrder(),
-                                new LayoutSpecs.ZoneLayoutSpec(
-                                        z.layoutShape(),
-                                        z.originX(),
-                                        z.originY(),
-                                        z.rotationDeg(),
-                                        z.innerRadius(),
-                                        z.startAngleDeg(),
-                                        z.endAngleDeg())))
+                                toLayoutSpec(z)))
                         .toList());
 
         CatalogViews.AdminVenue venue = adminQuery.venues(organizationId).stream()
@@ -180,9 +176,109 @@ public class OrganizationSeatingController {
      * sao của công thức trong {@code ZoneLayout}, viết bằng TypeScript — và nó sẽ lệch ở lần sửa
      * thứ hai, với triệu chứng là bản xem trước không giống thứ khách nhìn thấy.
      */
+    /**
+     * Ảnh sơ đồ khu vực ghế của địa điểm — tấm hình ban tổ chức vẫn dùng để bán vé ngoài đời.
+     *
+     * <p>{@code PUT} chứ không {@code PATCH}: endpoint chỉ mang một trường, nên gọi nó luôn là
+     * "đặt giá trị này", và bỏ trống là gỡ ảnh. Xem {@code SeatMapImageUseCase}.
+     */
+    /** Ảnh sơ đồ đang gắn với sự kiện: của riêng nó, của địa điểm, và tấm khách thật sự nhìn thấy. */
+    @GetMapping("/events/{eventId}/seat-map-image")
+    public CatalogViews.SeatMapImages seatMapImagesOfEvent(
+            @PathVariable UUID organizationId, @PathVariable UUID eventId) {
+        return queries.seatMapImages(organizationId, eventId)
+                .orElseThrow(() -> new ApiException(CatalogErrorCode.EVENT_NOT_FOUND, "Event not found"));
+    }
+
+    @PutMapping("/venues/{venueId}/seat-map-image")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void setVenueSeatMapImage(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID venueId,
+            @Valid @RequestBody SeatMapImageRequest request) {
+        seatMapImages.setForVenue(organizationId, venueId, request.imageUrl());
+    }
+
+    /** Ảnh sơ đồ riêng của một sự kiện, đè lên ảnh của địa điểm. */
+    @PutMapping("/events/{eventId}/seat-map-image")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void setEventSeatMapImage(
+            @PathVariable UUID organizationId,
+            @PathVariable UUID eventId,
+            @Valid @RequestBody SeatMapImageRequest request) {
+        seatMapImages.setForEvent(organizationId, eventId, request.imageUrl());
+    }
+
+    /**
+     * @param imageUrl địa chỉ công khai nhận được từ {@code POST /uploads/poster}. Bỏ trống hoặc
+     *     {@code null} để gỡ ảnh đang có.
+     */
+    public record SeatMapImageRequest(@Size(max = 500) String imageUrl) {}
+
     @GetMapping("/venues/{venueId}/floor-plan")
     public FloorPlanViews.FloorPlanView floorPlan(@PathVariable UUID organizationId, @PathVariable UUID venueId) {
         return floorPlans.forVenue(organizationId, venueId);
+    }
+
+    /**
+     * Xem trước một sơ đồ <b>chưa lưu</b> — dùng bởi trình sửa sơ đồ.
+     *
+     * <p>Nhận đúng cùng body với {@code PUT …/zones}, nhưng <b>không ghi gì</b>. Nhờ vậy màn hình
+     * sửa không phải chép công thức toạ độ sang TypeScript: nó hỏi chính phép tính sẽ chạy lúc
+     * publish, nên thứ ban tổ chức nhìn thấy đúng bằng thứ được materialize.
+     *
+     * <p>{@code POST} cho một phép đọc, có chủ đích: đầu vào là cả tập khu, và một khán phòng vài
+     * chục khu không nhét vừa query string.
+     *
+     * <p>Không kiểm {@code VENUE_LAYOUT_LOCKED} hay {@code VENUE_IN_USE}: xem trước không đổi gì,
+     * và chặn nó sẽ làm ban tổ chức không nhìn được sơ đồ của chính địa điểm đang bán vé.
+     */
+    @PostMapping("/venues/{venueId}/floor-plan/preview")
+    public FloorPlanViews.FloorPlanView previewFloorPlan(
+            @PathVariable UUID organizationId, @PathVariable UUID venueId, @Valid @RequestBody ZonesRequest request) {
+
+        return floorPlans.preview(
+                organizationId,
+                venueId,
+                toStageSpec(request.stage()),
+                request.zones().stream()
+                        .map(OrganizationSeatingController::toDraft)
+                        .toList());
+    }
+
+    /**
+     * Dịch sân khấu từ hình dạng request sang hình dạng application.
+     *
+     * <p>Dùng chung cho lệnh lưu và lệnh xem trước: hai phép dịch khác nhau nghĩa là bản xem trước
+     * không còn là bản sẽ được lưu, và đó đúng là thứ trình sửa sơ đồ tồn tại để tránh.
+     */
+    private static LayoutSpecs.StageSpec toStageSpec(StageRequest stage) {
+        return stage == null
+                ? null
+                : new LayoutSpecs.StageSpec(stage.shape(), stage.x(), stage.y(), stage.width(), stage.height());
+    }
+
+    private static LayoutSpecs.ZoneLayoutSpec toLayoutSpec(ZoneRequest zone) {
+        return new LayoutSpecs.ZoneLayoutSpec(
+                zone.layoutShape(),
+                zone.originX(),
+                zone.originY(),
+                zone.rotationDeg(),
+                zone.innerRadius(),
+                zone.startAngleDeg(),
+                zone.endAngleDeg());
+    }
+
+    private static FloorPlanQuery.ZoneDraft toDraft(ZoneRequest zone) {
+        return new FloorPlanQuery.ZoneDraft(
+                zone.zoneCode(),
+                zone.name(),
+                zone.kind(),
+                zone.rowCount(),
+                zone.seatsPerRow(),
+                zone.capacity(),
+                zone.sortOrder(),
+                toLayoutSpec(zone));
     }
 
     // --- Hình dạng request --------------------------------------------------

@@ -78,6 +78,18 @@ public class JdbcEventRepository implements EventRepository {
     }
 
     @Override
+    public int updateSeatMapImage(UUID organizationId, UUID eventId, String imageUrl) {
+        return jdbc.update(
+                """
+                UPDATE events SET seat_map_image_url = ?, updated_at = now()
+                 WHERE id = ? AND organization_id = ?
+                """,
+                imageUrl == null || imageUrl.isEmpty() ? null : imageUrl,
+                eventId,
+                organizationId);
+    }
+
+    @Override
     public void addSession(EventSession session) {
         jdbc.update(
                 """

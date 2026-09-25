@@ -59,6 +59,17 @@ public interface CatalogQueries {
 
     int countPublishedEvents(EventFilter filter);
 
+    /**
+     * Thẻ sự kiện cho một danh sách id, giữ nguyên thứ tự được truyền vào.
+     *
+     * <p>Thứ tự là cả nội dung của lời gọi này — nó đến từ bảng xếp hạng bán chạy. Trả về theo thứ
+     * tự khác nghĩa là trang chủ hiện "đang hot" mà xếp sai.
+     *
+     * <p>Sự kiện đã gỡ khỏi trang công khai thì biến mất khỏi kết quả chứ không để lại chỗ trống:
+     * bảng xếp hạng đến từ một service khác và có thể nhắc tới sự kiện vừa bị rút.
+     */
+    List<CatalogViews.EventCard> publishedEventsByIds(List<UUID> eventIds);
+
     Optional<CatalogViews.EventDetail> publishedEventBySlug(String slug);
 
     /** Thành phố đang có sự kiện bán — dựng bộ lọc từ dữ liệu thật thay vì hard-code. */
@@ -75,5 +86,17 @@ public interface CatalogQueries {
      * kiện xuống giữa chừng không được làm hỏng những lần checkout đang dở: chặn bán thêm là việc
      * của Inventory qua cửa sổ bán, không phải của bước báo giá.
      */
+    /**
+     * Hai tấm ảnh sơ đồ liên quan tới một sự kiện, cho màn hình quản trị.
+     *
+     * <p>Trang công khai chỉ nhận <b>một</b> địa chỉ đã giải sẵn ({@code EventDetail}). Màn hình
+     * quản trị thì cần cả hai: ban tổ chức phải thấy được mình đang dùng ảnh riêng hay đang mượn
+     * ảnh của địa điểm, nếu không thì nút "gỡ ảnh" trông như không có tác dụng — gỡ ảnh riêng
+     * xong, ảnh địa điểm hiện lên thế chỗ.
+     *
+     * @return rỗng khi sự kiện không tồn tại hoặc không thuộc tổ chức này
+     */
+    Optional<CatalogViews.SeatMapImages> seatMapImages(UUID organizationId, UUID eventId);
+
     boolean sessionExists(UUID eventSessionId);
 }

@@ -47,6 +47,13 @@ public final class CatalogViews {
             String city,
             String venueName,
             String venueAddress,
+            /**
+             * Ảnh sơ đồ khu vực ghế do ban tổ chức tải lên, đã giải: ảnh riêng của sự kiện nếu
+             * có, không thì ảnh chung của địa điểm, không nữa thì {@code null} — và khi ấy giao
+             * diện dùng sơ đồ hệ thống tự vẽ. Giải ở câu truy vấn chứ không ở giao diện: thứ tự
+             * ưu tiên là một luật, và một luật nằm trong TypeScript của bốn app là bốn bản sao.
+             */
+            String seatMapImageUrl,
             List<PublicSession> sessions) {}
 
     public record PublicSession(
@@ -67,6 +74,27 @@ public final class CatalogViews {
     }
 
     public record PublicTier(UUID id, String name, long priceVnd, String zoneCode, String zoneName, int capacity) {}
+
+    /**
+     * Ảnh sơ đồ khu vực ghế, nhìn từ màn hình quản trị.
+     *
+     * @param eventImageUrl ảnh riêng của sự kiện, {@code null} nếu chưa đặt
+     * @param venueImageUrl ảnh chung của địa điểm, {@code null} nếu chưa đặt
+     */
+    public record SeatMapImages(String eventImageUrl, String venueImageUrl) {
+
+        /**
+         * Tấm khách thật sự nhìn thấy. Cùng thứ tự ưu tiên với câu truy vấn của trang công khai.
+         *
+         * <p>{@code @JsonProperty} là bắt buộc: với record, Jackson chỉ tuần tự hoá các thành
+         * phần khai trong ngoặc. Một phương thức dẫn xuất không mang annotation sẽ lặng lẽ vắng
+         * mặt trong JSON — không lỗi, chỉ là một trường không bao giờ tới nơi.
+         */
+        @com.fasterxml.jackson.annotation.JsonProperty("effectiveImageUrl")
+        public String effectiveImageUrl() {
+            return eventImageUrl != null ? eventImageUrl : venueImageUrl;
+        }
+    }
 
     /** Một dòng trong bảng sự kiện của khu vực quản trị. Có cả nháp. */
     public record AdminEventRow(
@@ -164,13 +192,17 @@ public final class CatalogViews {
             if (layout == null) {
                 return null;
             }
+            // Cột nào có nghĩa là tuỳ hình, và TABLE dùng CẢ bán kính lẫn góc xoay — nên không
+            // còn là câu hỏi "có phải ARC không" như khi mới có hai hình.
             boolean arc = layout.shape() == LayoutShape.ARC;
+            boolean turns = layout.shape() != LayoutShape.ARC;
+            boolean round = layout.shape() != LayoutShape.GRID;
             return new AdminZoneLayout(
                     layout.shape().name(),
                     layout.originX(),
                     layout.originY(),
-                    arc ? null : layout.rotationDeg(),
-                    arc ? layout.innerRadius() : null,
+                    turns ? layout.rotationDeg() : null,
+                    round ? layout.innerRadius() : null,
                     arc ? layout.startAngleDeg() : null,
                     arc ? layout.endAngleDeg() : null);
         }
