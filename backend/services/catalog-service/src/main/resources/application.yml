@@ -114,6 +114,17 @@ nexaticket:
     # ĐẶT false Ở PRODUCTION. Dữ liệu mẫu mang tổ chức và sự kiện không có thật.
     demo-data: ${CATALOG_DEMO_DATA:true}
 
+    # Ảnh bìa mẫu là ảnh CHỤP THẬT (Unsplash), tải về kho vật thể của hệ thống lúc dựng dữ liệu.
+    #
+    # BẬT mặc định vì demo tồn tại để cho người khác xem, và một dải màu tự vẽ không cho thấy hệ
+    # thống trông thế nào khi có ảnh thật. Xem DemoPosterPhotos để biết ảnh nào của sự kiện nào và
+    # giấy phép của chúng.
+    #
+    # ĐẶT false khi máy không ra được Internet, hoặc khi không muốn service gọi ra ngoài lúc khởi
+    # động. Tắt thì mỗi sự kiện nhận một tấm bìa SVG tự vẽ — trang vẫn đầy, chỉ không có ảnh chụp.
+    # Không cần tắt để "cho nhanh": phần tải chạy trên luồng ảo, không chặn khởi động.
+    demo-poster-photos: ${CATALOG_DEMO_POSTER_PHOTOS:true}
+
     # Tổ chức đứng tên dữ liệu mẫu.
     #
     # Mặc định là một UUID không có thật, nên sự kiện mẫu hiện ở trang khách nhưng KHÔNG hiện
