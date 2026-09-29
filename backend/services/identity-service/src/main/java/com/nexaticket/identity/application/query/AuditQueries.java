@@ -6,7 +6,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.platform.security.tenant.TenantContext;
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,6 +50,26 @@ public class AuditQueries {
      * cách diễn đạt "bộ lọc này có thể vắng mặt" mà không phải nối chuỗi SQL theo điều kiện, vốn là
      * con đường ngắn nhất tới SQL injection.
      */
+    /**
+     * Mệnh đề lọc dùng chung cho cả hai đường đọc.
+     *
+     * <p>Viết một lần thay vì chép sang hai câu: {@code forOrganization} và {@code forPlatform} trả
+     * lời hai câu hỏi khác nhau về phạm vi, nhưng lọc <b>giống hệt</b> nhau. Chép tay là hai chỗ
+     * để một lần thêm bộ lọc chỉ áp vào một đường, và đường bị bỏ sót là đường superadmin dùng lúc
+     * đang đi tìm sự cố.
+     *
+     * <p>Khoảng thời gian nửa mở {@code [from, to)}: chọn "hôm nay" rồi "hôm qua" không được phép
+     * cùng trả về một dòng ở ranh giới nửa đêm.
+     */
+    private static final String FILTERS =
+            """
+               AND (CAST(? AS TEXT) IS NULL OR action = ?)
+               AND (CAST(? AS TIMESTAMPTZ) IS NULL OR created_at >= CAST(? AS TIMESTAMPTZ))
+               AND (CAST(? AS TIMESTAMPTZ) IS NULL OR created_at <  CAST(? AS TIMESTAMPTZ))
+             ORDER BY created_at DESC
+             LIMIT ? OFFSET ?
+            """;
+
     private static final String SELECT =
             """
             SELECT id, actor_user_id, organization_id, action, entity_type, entity_id,
@@ -77,39 +99,39 @@ public class AuditQueries {
     }
 
     @Transactional(readOnly = true)
-    public List<AuditEntry> forOrganization(TenantId organizationId, String action, int limit, int offset) {
+    public List<AuditEntry> forOrganization(
+            TenantId organizationId, String action, Instant from, Instant to, int limit, int offset) {
         TenantContext.requirePermission(Permission.ORG_AUDIT_READ, organizationId);
         return jdbc.query(
-                SELECT
-                        + """
-                         WHERE organization_id = ?
-                           AND (CAST(? AS TEXT) IS NULL OR action = ?)
-                         ORDER BY created_at DESC
-                         LIMIT ? OFFSET ?
-                        """,
+                SELECT + " WHERE organization_id = ?" + FILTERS,
                 mapper,
-                organizationId.value(),
-                action,
-                action,
-                clampLimit(limit),
-                Math.max(offset, 0));
+                concat(new Object[] {organizationId.value()}, filterParams(action, from, to, limit, offset)));
     }
 
     @Transactional(readOnly = true)
-    public List<AuditEntry> forPlatform(String action, int limit, int offset) {
+    public List<AuditEntry> forPlatform(String action, Instant from, Instant to, int limit, int offset) {
         TenantContext.requirePlatformPermission(Permission.PLATFORM_AUDIT_READ);
-        return jdbc.query(
-                SELECT
-                        + """
-                         WHERE (CAST(? AS TEXT) IS NULL OR action = ?)
-                         ORDER BY created_at DESC
-                         LIMIT ? OFFSET ?
-                        """,
-                mapper,
-                action,
-                action,
-                clampLimit(limit),
-                Math.max(offset, 0));
+        // `WHERE TRUE` để FILTERS nối được vào mà không phải có hai phiên bản, một với AND một
+        // không. Postgres loại nó khỏi kế hoạch, nên đây là chuyện cú pháp chứ không phải chi phí.
+        return jdbc.query(SELECT + " WHERE TRUE" + FILTERS, mapper, filterParams(action, from, to, limit, offset));
+    }
+
+    /**
+     * Tham số của {@link #FILTERS}, đúng thứ tự, dựng ở <b>một</b> chỗ.
+     *
+     * <p>Tám tham số vị trí lặp theo cặp là chỗ dễ sai nhất ở đây, và sai kiểu ấy không gây lỗi —
+     * nó chỉ lặng lẽ so mốc bắt đầu với mốc kết thúc.
+     */
+    private Object[] filterParams(String action, Instant from, Instant to, int limit, int offset) {
+        Timestamp start = from == null ? null : Timestamp.from(from);
+        Timestamp end = to == null ? null : Timestamp.from(to);
+        return new Object[] {action, action, start, start, end, end, clampLimit(limit), Math.max(offset, 0)};
+    }
+
+    private static Object[] concat(Object[] head, Object[] tail) {
+        Object[] all = Arrays.copyOf(head, head.length + tail.length);
+        System.arraycopy(tail, 0, all, head.length, tail.length);
+        return all;
     }
 
     /**

@@ -31,15 +31,19 @@ final class LayoutColumns {
         if (layout == null) {
             return new Object[] {null, null, null, null, null, null, null};
         }
+        // Cột nào có nghĩa là tuỳ hình, và TABLE dùng CẢ bán kính lẫn góc xoay — nên không còn
+        // là câu hỏi "có phải ARC không" như khi mới có hai hình.
         boolean arc = layout.shape() == LayoutShape.ARC;
+        boolean turns = layout.shape() != LayoutShape.ARC;
+        boolean round = layout.shape() != LayoutShape.GRID;
         return new Object[] {
             layout.shape().name(),
             layout.originX(),
             layout.originY(),
-            // Cột chỉ có nghĩa với hình còn lại được ghi NULL chứ không ghi 0: đọc lên, NULL nói
-            // "hình này không dùng cột ấy", còn 0 nói "dùng, và bằng 0" — một bán kính 0.
-            arc ? null : layout.rotationDeg(),
-            arc ? layout.innerRadius() : null,
+            // Cột không dùng được ghi NULL chứ không ghi 0: đọc lên, NULL nói "hình này không dùng
+            // cột ấy", còn 0 nói "dùng, và bằng 0" — một bán kính 0.
+            turns ? layout.rotationDeg() : null,
+            round ? layout.innerRadius() : null,
             arc ? layout.startAngleDeg() : null,
             arc ? layout.endAngleDeg() : null
         };

@@ -265,6 +265,26 @@ public final class PaymentIntent {
     }
 
     /** Khoá đối soát với payOS: webhook trả đúng số này về. */
+    /**
+     * Giá trị của {@code payosOrderCode} khi intent <b>không</b> có link payOS.
+     *
+     * <p>Chỉ xảy ra với dữ liệu thời SePay: cột {@code payos_order_code} được thêm vào một bảng đã
+     * có dữ liệu ở V0101, nên các dòng cũ mang NULL. payOS không cấp mã 0 cho ai, nên nó dùng được
+     * làm giá trị đại diện.
+     */
+    public static final long NO_PAYOS_LINK = 0L;
+
+    /**
+     * Intent này có link payOS để gọi tới không.
+     *
+     * <p>Phải hỏi trước mọi lời gọi ra payOS. Không hỏi thì một intent thời SePay sẽ kéo theo một
+     * request thật với mã đơn 0 — payOS trả "không biết", và màn hình báo cho người dùng một câu
+     * sai về nguyên nhân.
+     */
+    public boolean hasPayosLink() {
+        return payosOrderCode != NO_PAYOS_LINK;
+    }
+
     public long payosOrderCode() {
         return payosOrderCode;
     }

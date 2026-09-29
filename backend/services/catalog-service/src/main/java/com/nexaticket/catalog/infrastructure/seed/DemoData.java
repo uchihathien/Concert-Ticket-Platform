@@ -5,9 +5,14 @@ import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.SeedS
 import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.SeedStatus.DRAFT;
 import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.SeedStatus.PUBLISHED;
 import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.SeedStatus.UNPUBLISHED;
+import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.ZoneSpec.arc;
+import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.ZoneSpec.grid;
 import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.ZoneSpec.seated;
 import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.ZoneSpec.standing;
+import static com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.ZoneSpec.tables;
 
+import com.nexaticket.catalog.domain.model.StageArea;
+import com.nexaticket.catalog.domain.model.StageShape;
 import com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.EventSpec;
 import com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.PriceSpec;
 import com.nexaticket.catalog.infrastructure.seed.DemoCatalogSeeder.SessionSpec;
@@ -74,10 +79,12 @@ final class DemoData {
                     "Nhà hát Lớn Hà Nội",
                     "Hà Nội",
                     "1 Tràng Tiền, Hoàn Kiếm, Hà Nội",
+                    // Nhà hát cổ điển: ba tầng chữ nhật xếp chồng, đặt vị trí TƯỜNG MINH thay vì
+                    // để xếp tự động. Ban công hẹp hơn và lùi xa, đúng hình dạng thật của khán phòng.
                     List.of(
-                            seated("A", "Tầng 1 — khu A", 12, 22),
-                            seated("B", "Tầng 2 — khu B", 8, 20),
-                            seated("C", "Ban công", 4, 14))),
+                            grid("A", "Tầng 1 — khu A", 12, 22, 0, 2, 0),
+                            grid("B", "Tầng 2 — khu B", 8, 20, 0, 21, 0),
+                            grid("C", "Ban công", 4, 14, 0, 34, 0))),
             new VenueSpec(
                     "san-van-dong-quoc-gia",
                     "Sân vận động Quốc gia",
@@ -87,8 +94,15 @@ final class DemoData {
                             // Khu đứng sát sân khấu: một trong ba chỗ trong dữ liệu mẫu chạm vào
                             // đường cấp phát vé đứng (FOR UPDATE SKIP LOCKED, ADR-1012).
                             standing("GA", "Sân trung tâm (vé đứng)", 3000),
-                            seated("KA", "Khán đài A", 20, 30),
-                            seated("KB", "Khán đài B", 20, 30))),
+                            // Hai khán đài là hai CUNG chia đôi lòng chảo, không phải hai cung đồng
+                            // tâm: chia đồng tâm thì khán đài ngoài có cùng số ghế trên một cung dài
+                            // gấp ba, và nó hiện ra thưa thớt một cách vô lý. Chia trái/phải giữ mật
+                            // độ ghế gần như nhau ở cả hai khu.
+                            //
+                            // Góc: 0° là hướng +x, tăng theo chiều kim đồng hồ với trục y hướng
+                            // xuống. Sân khấu ở phía trên (y âm), nên khán giả quây ở 20°–160°.
+                            arc("KA", "Khán đài A", 20, 30, 0, 0, 14, 20, 90),
+                            arc("KB", "Khán đài B", 20, 30, 0, 0, 14, 90, 160))),
             new VenueSpec(
                     "nha-hat-tuoi-tre",
                     "Nhà hát Tuổi Trẻ",
@@ -154,7 +168,23 @@ final class DemoData {
                     "Cung Văn hóa Hữu nghị Việt Tiệp",
                     "Hải Phòng",
                     "53 Đinh Tiên Hoàng, Hồng Bàng, Hải Phòng",
-                    List.of(seated("A", "Khu chính", 16, 24), seated("B", "Ban công", 8, 22))));
+                    List.of(seated("A", "Khu chính", 16, 24), seated("B", "Ban công", 8, 22))),
+            // Phòng trà: khán giả ngồi quanh BÀN, không cùng nhìn về một hướng. Đây là chỗ duy nhất
+            // trong dữ liệu mẫu dùng hình TABLE, và cũng là chỗ duy nhất có sân khấu TRÒN — một sân
+            // khấu nhỏ giữa phòng, khán giả vây quanh.
+            //
+            // Có nó thì cả ba hình bố cục và cả ba hình sân khấu đều có ít nhất một chỗ nhìn thấy
+            // được. Không có thì một lỗi hình học ở nhánh TABLE sẽ ngủ yên tới lúc có khách hàng
+            // thật dựng sơ đồ thật.
+            new VenueSpec(
+                    "phong-tra-khong-ten",
+                    "Phòng trà Không Tên",
+                    "TP. Hồ Chí Minh",
+                    "112 Lê Lai, Quận 1, TP. Hồ Chí Minh",
+                    new StageArea(StageShape.CIRCLE, 0, -4, 7, 0),
+                    List.of(
+                            tables("VIP", "Bàn VIP sát sân khấu", 8, 8, 0, 6, 1.6),
+                            tables("TB", "Bàn thường", 16, 8, 0, 22, 1.6))));
 
     // -----------------------------------------------------------------------
     // Sự kiện
@@ -790,5 +820,243 @@ final class DemoData {
                                     50,
                                     List.of(
                                             new PriceSpec("VIP", "Vé VIP ngày 2", 1_800_000),
-                                            new PriceSpec("GA", "Vé phổ thông ngày 2", 750_000))))));
+                                            new PriceSpec("GA", "Vé phổ thông ngày 2", 750_000))))),
+
+            // --- Đợt bổ sung: đội hình nghệ sĩ, và một sự kiện cho mỗi hình bố cục -------------
+            //
+            // Tên nghệ sĩ ở đây đều HƯ CẤU. Gắn tên người có thật vào những buổi diễn không có thật
+            // là chuyện không nên làm kể cả trong dữ liệu mẫu: ảnh chụp màn hình rò ra ngoài, và
+            // thứ rò ra là một buổi diễn không tồn tại mang tên một người có tồn tại.
+
+            // Phòng trà bàn tròn — sự kiện DUY NHẤT dùng bố cục TABLE và sân khấu tròn.
+            new EventSpec(
+                    "dem-nhac-phong-tra-thang-muoi",
+                    "Đêm nhạc phòng trà — Tháng Mười",
+                    "Mây Lặng, Hạ Vũ và ban nhạc Sông Cạn. Ngồi bàn, phục vụ đồ uống tại chỗ.",
+                    """
+                    Một đêm nhạc trữ tình trong không gian phòng trà, khán giả ngồi quanh bàn tròn \
+                    tám chỗ thay vì ngồi hàng.
+
+                    Đội hình: Mây Lặng (giọng ca chính), Hạ Vũ (khách mời), ban nhạc Sông Cạn.
+
+                    Giá vé tính theo chỗ ngồi. Bàn VIP nằm sát sân khấu tròn ở giữa phòng.""",
+                    "nhac-song",
+                    "phong-tra-khong-ten",
+                    poster("dem-nhac-phong-tra-thang-muoi"),
+                    PUBLISHED,
+                    List.of(
+                            new SessionSpec(
+                                    9,
+                                    20,
+                                    150,
+                                    30,
+                                    List.of(
+                                            new PriceSpec("VIP", "Bàn VIP sát sân khấu", 1_200_000),
+                                            new PriceSpec("TB", "Bàn thường", 650_000))),
+                            new SessionSpec(
+                                    16,
+                                    20,
+                                    150,
+                                    30,
+                                    List.of(
+                                            new PriceSpec("VIP", "Bàn VIP sát sân khấu", 1_200_000),
+                                            new PriceSpec("TB", "Bàn thường", 650_000))))),
+
+            // Sân vận động — khán đài CUNG.
+            new EventSpec(
+                    "live-concert-bao-giong",
+                    "Live Concert — Bão Giông",
+                    "Bão Giông cùng dàn nhạc 30 người. Sân khấu 360°, khán đài vòng cung hai bên.",
+                    """
+                    Đêm nhạc lớn nhất trong năm của Bão Giông, với dàn nhạc giao hưởng 30 người và \
+                    hệ thống màn hình LED bao quanh sân khấu.
+
+                    Đội hình: Bão Giông, khách mời Lê Trăng, DJ Mộc.
+
+                    Khán đài A và B là hai vòng cung ôm lấy sân khấu. Vé đứng sàn trung tâm có số \
+                    lượng giới hạn và không đánh số chỗ.""",
+                    "nhac-song",
+                    "san-van-dong-quoc-gia",
+                    poster("live-concert-bao-giong"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            21,
+                            19,
+                            180,
+                            45,
+                            List.of(
+                                    new PriceSpec("GA", "Vé đứng sàn trung tâm", 1_500_000),
+                                    new PriceSpec("KA", "Khán đài A", 950_000),
+                                    new PriceSpec("KB", "Khán đài B", 850_000))))),
+
+            // Nhà hát Lớn — ba tầng GRID đặt vị trí tường minh.
+            new EventSpec(
+                    "hoa-nhac-mua-thu",
+                    "Hòa nhạc Mùa Thu",
+                    "Dàn nhạc Thính phòng Hà Nội, chỉ huy Nguyễn Vân Khánh. Ba tầng khán phòng.",
+                    """
+                    Chương trình hòa nhạc thính phòng thường niên tại Nhà hát Lớn.
+
+                    Đội hình: Dàn nhạc Thính phòng Hà Nội, chỉ huy Nguyễn Vân Khánh, độc tấu \
+                    dương cầm Trần Minh Anh.
+
+                    Khán phòng ba tầng: tầng 1 gần sân khấu nhất, ban công có tầm nhìn bao quát.""",
+                    "san-khau",
+                    "nha-hat-lon",
+                    poster("hoa-nhac-mua-thu"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            12,
+                            20,
+                            120,
+                            30,
+                            List.of(
+                                    new PriceSpec("A", "Tầng 1", 900_000),
+                                    new PriceSpec("B", "Tầng 2", 600_000),
+                                    new PriceSpec("C", "Ban công", 350_000))))),
+            new EventSpec(
+                    "kich-noi-nguoi-o-lai",
+                    "Kịch nói — Người Ở Lại",
+                    "Vở chính kịch ba màn. Diễn viên: Đỗ Hoài Nam, Lý Thu Hà, Vũ Đức Trí.",
+                    """
+                    Vở chính kịch ba màn kể câu chuyện một gia đình Hà Nội qua ba thế hệ.
+
+                    Diễn viên: Đỗ Hoài Nam, Lý Thu Hà, Vũ Đức Trí, Phạm Ngọc Diệp.
+
+                    Đạo diễn: Trương Bảo Long. Thời lượng 135 phút, có một lần nghỉ giữa giờ.""",
+                    "san-khau",
+                    "nha-hat-tuoi-tre",
+                    poster("kich-noi-nguoi-o-lai"),
+                    PUBLISHED,
+                    List.of(
+                            new SessionSpec(7, 20, 135, 21, List.of(new PriceSpec("A", "Vé xem kịch", 320_000))),
+                            new SessionSpec(14, 20, 135, 21, List.of(new PriceSpec("A", "Vé xem kịch", 320_000))))),
+            new EventSpec(
+                    "dem-nhac-trinh-mua-dong",
+                    "Đêm nhạc Trịnh — Mùa Đông",
+                    "Hạ Vũ và Mây Lặng hát nhạc Trịnh. Không gian thính phòng, không khuếch đại lớn.",
+                    """
+                    Một đêm nhạc Trịnh trong không gian thính phòng, hạn chế khuếch đại để giữ \
+                    nguyên chất mộc của giọng hát và đàn gỗ.
+
+                    Đội hình: Hạ Vũ, Mây Lặng, guitar Nguyễn Trường Sơn.""",
+                    "nhac-song",
+                    "nha-hat-song-huong",
+                    poster("dem-nhac-trinh-mua-dong"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            18,
+                            19,
+                            110,
+                            25,
+                            List.of(
+                                    new PriceSpec("A", "Khu chính", 550_000),
+                                    new PriceSpec("B", "Khu sau", 380_000))))),
+            new EventSpec(
+                    "rock-fest-mien-trung",
+                    "Rock Fest Miền Trung",
+                    "Bốn ban nhạc rock: Sông Cạn, Đá Mài, Ngựa Hoang, Gió Bắc.",
+                    """
+                    Một ngày nhạc rock ngoài trời bên biển Đà Nẵng.
+
+                    Đội hình: Sông Cạn, Đá Mài, Ngựa Hoang, Gió Bắc.
+
+                    Khu VIP có sàn nâng riêng sát sân khấu. Toàn bộ là vé đứng, không có chỗ ngồi.""",
+                    "nhac-song",
+                    "cong-vien-bien-dong",
+                    poster("rock-fest-mien-trung"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            28,
+                            17,
+                            300,
+                            60,
+                            List.of(
+                                    new PriceSpec("VIP", "Khu VIP sát sân khấu", 1_100_000),
+                                    new PriceSpec("GA", "Vé phổ thông", 450_000))))),
+            new EventSpec(
+                    "hoi-thao-cong-nghe-am-thanh",
+                    "Hội thảo — Công nghệ âm thanh sân khấu",
+                    "Một ngày về thiết kế âm thanh cho không gian biểu diễn. Có thực hành tại chỗ.",
+                    """
+                    Hội thảo chuyên môn dành cho kỹ thuật viên âm thanh và người tổ chức sự kiện.
+
+                    Diễn giả: Ngô Quang Hải (kỹ sư âm thanh), Bùi Thanh Mai (thiết kế sân khấu).
+
+                    Buổi chiều có phần thực hành trực tiếp trên hệ thống của nhà hát.""",
+                    "hoi-thao",
+                    "trung-tam-hoi-nghi",
+                    poster("hoi-thao-cong-nghe-am-thanh"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            25,
+                            9,
+                            420,
+                            40,
+                            List.of(
+                                    new PriceSpec("VIP", "Vé VIP (hàng đầu, kèm tài liệu in)", 2_400_000),
+                                    new PriceSpec("STD", "Vé tham dự", 1_500_000))))),
+            new EventSpec(
+                    "dem-nhac-acoustic-hai-phong",
+                    "Acoustic — Đêm Hải Phòng",
+                    "Lê Trăng và Mây Lặng, chỉ guitar và giọng hát.",
+                    """
+                    Đêm nhạc acoustic mộc: hai giọng ca, hai cây guitar, không trống không bass.
+
+                    Đội hình: Lê Trăng, Mây Lặng.""",
+                    "nhac-song",
+                    "cung-viet-tiep",
+                    poster("dem-nhac-acoustic-hai-phong"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            11,
+                            20,
+                            100,
+                            20,
+                            List.of(
+                                    new PriceSpec("A", "Khu chính", 420_000),
+                                    new PriceSpec("B", "Ban công", 280_000))))),
+            new EventSpec(
+                    "gala-cuoi-nam-phong-tra",
+                    "Gala cuối năm",
+                    "Đêm nhạc tất niên quanh bàn tròn. Mây Lặng, Lê Trăng, Đá Mài.",
+                    """
+                    Đêm nhạc tất niên trong không gian phòng trà, ngồi bàn tròn tám chỗ.
+
+                    Đội hình: Mây Lặng, Lê Trăng, ban nhạc Đá Mài.
+
+                    Mỗi bàn được phục vụ đồ uống trong suốt chương trình.""",
+                    "nhac-song",
+                    "phong-tra-khong-ten",
+                    poster("gala-cuoi-nam-phong-tra"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            34,
+                            20,
+                            180,
+                            45,
+                            List.of(
+                                    new PriceSpec("VIP", "Bàn VIP sát sân khấu", 1_800_000),
+                                    new PriceSpec("TB", "Bàn thường", 950_000))))),
+            new EventSpec(
+                    "chung-ket-giai-bong-ro",
+                    "Chung kết giải bóng rổ thành phố",
+                    "Trận chung kết mùa giải. Hai khán đài đối diện nhau.",
+                    """
+                    Trận chung kết giữa hai đội dẫn đầu bảng xếp hạng mùa giải năm nay.
+
+                    Có chương trình biểu diễn giữa hai hiệp.""",
+                    "the-thao",
+                    "san-thong-nhat",
+                    poster("chung-ket-giai-bong-ro"),
+                    PUBLISHED,
+                    List.of(new SessionSpec(
+                            5,
+                            18,
+                            120,
+                            15,
+                            List.of(
+                                    new PriceSpec("A", "Khán đài A", 260_000),
+                                    new PriceSpec("B", "Khán đài B", 180_000),
+                                    new PriceSpec("C", "Khán đài C", 120_000))))));
 }

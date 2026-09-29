@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
@@ -94,6 +95,17 @@ public class S3ObjectStorageAdapter implements ObjectStoragePort {
         // endpoint ta cấu hình — nó không thể sai cú pháp. `URI.create` để ngoại lệ ấy không lan
         // ra khắp chữ ký của cổng chỉ vì một trường hợp không xảy ra.
         return new PresignedUpload(URI.create(presigned.url().toString()), key, presigned.expiration());
+    }
+
+    @Override
+    public void put(String key, String contentType, byte[] content) {
+        s3.putObject(
+                PutObjectRequest.builder()
+                        .bucket(properties.bucket())
+                        .key(key)
+                        .contentType(contentType)
+                        .build(),
+                RequestBody.fromBytes(content));
     }
 
     @Override

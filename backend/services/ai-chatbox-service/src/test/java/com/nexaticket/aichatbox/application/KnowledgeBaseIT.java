@@ -145,8 +145,9 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
         UUID eventId = UUID.randomUUID();
         knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cửa mở trước 60 phút.", true);
 
-        ToolOutcome outcome = tools.dispatch(
-                new ToolInvocation("call-1", SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())));
+        ToolOutcome outcome = tools.dispatch(new ToolInvocation(
+                        "call-1", SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())))
+                .outcome();
 
         assertThat(outcome.failed()).isFalse();
         assertThat(outcome.payload()).contains("Đêm nhạc Hạ").contains("Cửa mở trước 60 phút");

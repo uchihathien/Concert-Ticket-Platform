@@ -7,12 +7,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -97,6 +99,62 @@ public class GlobalExceptionHandler {
                         "No handler for this path",
                         CorrelationContext.current(),
                         Map.of()));
+    }
+
+    /**
+     * Ngoại lệ do chính Spring ném ra, đã mang sẵn mã trạng thái.
+     *
+     * <h3>Vì sao PHẢI có handler này BÊN CẠNH {@link #handleNotFound}</h3>
+     *
+     * <p>Spring có <b>hai lớp {@code NoResourceFoundException} trùng tên</b>, và chúng có <b>hai cây
+     * kế thừa khác nhau</b>:
+     *
+     * <ul>
+     *   <li>{@code web.servlet.resource} (MVC) — {@code extends ServletException implements
+     *       ErrorResponse}. Chỉ bắt được bằng chính lớp ấy, nên nó ở lại {@link #handleNotFound}.
+     *   <li>{@code web.reactive.resource} (WebFlux) — {@code extends ResponseStatusException}, và
+     *       đó là thứ handler này bắt.
+     * </ul>
+     *
+     * <p>Bản trước chỉ import lớp của MVC, nên ở api-gateway — chạy reactive — nó không khớp: mọi
+     * đường dẫn không tồn tại rơi xuống {@link #handleUnexpected} và trả về <b>500 kèm stack trace
+     * ghi ở mức ERROR</b>. Client nhận sai mã, và tệ hơn: một người dò đường dẫn bơm được log ERROR
+     * không giới hạn vào đúng chỗ người vận hành tìm lỗi thật.
+     *
+     * <p>Không gộp được hai trường hợp vào một handler theo {@code ResponseStatusException}: lớp của
+     * MVC không kế thừa nó. Thử gộp là làm hỏng đường 404 của mọi service MVC — im lặng, vì không
+     * có gì trong trình biên dịch nói ra điều đó.
+     *
+     * <h3>Mức log theo mã trạng thái</h3>
+     *
+     * <p>4xx là lỗi của người gọi — ghi DEBUG, vì nó xảy ra hàng ngày và không ai phải làm gì.
+     * 5xx do Spring ném ra thì vẫn là chuyện của ta, nên giữ WARN kèm ngoại lệ.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiError> handleStatusException(ResponseStatusException ex) {
+        HttpStatusCode status = ex.getStatusCode();
+        String correlationId = CorrelationContext.current();
+
+        if (status.is4xxClientError()) {
+            log.debug("{} cho {} [{}]", status.value(), ex.getReason(), correlationId);
+        } else {
+            log.warn("Spring trả {} [{}]", status.value(), correlationId, ex);
+        }
+
+        ErrorCode code = status.value() == 404
+                ? ErrorCode.Common.NOT_FOUND
+                : status.is4xxClientError() ? ErrorCode.Common.VALIDATION_FAILED : ErrorCode.Common.INTERNAL_ERROR;
+
+        // KHÔNG dùng `ex.getReason()` làm thông điệp: với WebFlux nó là "No static resource
+        // internal/reservations", một câu nói ra cấu trúc đường dẫn nội bộ cho bất kỳ ai gõ thử.
+        return ResponseEntity.status(status).body(ApiError.of(code, messageFor(status), correlationId, Map.of()));
+    }
+
+    private static String messageFor(HttpStatusCode status) {
+        if (status.value() == 404) {
+            return "No handler for this path";
+        }
+        return status.is4xxClientError() ? "Request rejected" : "Unexpected error";
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

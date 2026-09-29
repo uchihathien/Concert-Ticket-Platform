@@ -56,13 +56,31 @@ public class SupportDeskController {
     @GetMapping
     public List<HandoffViews.HandoffRow> queue(
             @RequestParam(defaultValue = "false") boolean mine,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) @Size(max = 200) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
 
         UUID agentId = access.requireSupportAgent();
         int limit = Math.clamp(size, 1, MAX_QUEUE_SIZE);
+        int offset = Math.max(page, 0) * limit;
+        UUID scope = mine ? agentId : null;
 
-        return handoffs.queue(mine ? agentId : null, limit, Math.max(page, 0) * limit);
+        // Không tham số lọc nào thì giữ NGUYÊN hành vi cũ: hàng đợi việc phải làm, cũ nhất trước.
+        // Màn hình chính của người trực gọi đúng đường này, và đổi mặc định của nó là đổi thứ tự xử
+        // lý phiếu của cả bàn hỗ trợ.
+        if (!hasText(status) && !hasText(q)) {
+            return handoffs.queue(scope, limit, offset);
+        }
+        // Truyền `status` dạng CHUỖI, không dịch ở đây: HandoffStatus là kiểu của domain, và tầng
+        // interfaces không được chạm vào domain (ArchitectureRules.hexagonalLayers). Phép dịch nằm ở
+        // HandoffUseCase, nơi nó cũng thuộc về hơn — "phiếu chưa xong gồm những trạng thái nào" là
+        // một quyết định nghiệp vụ, không phải một chi tiết của HTTP.
+        return handoffs.search(scope, status, q, limit, offset);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     /** Cả hội thoại kèm phiếu — một request cho cả màn hình, không phải hai. */

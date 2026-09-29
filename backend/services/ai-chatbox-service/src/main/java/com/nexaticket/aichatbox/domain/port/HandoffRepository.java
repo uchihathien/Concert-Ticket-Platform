@@ -2,8 +2,10 @@
 package com.nexaticket.aichatbox.domain.port;
 
 import com.nexaticket.aichatbox.domain.model.Handoff;
+import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Kho phiếu chuyển tiếp sang người thật. */
@@ -33,6 +35,21 @@ public interface HandoffRepository {
      *     trực đó — hai câu hỏi khác nhau mà cùng một màn hình đặt ra
      */
     List<Handoff> queue(UUID mine, int limit, int offset);
+
+    /**
+     * Tra phiếu theo trạng thái và theo chữ, dùng cho màn lịch sử hỗ trợ.
+     *
+     * <p>Khác {@link #queue} ở hai điểm, và cả hai đều là điều kiện để màn lịch sử dùng được:
+     * {@code queue} cố định bỏ phiếu đã xong và xếp cũ nhất trước — đúng cho một hàng việc, sai cho
+     * một bảng tra cứu, nơi người ta muốn thấy việc vừa xảy ra và muốn thấy cả phiếu đã đóng.
+     *
+     * @param statuses trạng thái cần lấy; rỗng nghĩa là lấy tất cả
+     * @param query tìm trong lý do chuyển và câu hỏi cuối của khách, không phân biệt hoa thường;
+     *     {@code null} hoặc rỗng nghĩa là không lọc theo chữ
+     * @param newestFirst {@code true} cho màn tra cứu, {@code false} cho hàng đợi đang chờ xử lý
+     */
+    List<Handoff> search(
+            UUID mine, Set<HandoffStatus> statuses, String query, boolean newestFirst, int limit, int offset);
 
     /**
      * Nhận phiếu, thành công đúng <b>một</b> lần.

@@ -144,6 +144,10 @@ nexaticket:
         interval: ${HANDOFF_REAPER_INTERVAL:1h}
     services:
       ordering-url: ${ORDERING_URL:http://localhost:8093}
+      # Danh mục sự kiện — đường CÔNG KHAI, không mang token của khách. Xem CatalogClientPort.
+      # Đây là nguồn duy nhất cho giá vé và suất diễn: chép chúng vào kho tri thức thì mỗi lần ban
+      # tổ chức đổi giá, trợ lý vẫn đọc số cũ mà không có gì báo rằng nó đang nói sai.
+      catalog-url: ${CATALOG_URL:http://localhost:8091}
       # Ngắn hơn hạn của mô hình: lời gọi này nằm bên trong một lượt chat mà khách đang chờ.
       timeout: ${AICHATBOX_REMOTE_TIMEOUT:3s}
 

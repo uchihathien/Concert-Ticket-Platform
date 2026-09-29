@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -70,6 +71,24 @@ public class InternalSalesController {
         return new SalesResponse(
                 queries.forEvent(eventId).stream().map(SessionRow::from).toList());
     }
+
+    /**
+     * Bảng xếp hạng sự kiện theo vé đã bán.
+     *
+     * <p>Nằm ở {@code /internal} chứ không mở công khai: nó trả về con số kinh doanh thô của mọi
+     * tổ chức trên nền tảng. Catalog gọi đường này rồi chỉ công bố THỨ TỰ ra ngoài, không công bố
+     * số vé — một ban tổ chức không cần biết đối thủ bán được bao nhiêu.
+     */
+    @GetMapping("/events/trending")
+    public TrendingResponse trending(@RequestParam(defaultValue = "8") int limit) {
+        return new TrendingResponse(queries.trending(limit).stream()
+                .map(view -> new TrendingRow(view.eventId(), view.ticketsSold()))
+                .toList());
+    }
+
+    public record TrendingResponse(List<TrendingRow> events) {}
+
+    public record TrendingRow(UUID eventId, int ticketsSold) {}
 
     @GetMapping("/organizations/{organizationId}/sales")
     public SalesResponse byOrganization(@PathVariable UUID organizationId) {

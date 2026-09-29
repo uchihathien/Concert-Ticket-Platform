@@ -25,6 +25,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -132,14 +133,21 @@ public class OrganizationController {
      * <p>Bảng {@code audit_logs} được ghi từ ngày đầu nhưng chưa từng có đường đọc: mọi thao tác đều
      * để lại vết, và cách duy nhất để xem là mở database bằng tay.
      */
+    /**
+     * @param from mốc sớm nhất, ISO-8601. Bỏ trống thì không chặn dưới.
+     * @param to mốc muộn nhất, <b>không</b> lấy mốc này — chọn "hôm nay" rồi "hôm qua" không được
+     *     cùng trả về một dòng ở ranh giới nửa đêm.
+     */
     @GetMapping("/organizations/{organizationId}/audit-logs")
     @RequiresPermission(Permission.ORG_AUDIT_READ)
     public List<AuditQueries.AuditEntry> auditLogs(
             @PathVariable UUID organizationId,
             @RequestParam(required = false) String action,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset) {
-        return auditQueries.forOrganization(TenantId.of(organizationId), action, limit, offset);
+        return auditQueries.forOrganization(TenantId.of(organizationId), action, from, to, limit, offset);
     }
 
     @GetMapping("/me/organizations")

@@ -179,7 +179,7 @@ public class JdbcPaymentIntentRepository implements PaymentIntentRepository {
                 rs.getString("bank_bin"),
                 rs.getString("bank_account_number"),
                 rs.getString("bank_account_name"),
-                rs.getLong("payos_order_code"),
+                payosOrderCode(rs),
                 rs.getString("payos_payment_link_id"),
                 rs.getString("checkout_url"),
                 rs.getTimestamp("expires_at").toInstant(),
@@ -189,6 +189,25 @@ public class JdbcPaymentIntentRepository implements PaymentIntentRepository {
                 rs.getObject("paid_amount_vnd", Long.class),
                 instant(rs, "confirmed_at"),
                 instant(rs, "cancelled_at"));
+    }
+
+    /**
+     * Mã đơn payOS, với "không có link" nói ra thành lời.
+     *
+     * <p>{@code rs.getLong} trả {@code 0} cho cột NULL và <b>không báo gì</b> — nên trước đây con
+     * số 0 ở đây là một tai nạn chứ không phải một quyết định, và nó đi tiếp vào miền như thể là
+     * một mã đơn thật. Hậu quả tới được: đối soát một intent thời SePay sẽ gọi
+     * {@code payos.fetchSettlement(0)} — một lời gọi thật ra ngoài với một mã bịa.
+     *
+     * <p>Cột NULL được vì V0101 thêm nó vào một bảng đã có dữ liệu (xem ghi chú trong chính file
+     * migration ấy). Mọi intent mở từ đó trở đi đều có mã; chỉ những dòng cũ là không.
+     *
+     * <p>0 vẫn là giá trị đại diện cho "không có", nhưng giờ nó được chọn ở đây và có
+     * {@code PaymentIntent.hasPayosLink()} để hỏi lại — thay vì mỗi nơi tự đoán.
+     */
+    private static long payosOrderCode(ResultSet rs) throws SQLException {
+        Long value = rs.getObject("payos_order_code", Long.class);
+        return value == null ? PaymentIntent.NO_PAYOS_LINK : value;
     }
 
     private static Instant instant(ResultSet rs, String column) throws SQLException {

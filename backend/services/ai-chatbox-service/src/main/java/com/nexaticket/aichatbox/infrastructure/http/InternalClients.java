@@ -22,6 +22,8 @@ import org.springframework.web.client.RestClient;
 public class InternalClients {
 
     private String orderingUrl = "http://localhost:8093";
+    private String catalogUrl = "http://localhost:8091";
+    private String identityUrl = "http://localhost:8090";
     private Duration timeout = Duration.ofSeconds(3);
 
     @Bean
@@ -33,8 +35,44 @@ public class InternalClients {
                 .build();
     }
 
+    /**
+     * Client tra danh mục sự kiện.
+     *
+     * <p>Dùng chung hạn 3 giây với ordering, và lý do ở đầu lớp này vẫn đúng: lời gọi nằm bên trong
+     * một lượt chat mà khách đang chờ. Catalog đọc từ read model nên nhanh hơn hẳn ngân sách ấy —
+     * quá hạn ở đây nghĩa là catalog đang có sự cố, và lúc đó chờ thêm cũng không cứu được lượt chat.
+     */
+    @Bean
+    public RestClient catalogClient(RestClient.Builder builder) {
+        return builder.baseUrl(catalogUrl)
+                .requestFactory(PooledHttpFactory.create(timeout, timeout))
+                .build();
+    }
+
+    /**
+     * Client tra tên người trực.
+     *
+     * <p>Hạn dùng chung 3 giây vẫn đúng ở đây, nhưng vì lý do khác: lời gọi này nằm trong request mở
+     * hàng đợi hỗ trợ. Quá hạn thì phiếu hiện không có tên — xem {@code IdentityLookupPort} — chứ
+     * không làm cả màn hình hỏng.
+     */
+    @Bean
+    public RestClient identityClient(RestClient.Builder builder) {
+        return builder.baseUrl(identityUrl)
+                .requestFactory(PooledHttpFactory.create(timeout, timeout))
+                .build();
+    }
+
     public void setOrderingUrl(String orderingUrl) {
         this.orderingUrl = orderingUrl;
+    }
+
+    public void setIdentityUrl(String identityUrl) {
+        this.identityUrl = identityUrl;
+    }
+
+    public void setCatalogUrl(String catalogUrl) {
+        this.catalogUrl = catalogUrl;
     }
 
     public void setTimeout(Duration timeout) {

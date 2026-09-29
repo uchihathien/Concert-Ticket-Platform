@@ -39,5 +39,12 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
     </dependency>
+
+    <!-- Gateway trước đây không có phụ thuộc test nào, nên cũng không có test nào: rate limit,
+         CORS và bảng route đều chưa từng được kiểm. Cả ba đều là ranh giới bảo mật. -->
+    <dependency>
+      <groupId>com.nexaticket</groupId>
+      <artifactId>starter-test</artifactId>
+    </dependency>
   </dependencies>
 </project>

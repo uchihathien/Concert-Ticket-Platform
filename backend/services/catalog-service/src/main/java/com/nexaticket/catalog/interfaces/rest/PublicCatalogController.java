@@ -6,6 +6,7 @@ import com.nexaticket.catalog.application.query.CatalogQueries;
 import com.nexaticket.catalog.application.query.CatalogViews;
 import com.nexaticket.catalog.application.query.FloorPlanQuery;
 import com.nexaticket.catalog.application.query.FloorPlanViews;
+import com.nexaticket.catalog.application.query.TrendingEventsQuery;
 import com.nexaticket.platform.web.error.ApiException;
 import jakarta.validation.constraints.PositiveOrZero;
 import java.time.Instant;
@@ -38,11 +39,15 @@ public class PublicCatalogController {
     private static final int MAX_PAGE_SIZE = 60;
 
     private final CatalogQueries queries;
+
+    private final TrendingEventsQuery trendingEvents;
     private final FloorPlanQuery floorPlans;
 
-    public PublicCatalogController(CatalogQueries queries, FloorPlanQuery floorPlans) {
+    public PublicCatalogController(
+            CatalogQueries queries, FloorPlanQuery floorPlans, TrendingEventsQuery trendingEvents) {
         this.queries = queries;
         this.floorPlans = floorPlans;
+        this.trendingEvents = trendingEvents;
     }
 
     /**
@@ -95,6 +100,25 @@ public class PublicCatalogController {
                 .cacheControl(
                         CacheControl.maxAge(java.time.Duration.ofMinutes(2)).cachePublic())
                 .body(new EventPage(items, total, Math.max(page, 0), limit, queries.citiesWithPublishedEvents()));
+    }
+
+    /**
+     * Sự kiện đang bán chạy nhất.
+     *
+     * <p>{@code /v1/events/trending} khớp cả mẫu này lẫn {@code /{slug}}. Spring MVC chọn mẫu CỤ
+     * THỂ hơn — đoạn chữ thắng đoạn biến — nên thứ tự khai không quyết định, khác hẳn bảng route
+     * của gateway (ở đó route đầu tiên khớp là route thắng). Vẫn đặt cạnh nhau để người đọc thấy
+     * ngay hai mẫu này chồng lên nhau.
+     *
+     * <p>Cache 5 phút, dài hơn 2 phút của danh sách thường: bảng xếp hạng đổi chậm hơn nhiều so
+     * với nội dung một trang danh sách, và đây là đường có nhiều người xem nhất.
+     */
+    @GetMapping("/trending")
+    public ResponseEntity<List<CatalogViews.EventCard>> trending(@RequestParam(defaultValue = "8") int size) {
+        return ResponseEntity.ok()
+                .cacheControl(
+                        CacheControl.maxAge(java.time.Duration.ofMinutes(5)).cachePublic())
+                .body(trendingEvents.handle(Math.clamp(size, 1, MAX_PAGE_SIZE)));
     }
 
     @GetMapping("/{slug}")

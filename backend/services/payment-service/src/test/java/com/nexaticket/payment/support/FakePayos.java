@@ -45,6 +45,10 @@ public class FakePayos {
 
         public final List<Long> created = new ArrayList<>();
         public final List<Long> cancelled = new ArrayList<>();
+
+        /** Mọi mã đơn đã hỏi payOS. Có nó mới khẳng định được "không hỏi gì cả". */
+        public final List<Long> fetched = new ArrayList<>();
+
         public final Map<Long, Settlement> settlements = new HashMap<>();
 
         /** Bật để mô phỏng payOS không phản hồi. */
@@ -59,6 +63,7 @@ public class FakePayos {
         public void reset() {
             created.clear();
             cancelled.clear();
+            fetched.clear();
             settlements.clear();
             unavailable = false;
             rejectCreate = false;
@@ -91,6 +96,7 @@ public class FakePayos {
 
         @Override
         public Optional<Settlement> fetchSettlement(long orderCode) {
+            fetched.add(orderCode);
             if (unavailable) {
                 throw new Unavailable("payOS không phản hồi (giả lập)", null);
             }

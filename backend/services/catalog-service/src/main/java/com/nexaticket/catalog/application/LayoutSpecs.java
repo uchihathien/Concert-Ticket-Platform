@@ -53,14 +53,19 @@ public final class LayoutSpecs {
             return null;
         }
         LayoutShape shape = parseEnum(LayoutShape.class, spec.shape(), "Hình dạng bố cục không hợp lệ: ");
-        return guarded(() -> shape == LayoutShape.ARC
-                ? ZoneLayout.arc(
-                        spec.originX(),
-                        spec.originY(),
-                        orZero(spec.innerRadius()),
-                        orZero(spec.startAngleDeg()),
-                        orZero(spec.endAngleDeg()))
-                : ZoneLayout.grid(spec.originX(), spec.originY(), orZero(spec.rotationDeg())));
+        // `innerRadius` mang hai nghĩa tuỳ hình: bán kính hàng đầu của cung, hay bán kính bàn.
+        // Một cột cho cả hai vì hai hình không bao giờ cùng tồn tại trên một khu.
+        return guarded(() -> switch (shape) {
+            case ARC -> ZoneLayout.arc(
+                    spec.originX(),
+                    spec.originY(),
+                    orZero(spec.innerRadius()),
+                    orZero(spec.startAngleDeg()),
+                    orZero(spec.endAngleDeg()));
+            case TABLE -> ZoneLayout.tables(
+                    spec.originX(), spec.originY(), orZero(spec.innerRadius()), orZero(spec.rotationDeg()));
+            case GRID -> ZoneLayout.grid(spec.originX(), spec.originY(), orZero(spec.rotationDeg()));
+        });
     }
 
     public static StageArea toStage(StageSpec spec) {
