@@ -77,6 +77,12 @@ public class CancelIntentHandler {
      * bằng hạn thanh toán của đơn, nên cửa sổ rủi ro là hữu hạn — nhưng nó có thật, nên log ở WARN.
      */
     private void closePayosLink(PaymentIntent intent) {
+        if (!intent.hasPayosLink()) {
+            // Không có link thì không có gì để đóng. Các chốt trạng thái phía trên đã lọc gần hết
+            // dữ liệu cũ, nhưng chốt ấy canh trạng thái chứ không canh sự tồn tại của link — hai
+            // câu hỏi khác nhau, và dựa vào cái này để trả lời cái kia là chỗ lỗi hay quay lại.
+            return;
+        }
         try {
             payos.cancelPaymentLink(intent.payosOrderCode(), "Đơn hàng đã đóng trước khi thanh toán");
         } catch (PayosGateway.Rejected e) {

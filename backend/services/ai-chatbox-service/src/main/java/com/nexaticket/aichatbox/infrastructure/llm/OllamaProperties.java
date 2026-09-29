@@ -34,7 +34,8 @@ public record OllamaProperties(
         String embeddingModel,
         int dimensions,
         Duration timeout,
-        Duration embeddingTimeout) {
+        Duration embeddingTimeout,
+        int maxOutputTokens) {
 
     public OllamaProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -54,6 +55,9 @@ public record OllamaProperties(
         }
         if (embeddingTimeout == null || embeddingTimeout.isZero() || embeddingTimeout.isNegative()) {
             embeddingTimeout = Duration.ofSeconds(60);
+        }
+        if (maxOutputTokens <= 0) {
+            maxOutputTokens = 320;
         }
     }
 }

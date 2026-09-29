@@ -7,9 +7,11 @@ import com.nexaticket.catalog.domain.model.AdmissionKind;
 import com.nexaticket.catalog.domain.model.Event;
 import com.nexaticket.catalog.domain.model.EventSession;
 import com.nexaticket.catalog.domain.model.Slug;
+import com.nexaticket.catalog.domain.model.StageArea;
 import com.nexaticket.catalog.domain.model.TicketType;
 import com.nexaticket.catalog.domain.model.Venue;
 import com.nexaticket.catalog.domain.model.VenueZone;
+import com.nexaticket.catalog.domain.model.ZoneLayout;
 import com.nexaticket.catalog.domain.port.EventRepository;
 import com.nexaticket.catalog.domain.port.VenueRepository;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -50,6 +53,10 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Component
 @ConditionalOnProperty(prefix = "nexaticket.catalog", name = "demo-data", havingValue = "true")
+// Khai thứ tự tường minh vì DemoPosterSeeder phải chạy SAU: nó gắn ảnh vào sự kiện đã tồn tại.
+// Không khai thì cả hai nhận LOWEST_PRECEDENCE và thứ tự do Spring quyết — tức là đúng vào một
+// lần nào đó nó sẽ đảo, và ảnh bìa lặng lẽ không được gắn.
+@Order(10)
 public class DemoCatalogSeeder implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(DemoCatalogSeeder.class);
@@ -105,7 +112,8 @@ public class DemoCatalogSeeder implements ApplicationRunner {
             return false;
         }
         return Boolean.TRUE.equals(transactions.execute(status -> {
-            venues.save(new Venue(venueId, organizationId, spec.name(), spec.city(), spec.address(), List.of()));
+            venues.save(new Venue(
+                    venueId, organizationId, spec.name(), spec.city(), spec.address(), List.of(), null, spec.stage()));
             int order = 0;
             for (ZoneSpec zone : spec.zones()) {
                 venues.addZone(new VenueZone(
@@ -117,7 +125,9 @@ public class DemoCatalogSeeder implements ApplicationRunner {
                         zone.rowCount(),
                         zone.seatsPerRow(),
                         zone.capacity(),
-                        order++));
+                        order++,
+                        null,
+                        zone.layout()));
             }
             return true;
         }));
@@ -222,19 +232,80 @@ public class DemoCatalogSeeder implements ApplicationRunner {
 
     // --- Hình dạng dữ liệu mẫu ---------------------------------------------
 
+    /**
+     * Một khu, có thể kèm vị trí trên mặt bằng.
+     *
+     * <p>{@code layout} để {@code null} nghĩa là "xếp tự động" — các khu xếp thành dải chữ nhật
+     * chồng nhau dưới sân khấu. Đó là hành vi đúng cho một khu vừa tạo, nhưng nếu MỌI khu mẫu đều
+     * như vậy thì ba hình dạng bố cục không có chỗ nào nhìn thấy được, và một lỗi hình học sẽ
+     * không lộ ra cho tới khi có khách hàng thật dựng sơ đồ thật.
+     */
     record ZoneSpec(
-            String code, String name, AdmissionKind kind, Integer rowCount, Integer seatsPerRow, Integer capacity) {
+            String code,
+            String name,
+            AdmissionKind kind,
+            Integer rowCount,
+            Integer seatsPerRow,
+            Integer capacity,
+            ZoneLayout layout) {
 
         static ZoneSpec seated(String code, String name, int rows, int seatsPerRow) {
-            return new ZoneSpec(code, name, AdmissionKind.SEATED, rows, seatsPerRow, null);
+            return new ZoneSpec(code, name, AdmissionKind.SEATED, rows, seatsPerRow, null, null);
+        }
+
+        /** Khối chữ nhật đặt tại một chỗ cụ thể, xoay {@code rotationDeg} độ. */
+        static ZoneSpec grid(
+                String code, String name, int rows, int seatsPerRow, double x, double y, double rotationDeg) {
+            return new ZoneSpec(
+                    code, name, AdmissionKind.SEATED, rows, seatsPerRow, null, ZoneLayout.grid(x, y, rotationDeg));
+        }
+
+        /** Các hàng cung đồng tâm quanh ({@code x}, {@code y}), quét từ {@code from} tới {@code to} độ. */
+        static ZoneSpec arc(
+                String code,
+                String name,
+                int rows,
+                int seatsPerRow,
+                double x,
+                double y,
+                double innerRadius,
+                double from,
+                double to) {
+            return new ZoneSpec(
+                    code,
+                    name,
+                    AdmissionKind.SEATED,
+                    rows,
+                    seatsPerRow,
+                    null,
+                    ZoneLayout.arc(x, y, innerRadius, from, to));
+        }
+
+        /** {@code tableCount} bàn tròn, mỗi bàn {@code seatsPerTable} ghế. */
+        static ZoneSpec tables(
+                String code, String name, int tableCount, int seatsPerTable, double x, double y, double tableRadius) {
+            return new ZoneSpec(
+                    code,
+                    name,
+                    AdmissionKind.SEATED,
+                    tableCount,
+                    seatsPerTable,
+                    null,
+                    ZoneLayout.tables(x, y, tableRadius, 0));
         }
 
         static ZoneSpec standing(String code, String name, int capacity) {
-            return new ZoneSpec(code, name, AdmissionKind.STANDING, null, null, capacity);
+            return new ZoneSpec(code, name, AdmissionKind.STANDING, null, null, capacity, null);
         }
     }
 
-    record VenueSpec(String key, String name, String city, String address, List<ZoneSpec> zones) {}
+    /** {@code stage} để {@code null} thì địa điểm dùng sân khấu mặc định của {@link StageArea}. */
+    record VenueSpec(String key, String name, String city, String address, StageArea stage, List<ZoneSpec> zones) {
+
+        VenueSpec(String key, String name, String city, String address, List<ZoneSpec> zones) {
+            this(key, name, city, address, null, zones);
+        }
+    }
 
     record PriceSpec(String zoneCode, String name, long priceVnd) {}
 

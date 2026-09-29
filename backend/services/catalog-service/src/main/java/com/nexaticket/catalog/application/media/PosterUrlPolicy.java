@@ -107,7 +107,9 @@ public class PosterUrlPolicy {
         }
 
         ObjectStoragePort.StoredObject object = stored.get();
-        if (!properties.isAllowedType(object.contentType())) {
+        // `isStorableType` chứ không phải `isAllowedType`: ảnh bìa của sự kiện mẫu do hệ thống
+        // tự vẽ ra dưới dạng SVG, và SVG cố ý không nằm trong danh sách được phép tải lên.
+        if (!properties.isStorableType(object.contentType())) {
             // Xoá trước khi ném: vật thể này không có gì trỏ tới nữa, và để lại là để rác tích tụ
             // mà không ai biết đường dọn.
             storage.delete(key);

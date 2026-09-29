@@ -80,4 +80,28 @@ public class SalesQueries {
                 sessions.stream().mapToLong(SessionSalesView::grossVnd).sum(),
                 sessions);
     }
+
+    /** Trần cứng: trang chủ hiện một hàng thẻ, và không màn hình nào cần hơn ngần này. */
+    private static final int MAX_TRENDING = 24;
+
+    /**
+     * Sự kiện bán chạy nhất.
+     *
+     * <p>Kẹp {@code limit} ở đây chứ không tin người gọi: đây là đường phục vụ trang công khai, và
+     * một {@code limit=100000} không được phép biến thành một lần quét trả về cả bảng.
+     */
+    public List<TrendingView> trending(int limit) {
+        return readModel.trendingEvents(Math.clamp(limit, 1, MAX_TRENDING)).stream()
+                .map(row -> new TrendingView(row.eventId(), row.ticketsSold()))
+                .toList();
+    }
+
+    /**
+     * Kiểu riêng của tầng ứng dụng, không dùng lại record của cổng.
+     *
+     * <p>Tầng interfaces bị ArchUnit cấm chạm vào domain, và một record khai trong cổng LÀ domain —
+     * kể cả khi controller không viết tên nó ra mà để trình biên dịch tự suy. Luật đó kiểm phụ
+     * thuộc trong bytecode, không kiểm chữ trong mã nguồn.
+     */
+    public record TrendingView(UUID eventId, int ticketsSold) {}
 }

@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.application.agent;
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
+import com.nexaticket.aichatbox.domain.model.EventRef;
 import com.nexaticket.aichatbox.domain.model.Exchange;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
 import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
@@ -17,8 +18,10 @@ import com.nexaticket.aichatbox.domain.port.SessionNotOwnedException;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import com.nexaticket.platform.web.error.ApiException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -132,12 +135,28 @@ public class CustomerSupportAgentUseCase {
 
         // Bước 4 — vòng ReAct.
         Set<String> toolsUsed = new LinkedHashSet<>();
+        // Mọi kết quả tool của lượt, gộp qua các vòng: AnswerGrounding cần đọc chúng để biết câu
+        // trả lời có nguồn hay không. Giữ riêng khỏi `transcript` vì transcript là thứ gửi cho mô
+        // hình, còn đây là thứ ta tự kiểm.
+        List<ToolOutcome> allOutcomes = new ArrayList<>();
+        // Sự kiện tra được trong lượt này, theo slug. Dùng để gắn đường dẫn mua vé vào câu trả lời —
+        // xem SupportAgentPrompts.withTicketLinks.
+        Map<String, EventRef> eventRefs = new LinkedHashMap<>();
         String answer = null;
         int round = 0;
         for (; round < properties.maxToolIterations() && answer == null; round++) {
             LlmProviderPort.LlmTurn turn = ask(transcript);
             switch (turn) {
-                case LlmProviderPort.LlmTurn.Answer a -> answer = a.text();
+                    // Gỡ dấu phân đoạn nội bộ TRƯỚC khi câu trả lời đi đâu cả — trước khi lưu, trước
+                    // khi trả về. Lọc ở chỗ khác thì bản đã lưu vẫn còn dấu, và lượt sau mô hình đọc
+                    // lại lịch sử rồi học rằng viết như vậy là được.
+                case LlmProviderPort.LlmTurn.Answer a -> {
+                    String cleaned = SupportAgentPrompts.stripInternalMarkers(a.text());
+                    // Rỗng sau khi gỡ nghĩa là mô hình chỉ trả về đúng mấy cái dấu phân đoạn. Coi
+                    // như CHƯA có câu trả lời: vòng sau thử lại, hết vòng thì chuyển người thật.
+                    // Gán chuỗi rỗng ở đây thì khách nhận một bong bóng trống, tệ hơn hẳn.
+                    answer = cleaned == null || cleaned.isBlank() ? null : cleaned;
+                }
                 case LlmProviderPort.LlmTurn.ToolRequest request -> {
                     // Tool điều khiển được xử lý TRƯỚC, và nó kết thúc lượt ngay.
                     //
@@ -158,10 +177,18 @@ public class CustomerSupportAgentUseCase {
                     List<ToolOutcome> outcomes = new ArrayList<>(request.calls().size());
                     for (ToolInvocation call : request.calls()) {
                         toolsUsed.add(call.toolName());
-                        outcomes.add(tools.dispatch(call));
+                        ToolDispatcher.DispatchResult result = tools.dispatch(call);
+                        outcomes.add(result.outcome());
+                        // Gom sự kiện tra được, theo slug để không trùng khi mô hình gọi findEvents
+                        // rồi getEventDetails trên cùng một sự kiện. LinkedHashMap giữ thứ tự tìm
+                        // thấy — sự kiện khớp nhất đứng đầu, và đó là thứ tự khách nên thấy.
+                        for (EventRef ref : result.events()) {
+                            eventRefs.putIfAbsent(ref.slug(), ref);
+                        }
                     }
                     // MỘT mục cho TẤT CẢ kết quả. Tách ra thì request kế tiếp thiếu kết quả cho
                     // một lời gọi đã có, và mô hình học được rằng gọi song song không được đáp ứng.
+                    allOutcomes.addAll(outcomes);
                     transcript.add(new Exchange.ToolsReturned(outcomes));
                 }
             }
@@ -187,14 +214,34 @@ public class CustomerSupportAgentUseCase {
                     "Trợ lý tra cứu nhiều lần mà vẫn chưa trả lời được");
         }
 
-        // Bước 5 — lưu. Lưu câu hỏi GỐC, không lưu bản đã ghép ngữ cảnh RAG: ngữ cảnh là thứ dựng
+        // Bước 5 — chốt chặn nguồn.
+        //
+        // Tra danh mục không ra sự kiện nào mà câu trả lời vẫn có ngày diễn hoặc giá vé thì con số
+        // ấy đến từ bộ nhớ của mô hình, không từ NexaTicket. Xem AnswerGrounding: nó thay bằng câu
+        // nói thật. Đặt TRƯỚC bước lưu, nếu không hội thoại giữ lại câu bịa và lượt sau mô hình đọc
+        // lại chính nó như thể đó là dữ liệu đã xác nhận.
+        String grounded = AnswerGrounding.enforce(answer, allOutcomes, context.isEmpty());
+        if (!grounded.equals(answer)) {
+            log.warn(
+                    "Chặn câu trả lời không có nguồn ở phiên {} — tra danh mục không ra gì mà câu trả lời vẫn có ngày/giá",
+                    sessionId);
+        }
+
+        // Gắn đường dẫn mua vé SAU chốt chặn nguồn, không phải trước.
+        //
+        // Thứ tự này quan trọng: câu trả lời bị chặn vì bịa thì nó đã được thay bằng câu "chưa thấy
+        // sự kiện này", và gắn link vào đó là tự mâu thuẫn. Còn chốt chặn chỉ nổ khi KHÔNG tra được
+        // sự kiện nào, nên lúc nó nổ thì cũng chẳng có đường dẫn nào để gắn.
+        String withLinks = SupportAgentPrompts.withTicketLinks(grounded, eventRefs.values());
+
+        // Bước 6 — lưu. Lưu câu hỏi GỐC, không lưu bản đã ghép ngữ cảnh RAG: ngữ cảnh là thứ dựng
         // lại được và khác nhau mỗi lượt, còn lưu nó nghĩa là lượt sau đọc lại ngữ cảnh cũ như thể
         // khách đã nói ra.
         //
         // Một lệnh cho cả lượt, không phải hai: hỏng ở giữa để lại một câu hỏi không có câu trả
         // lời, và lượt sau mô hình đọc lại hội thoại ấy như thể khách đã bị bỏ qua.
-        history.appendTurn(sessionId, userId, userQuery, ChatRole.ASSISTANT, answer);
-        return new AgentReply(sessionId, answer, List.copyOf(toolsUsed));
+        history.appendTurn(sessionId, userId, userQuery, ChatRole.ASSISTANT, withLinks);
+        return new AgentReply(sessionId, withLinks, List.copyOf(toolsUsed));
     }
 
     /**

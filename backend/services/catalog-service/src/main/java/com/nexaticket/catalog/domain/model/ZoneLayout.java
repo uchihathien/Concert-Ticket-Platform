@@ -21,8 +21,10 @@ import java.util.List;
  * và chỉ lưu lại; nó không bao giờ phải biết "khu này là cung tròn hay chữ nhật". Đặt công thức ở
  * đây giữ cho đường giữ chỗ — thứ chạy 10k lần/giây — không có một phép lượng giác nào.
  *
- * @param rotationDeg chỉ có nghĩa với {@link LayoutShape#GRID}
- * @param innerRadius bán kính hàng đầu tiên; chỉ có nghĩa với {@link LayoutShape#ARC}
+ * @param rotationDeg góc xoay cả khu; có nghĩa với {@link LayoutShape#GRID} và
+ *     {@link LayoutShape#TABLE}
+ * @param innerRadius với {@link LayoutShape#ARC} là bán kính hàng đầu tiên; với
+ *     {@link LayoutShape#TABLE} là bán kính bàn. Không có nghĩa với {@code GRID}.
  * @param startAngleDeg góc mép trái của cung, độ, 0° là hướng +x và góc tăng theo chiều kim đồng hồ
  *     (trục y hướng xuống, đúng quy ước của SVG). Chỉ có nghĩa với {@code ARC}.
  */
@@ -41,6 +43,9 @@ public record ZoneLayout(
     public ZoneLayout {
         if (shape == null) {
             throw new IllegalArgumentException("Khu phải khai hình dạng bố cục");
+        }
+        if (shape == LayoutShape.TABLE && innerRadius <= 0) {
+            throw new IllegalArgumentException("Khu bàn tròn phải có bán kính bàn > 0");
         }
         if (shape == LayoutShape.ARC) {
             if (innerRadius <= 0) {
@@ -64,6 +69,11 @@ public record ZoneLayout(
         return new ZoneLayout(LayoutShape.ARC, centerX, centerY, 0, innerRadius, startAngleDeg, endAngleDeg);
     }
 
+    /** @param tableRadius khoảng cách từ tâm bàn tới ghế, theo đơn vị ghế */
+    public static ZoneLayout tables(double originX, double originY, double tableRadius, double rotationDeg) {
+        return new ZoneLayout(LayoutShape.TABLE, originX, originY, rotationDeg, tableRadius, 0, 0);
+    }
+
     /**
      * Toạ độ của một ghế cụ thể.
      *
@@ -71,19 +81,55 @@ public record ZoneLayout(
      * @param seat 1-based, đánh từ trái sang phải khi nhìn từ phía khán giả
      */
     public Point seatPosition(int row, int seat, int rowCount, int seatsPerRow) {
-        return shape == LayoutShape.ARC ? arcPosition(row, seat, seatsPerRow) : gridPosition(row, seat, seatsPerRow);
+        return switch (shape) {
+            case ARC -> arcPosition(row, seat, seatsPerRow);
+            case TABLE -> tablePosition(row, seat, rowCount, seatsPerRow);
+            case GRID -> gridPosition(row, seat, seatsPerRow);
+        };
+    }
+
+    /** Lối đi giữa hai bàn, theo đơn vị ghế. Người phải đi lọt giữa hai lưng ghế quay vào nhau. */
+    private static final double TABLE_AISLE = 2.0;
+
+    /** Số bàn trên một hàng: lưới vuông vắn nhất chứa đủ số bàn. */
+    private static int tablesPerRow(int tableCount) {
+        return Math.max(1, (int) Math.ceil(Math.sqrt(tableCount)));
+    }
+
+    /**
+     * Ghế thứ {@code seat} quanh bàn thứ {@code row}.
+     *
+     * <p>Ghế số 1 nằm ở phía <b>xa sân khấu nhất</b> của bàn rồi đi ngược chiều kim đồng hồ. Quy
+     * ước ấy để khi nhân viên đọc "bàn 3 ghế 1" thì người ngồi đó tìm được mình mà không phải đoán
+     * bàn đang xoay kiểu gì — ghế 1 luôn là ghế quay lưng về sân khấu.
+     */
+    private Point tablePosition(int row, int seat, int rowCount, int seatsPerRow) {
+        int perRow = tablesPerRow(rowCount);
+        int index = row - 1;
+        double pitch = 2 * innerRadius + TABLE_AISLE;
+
+        double tableX = (index % perRow - (perRow - 1) / 2.0) * pitch;
+        double tableY = (index / perRow) * pitch;
+
+        // Trục y hướng xuống (quy ước SVG), nên -y là hướng RA XA sân khấu khi sân khấu ở phía trên.
+        double angle = 2 * Math.PI * (seat - 1) / seatsPerRow;
+        double localX = tableX + innerRadius * Math.sin(angle);
+        double localY = tableY - innerRadius * Math.cos(angle);
+
+        return rotate(localX, localY);
+    }
+
+    /** Xoay quanh gốc của khu rồi dời về vị trí của khu. Dùng chung cho GRID và TABLE. */
+    private Point rotate(double localX, double localY) {
+        double radians = Math.toRadians(rotationDeg);
+        double cos = Math.cos(radians);
+        double sin = Math.sin(radians);
+        return new Point(originX + localX * cos - localY * sin, originY + localX * sin + localY * cos);
     }
 
     /** Hàng nằm ngang, khu được căn giữa quanh gốc rồi xoay quanh chính gốc đó. */
     private Point gridPosition(int row, int seat, int seatsPerRow) {
-        double localX = seat - (seatsPerRow + 1) / 2.0;
-        double localY = (row - 1) * ROW_PITCH;
-
-        double radians = Math.toRadians(rotationDeg);
-        double cos = Math.cos(radians);
-        double sin = Math.sin(radians);
-
-        return new Point(originX + localX * cos - localY * sin, originY + localX * sin + localY * cos);
+        return rotate(seat - (seatsPerRow + 1) / 2.0, (row - 1) * ROW_PITCH);
     }
 
     /**
@@ -108,7 +154,35 @@ public record ZoneLayout(
      * 5.000 ghế thì 5.000 vùng bắt chuột là quá nhiều, còn 3 đa giác thì không.
      */
     public List<Point> outline(int rowCount, int seatsPerRow) {
-        return shape == LayoutShape.ARC ? arcOutline(rowCount, seatsPerRow) : gridOutline(rowCount, seatsPerRow);
+        return switch (shape) {
+            case ARC -> arcOutline(rowCount, seatsPerRow);
+            case TABLE -> tableOutline(rowCount);
+            case GRID -> gridOutline(rowCount, seatsPerRow);
+        };
+    }
+
+    /**
+     * Chữ nhật bao cả khối bàn, nới nửa lối đi mỗi phía.
+     *
+     * <p>Bao theo <b>khối</b> chứ không vẽ từng bàn: đường bao tồn tại để bắt sự kiện chuột ở mức
+     * khu khi chưa phóng to tới mức thấy từng ghế. Vẽ 40 hình tròn ở mức ấy là 40 vùng bắt chuột
+     * cho một thứ người dùng đang nhìn như một mảng duy nhất.
+     */
+    private List<Point> tableOutline(int rowCount) {
+        int perRow = tablesPerRow(rowCount);
+        int rows = (int) Math.ceil((double) rowCount / perRow);
+        double pitch = 2 * innerRadius + TABLE_AISLE;
+
+        double halfWidth = (perRow - 1) / 2.0 * pitch + innerRadius + TABLE_AISLE / 2;
+        double top = -innerRadius - TABLE_AISLE / 2;
+        double bottom = (rows - 1) * pitch + innerRadius + TABLE_AISLE / 2;
+
+        List<Point> corners = new ArrayList<>(4);
+        for (double[] corner :
+                new double[][] {{-halfWidth, top}, {halfWidth, top}, {halfWidth, bottom}, {-halfWidth, bottom}}) {
+            corners.add(rotate(corner[0], corner[1]));
+        }
+        return corners;
     }
 
     /** Bốn góc của khối chữ nhật, nới nửa ô mỗi phía để ghế mép không nằm đúng trên đường viền. */
@@ -117,15 +191,10 @@ public record ZoneLayout(
         double top = -ROW_PITCH / 2;
         double bottom = (rowCount - 1) * ROW_PITCH + ROW_PITCH / 2;
 
-        double radians = Math.toRadians(rotationDeg);
-        double cos = Math.cos(radians);
-        double sin = Math.sin(radians);
-
         List<Point> corners = new ArrayList<>(4);
         for (double[] corner :
                 new double[][] {{-halfWidth, top}, {halfWidth, top}, {halfWidth, bottom}, {-halfWidth, bottom}}) {
-            corners.add(new Point(
-                    originX + corner[0] * cos - corner[1] * sin, originY + corner[0] * sin + corner[1] * cos));
+            corners.add(rotate(corner[0], corner[1]));
         }
         return corners;
     }

@@ -130,6 +130,51 @@ class PosterUrlPolicyTest {
         assertThat(storage.deleted).isEmpty();
     }
 
+    @Test
+    @DisplayName("ảnh SVG hệ thống tự vẽ đi qua — và KHÔNG bị xoá")
+    void chap_nhan_svg_tu_sinh() {
+        FakeStorage storage = new FakeStorage();
+        String key = "posters/demo/dem-nhac.svg";
+        storage.put(key, 4096, MediaProperties.GENERATED_CONTENT_TYPE);
+
+        PosterUrlPolicy policy = policy(props(true), storage);
+
+        // Bộ dựng dữ liệu mẫu đẩy lên SVG. Nếu chính sách coi đó là định dạng lạ thì nó xoá vật
+        // thể rồi ném lỗi — nghĩa là hệ thống tự tay xoá tấm ảnh mà chính nó vừa vẽ ra, và sự
+        // kiện mẫu mất ảnh ngay lần đầu có ai lưu lại nó.
+        assertThat(policy.validate(OWN_PREFIX + key)).isEqualTo(OWN_PREFIX + key);
+        assertThat(storage.deleted).isEmpty();
+    }
+
+    @Test
+    @DisplayName("SVG vẫn KHÔNG được phép tải lên từ trình duyệt")
+    void svg_khong_nam_trong_danh_sach_tai_len() {
+        // Hai danh sách phải tách nhau. SVG là tài liệu XML, mang được <script>, và nó chạy dưới
+        // origin của kho ảnh với bất kỳ ai mở thẳng đường dẫn. Cho tải lên là mở một đường XSS
+        // lưu trữ; chỉ cho tồn tại thì vật thể SVG chỉ có thể do máy chủ tự tạo.
+        MediaProperties properties = props(true);
+
+        assertThat(properties.isAllowedType(MediaProperties.GENERATED_CONTENT_TYPE))
+                .isFalse();
+        assertThat(properties.isStorableType(MediaProperties.GENERATED_CONTENT_TYPE))
+                .isTrue();
+        assertThat(properties.isStorableType("application/x-msdownload")).isFalse();
+    }
+
+    @Test
+    @DisplayName("ảnh SVG quá cỡ vẫn bị chặn như mọi ảnh khác")
+    void svg_van_chiu_tran_kich_thuoc() {
+        // Miễn kiểm định dạng không có nghĩa là miễn kiểm kích thước.
+        FakeStorage storage = new FakeStorage();
+        String key = "posters/demo/khong-lo.svg";
+        storage.put(key, 20L * 1024 * 1024, MediaProperties.GENERATED_CONTENT_TYPE);
+
+        PosterUrlPolicy policy = policy(props(true), storage);
+
+        assertThatThrownBy(() -> policy.validate(OWN_PREFIX + key)).isInstanceOf(ApiException.class);
+        assertThat(storage.deleted).containsExactly(key);
+    }
+
     // --- dựng dữ liệu -------------------------------------------------------
 
     private static PosterUrlPolicy policy(MediaProperties properties, ObjectStoragePort storage) {
@@ -161,6 +206,11 @@ class PosterUrlPolicyTest {
         @Override
         public PresignedUpload presignUpload(String key, String contentType) {
             return new PresignedUpload(URI.create("https://upload.example/" + key), key, Instant.now());
+        }
+
+        @Override
+        public void put(String key, String contentType, byte[] content) {
+            objects.put(key, new StoredObject(content.length, contentType));
         }
 
         @Override

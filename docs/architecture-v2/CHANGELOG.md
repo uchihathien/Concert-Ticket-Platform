@@ -1,5 +1,344 @@
 # Lịch sử sửa đổi — Kiến trúc v2
 
+## Bản 10 — Kiểm toàn hệ, và những gì phép kiểm ấy đòi phải sửa
+
+Bản 9 sửa năm lỗi tìm được lúc chạy thật. Bản này đi hết phần còn lại của hệ thống, và điều đáng
+ghi nhất là **ba giả định phổ biến về một nền tảng bán vé đều SAI với hệ này**: cơ chế retry đã có
+(backoff mũ 1→16 phút, `MAX_ATTEMPTS=5`, `event_id UNIQUE` chống gửi trùng), chống double-click đã
+có (`Button` khoá khi `loading`, `SeatPicker` chặn `submitting`), và tranh chấp ghế đã được kiểm
+nghiêm túc (200 luồng giành 1 ghế, 500 người mua 200 chỗ đứng, trần 20-tab, và cả ca "cổng Redis
+mù").
+
+Chỗ yếu thật nằm ở nơi khác, và nó có một hình dạng chung: **độ phủ ngược với mức rủi ro**.
+
+### 1. API Gateway: thiết kế đúng, nhưng chưa ai kiểm
+
+Rate limit dùng `XForwardedRemoteAddressResolver.maxTrustedIndex` — đúng API cho đúng vấn đề, có
+ghi chú nêu cả hai hướng sai. CORS không wildcard, `allowCredentials=false`. `/internal/**` thật sự
+không có route nào (đã kiểm 29 mẫu đường dẫn).
+
+Nhưng service này có **0 test và 0 phụ thuộc test**. Giờ có 17.
+
+Bài kiểm quan trọng nhất là giả mạo `X-Forwarded-For`: rate limit chỉ có tác dụng khi khoá đếm
+không do người gọi tự chọn. Trong lúc viết nó, ca đầu tiên của tôi **xanh vì lý do sai** — tôi
+dựng chuỗi XFF ngược chiều (IP khách nằm ở CUỐI, do proxy ghi thêm, không phải ở đầu). Chỉ vì ca
+thứ tư đỏ mới lộ ra. Có thêm một ca ghim lại mối nguy khai thừa `trusted-proxy-count`: khai 2 trong
+khi chỉ có 1 ingress thì địa chỉ do người gọi tự gõ trở thành địa chỉ được tin, và hạn mức bốc hơi
+trong im lặng.
+
+### 2. Hạn mức: một ngưỡng cho mọi đường là sai ở hai đầu
+
+| Đường | Ngưỡng | Vì sao khác |
+| --- | --- | --- |
+| `POST /v1/sessions/*/holds` | 5 rps | Điểm tranh chấp thật của đợt mở bán. Rộng rãi với người thật, chặt với bot rải request. |
+| `POST /v1/chat/agent/support` | 1 rps | Đường DUY NHẤT mà một request tốn tiền ở bên ngoài. Cái mất không phải tải hệ thống mà là hoá đơn — autoscaling không cứu được. |
+| còn lại | 50 rps | Sàn chung, áp cho cả route thêm vào ngày mai mà người thêm quên nghĩ tới hạn mức. |
+
+Điểm suýt sai: tôi định bóp `/v1/holds/**`, cho tới khi đọc controller và thấy đường ấy chỉ có
+`DELETE` — tức là **NHẢ** ghế. Bóp nó lại là làm khó đúng cái việc trả ghế về cho người khác mua.
+Tạo hold thật ra là `POST /v1/sessions/{id}/holds`. Tương tự, `/v1/support/**` là bàn làm việc của
+nhân viên hỗ trợ chứ không phải đường gọi mô hình — bóp xuống 1 rps là làm hỏng công việc của chính
+người đang dọn hậu quả cho trợ lý.
+
+`GatewayRoutingIT` ghim bảng route lại. Hai route mới trỏ tới **đúng service** như route rộng ngay
+sau chúng, nên đảo thứ tự không gây lỗi nào, không 404 nào — chỉ có hạn mức chặt biến mất. Đã kiểm
+bằng cách đảo thật: test đỏ.
+
+### 3. Hiệu năng: đo trước, rồi mới quyết định không làm gì
+
+Soi toàn hệ tìm được 9 khoá ngoại không có index. Thêm **đúng một**.
+
+Sáu cột không có truy vấn nào lọc theo chúng. `events.venue_id` thì có hai, và `events` là bảng duy
+nhất trong chín cái vừa tăng không giới hạn theo quy mô kinh doanh — đã chứng minh bằng đo: ở 50k
+dòng, có index cho `Index Scan` xét 0 dòng, bỏ index cho `Seq Scan` loại bỏ 50.029 dòng.
+
+`seat_holds.event_session_id` là cái quan trọng nhất phải **không** thêm: đó là bảng ghi nặng nhất
+của cả hệ trong một đợt mở bán, và không câu truy vấn nào lọc riêng theo cột ấy.
+
+### 4. Giao diện: ranh giới lỗi ở đúng chỗ không có
+
+`web-customer` — app gánh toàn bộ lưu lượng mua vé — có **0 `error.tsx`** và **0 `loading.tsx`**,
+trong khi hai khu quản trị lưu lượng thấp thì có đủ. `web-scanner`, chạy ở cửa soát vé với hàng
+người đang chờ, không có gì cả.
+
+Đã thêm cho cả hai. Skeleton dùng lại **chính** CSS của trang thật, nên lưới chờ và lưới thật cùng
+số cột ở cùng các ngưỡng màn hình — dựng lưới riêng thì đến 1240px hoặc 900px hai bên lệch nhau và
+khoảnh khắc dữ liệu về là một cú nhảy bố cục. `EventCardSkeleton` nằm cạnh `EventCard` và dùng
+chung `catalog.module.css`; có test so tên lớp CSS đọc từ DOM, đã xác nhận nó đỏ khi cố tình làm
+lệch.
+
+### 5. Mã QR: bốn chỗ hiện trần, và hai trong số đó là hai LOẠI mã khác nhau
+
+Một lưới ô vuông đen trắng thả giữa trang không nói được đó là mã gì, quét bằng cái gì. Tệ hơn: mã
+vào cửa và mã VietQR trông y hệt nhau, dùng ở hai hoàn cảnh khác hẳn, và quét nhầm thì không có gì
+xảy ra cả.
+
+`QrPanel` đóng khung cả bốn chỗ, hai biến thể khác màu. Ràng buộc không được vi phạm vì thẩm mỹ:
+**mọi trang trí nằm ngoài tấm nền trắng**. Chuẩn QR đòi một vùng yên tĩnh bao quanh mã và máy quét
+dùng nó để tìm ba mốc định vị — đặt gradient hay hoạ tiết lên đó cho ra một tấm mã *vẫn đẹp và
+không quét được*, kiểu hỏng chỉ lộ ra ở cửa soát vé. Có test so chính đường vẽ của mã với mã trần.
+
+### 6. Hình bố cục thứ ba: bàn tròn
+
+`TABLE` — `rowCount` bàn, mỗi bàn `seatsPerRow` ghế quây quanh. Cách ngồi của gala, tiệc cuối năm
+và đêm nhạc phòng trà.
+
+Điều kiện để một hình được nhận vào `LayoutShape` là **giữ được nghĩa của mã chỗ** `A-3-5`: soát vé
+và hỗ trợ khách hàng đọc nó thành lời hàng ngày. Với `GRID`/`ARC` thì "đơn vị" là hàng; với `TABLE`
+là bàn — "bàn 3, ghế 5" vẫn nói được qua điện thoại. Đa giác tự do không qua được cửa này.
+
+Không thêm cột nào: `layout_inner_radius` mang nghĩa "bán kính bàn", đúng như nó mang nghĩa "bán
+kính hàng đầu" cho `ARC` — hai hình không bao giờ cùng tồn tại trên một khu. Số bàn mỗi hàng suy ra
+được (`ceil(sqrt(n))`), và một cột suy ra được là một cột sẽ có ngày mâu thuẫn.
+
+`V0106` nới ràng buộc theo đúng bài học `V0103`: mọi cột canh bằng so sánh phải có `IS NOT NULL`
+tường minh. Soi lại toàn hệ sau đó: 73/73 ràng buộc, 0 lỗ NULL.
+
+### 7. Dữ liệu mẫu: 26 → 36 sự kiện, và ba hình dạng có chỗ nhìn thấy được
+
+Trước đó **mọi** khu mẫu đều xếp tự động, nên không hình bố cục nào có chỗ nào nhìn thấy. Giờ Nhà
+hát Lớn là ba tầng `GRID` đặt tường minh, Sân vận động Quốc gia là hai khán đài `ARC` chia trái/phải
+(không đồng tâm — chia đồng tâm thì khán đài ngoài có cùng số ghế trên một cung dài gấp ba và hiện
+ra thưa thớt vô lý), và Phòng trà Không Tên là `TABLE` với sân khấu `CIRCLE`.
+
+Poster tự vẽ giờ mang thêm dòng đội hình nghệ sĩ. Việc chèn nó **làm lộ một lỗi trong chính phép
+dựng chữ**: tiêu đề neo theo dòng ĐẦU rồi vẽ xuống dưới, nên nó tràn đè lên khối nghệ sĩ vừa chèn —
+vẫn là SVG hợp lệ, vẫn không lỗi nào, chỉ là hai dòng chữ chồng khít. Đã viết lại cho cả ba khối
+cùng neo theo dòng CUỐI, và test "mọi dòng cách nhau ≥ 24 đơn vị" là thứ đã bắt được nó.
+
+Tên nghệ sĩ đều **hư cấu**. Gắn tên người có thật vào những buổi diễn không có thật là chuyện không
+nên làm kể cả trong dữ liệu mẫu.
+
+### 8. "Đang hot": tín hiệu đã có sẵn, chỉ thiếu đường ra
+
+Trang chủ trước đó hiện "Sự kiện nổi bật" = mới nhất, không phải đang hot. Nhưng
+`analytics.ordering.all` vốn đã tiêu thụ mọi sự kiện đơn hàng và giữ `session_sales.tickets_sold`
+theo từng suất, kèm index trên `event_id`.
+
+Nên không dựng bộ đếm thứ hai trong catalog: hai con số cho cùng một câu hỏi, và ngày chúng lệch
+nhau thì không ai biết tin cái nào. Analytics thêm `/internal/events/trending`; catalog gọi nó qua
+`AnalyticsSalesAdapter` vốn đã tồn tại.
+
+Hai quyết định đáng ghi. **Cổng chỉ nhận về thứ tự, không nhận số vé** — số vé một sự kiện bán được
+là con số kinh doanh của ban tổ chức ấy, và một endpoint công khai không phải chỗ công bố nó cho
+đối thủ của họ. **Analytics chết thì trang chủ vẫn mở** — hỏng thì trả danh sách rỗng và hàng "đang
+hot" biến mất, khách không mất cả trang chủ; ghi log WARN vì một hàng biến mất là thứ không ai nhận
+ra qua màn hình.
+
+### 9. Đồng ý điều khoản: đặt ở bước mua, không ở bước tạo tài khoản
+
+Keycloak có sẵn required action `TERMS_AND_CONDITIONS` nhưng văn bản mặc định của nó là placeholder
+tiếng Anh. Quan trọng hơn: với bán vé thì điều khoản có giá trị thật là **chính sách hoàn/đổi của
+lần mua này**, và nó phải nằm trong tầm mắt đúng lúc người ta sắp trả tiền.
+
+Ô tick không tick sẵn — một ô đã tick sẵn không phải là sự đồng ý của ai cả. Điều kiện được kiểm cả
+trong `submit()` chứ không chỉ ở thuộc tính `disabled` của nút: `disabled` là chuyện của giao diện
+và bỏ qua được bằng công cụ phát triển.
+
+### Những chỗ đã kiểm và KHÔNG tìm thấy lỗi
+
+Ghi ra vì "đã soi rồi" là thông tin, và vì nó quyết định nên tin con số nào:
+
+- **identity-service** — không tự làm mật mã, giao JWT/refresh/mật khẩu cho Keycloak. Token lời mời
+  dùng `SecureRandom` 32 byte, chỉ lưu SHA-256, dùng một lần, hết hạn 7 ngày, chặn leo thang vai
+  trò. Test có sẵn phủ cả ca liên tổ chức, phân biệt 401/403/404, và chốt "chủ sở hữu cuối cùng".
+- **inventory-service** — `FOR UPDATE SKIP LOCKED` đúng chỗ, partial unique index chống đặt trùng.
+- **notification-service** — retry backoff mũ, `DEAD` sau 5 lần, chống gửi trùng bằng `event_id`.
+- **Quên mật khẩu** — đã có, `resetPasswordUrlFromEnv` nối vào cả 4 trang đăng nhập.
+
+### Điều rút ra
+
+Bản 9 nói: lỗi im lặng chỉ lộ ra khi chạy thật. Bản này thêm một vế — **phép soi lỗi cũng phải
+được soi**. Phép soi NULL đầu tiên của tôi dùng regex và bỏ sót `ck_zone_shape`; phép thứ hai cho
+66 kết quả toàn nhiễu vì thay NULL cả vào cột `NOT NULL`; phép đo index đầu tiên dùng
+`gen_random_uuid()` nên bộ lập kế hoạch không dùng index được và tôi suýt kết luận index vô dụng;
+bài kiểm giả mạo XFF đầu tiên xanh vì tôi dựng dữ liệu ngược chiều.
+
+Một công cụ soi lỗi chưa được kiểm lại chỉ là một nguồn tự tin sai chỗ. Nó phải chứng minh được
+rằng nó bắt được cái lỗi đã biết trước — đúng như một test phải đỏ khi bản sửa bị gỡ ra.
+
+## Bản 9 — Lần đầu chạy thật, và năm thứ chỉ lộ ra khi chạy
+
+Bản 8 đóng lại với một câu thú nhận: *"vòng sinh → upload → hiển thị thì phải chạy thật mới
+biết"*. Docker lên được, và lần chạy thật ấy tìm ra năm vấn đề mà không lần đọc mã nào bắt được.
+
+### 1. `CHECK` đi qua khi biểu thức bằng `NULL` — không phải khi nó đúng
+
+Ràng buộc hình học của bản 8 kiểm bán kính và kích thước sân khấu bằng phép **so sánh**:
+
+```sql
+AND layout_inner_radius > 0            -- NULL > 0  ⇒  NULL
+AND (stage_shape = 'CIRCLE' OR stage_height > 0)
+```
+
+Trong SQL, so sánh với `NULL` cho ra `NULL` chứ không cho ra sai, và `CHECK` **chỉ chặn khi biểu
+thức sai hẳn**. Nên một khu `ARC` thiếu bán kính, hay một sân khấu chữ nhật thiếu chiều cao, vẫn
+lưu được — đúng hai trạng thái mà ràng buộc ấy sinh ra để ngăn.
+
+Điều làm nó nguy hiểm chứ không chỉ luộm thuộm nằm ở đường **đọc**: `rs.getDouble` trả `0.0` cho
+cột `NULL` mà không báo gì, rồi `ZoneLayout` từ chối bán kính 0 bằng `IllegalArgumentException` —
+ném ra giữa lúc dựng kết quả. Hậu quả không phải một lần ghi hỏng mà là **sơ đồ mặt bằng của địa
+điểm ấy trả 500 vĩnh viễn**, kể cả với người chỉ vào xem, cho tới khi có người sửa hàng bằng tay.
+
+`V0103__seat_geometry_null_guard.sql` viết lại cả bốn ràng buộc với `IS NOT NULL` tường minh cho
+mọi cột chỉ được canh bằng so sánh. Những cột vốn đã có `IS NOT NULL` thì không hở: `IS NOT NULL`
+trả sai chứ không trả `NULL`.
+
+Dữ liệu cũ được **đặt về `NULL` toàn bộ bố cục** chứ không đoán giá trị còn thiếu — `NULL` nghĩa là
+"xếp tự động" và `FloorPlan.of` xử lý được, nên khu vẫn hiện ra. Đoán một bán kính thì tạo ra một
+sơ đồ trông đúng mà sai chỗ, và không ai biết để sửa.
+
+14 phép thử trên database thật khoá lại hành vi này.
+
+### 2. Hệ thống tự xoá tấm ảnh mà chính nó vừa vẽ
+
+`DemoPosterSeeder` đẩy poster lên dưới dạng `image/svg+xml`. `PosterUrlPolicy` đối chiếu
+content-type với `allowedContentTypes` — `jpeg, png, webp` — và với định dạng lạ thì nó **xoá vật
+thể rồi ném lỗi**. Hai nửa của cùng một hệ thống mâu thuẫn trực tiếp.
+
+Cách sửa không phải là thêm `svg` vào danh sách ấy. Danh sách đó gác cổng **tải lên**, và SVG là
+tài liệu XML mang được `<script>` chạy dưới origin của kho ảnh — cho ban tổ chức tải lên SVG tuỳ ý
+là mở một đường XSS lưu trữ.
+
+| Danh sách | Câu hỏi nó trả lời | Nội dung |
+| --- | --- | --- |
+| `allowedContentTypes` | trình duyệt được **gửi lên** kiểu gì | jpeg, png, webp |
+| `isStorableType` | kiểu gì được **tồn tại** trong kho | thêm `image/svg+xml` |
+
+Tách ra thì vật thể SVG chỉ có thể do `PosterArtwork` tạo ở phía máy chủ. Trần kích thước vẫn áp
+cho cả SVG — miễn kiểm định dạng không có nghĩa là miễn kiểm mọi thứ.
+
+### 3. MinIO không còn tồn tại để kéo về
+
+`minio/minio` và `minio/mc` đã bị gỡ khỏi mọi registry công khai — Docker Hub, quay.io, ghcr.io —
+kể cả các tag phiên bản cũ. `deploy/compose/infra.yml` và `prod.yml` có một giai đoạn **không ai
+khởi động được**, và lỗi hiện ra là `pull access denied`, một câu không hề gợi ý rằng nguyên nhân
+nằm ở chuyện cấp phép của nhà cung cấp.
+
+SeaweedFS thay vào chỗ đó (Apache-2.0, một container). Đã kiểm đúng sáu luồng mà ứng dụng dùng
+chứ không kiểm "nó là S3": URL ký sẵn `PUT` được, **chữ ký sai bị chặn**, `HEAD` trả đúng
+content-type và kích thước (`PosterUrlPolicy` dựa vào cả hai), `GET` ẩn danh đọc được, CORS
+preflight đúng — và với origin lạ thì bị từ chối — và xoá thật sự xoá.
+
+| Quyết định | Vì sao |
+| --- | --- |
+| Ghim `chrislusf/seaweedfs:4.47`, bỏ mọi tag `latest` | Đây chính là cách sự cố này xảy ra. Tag nổi làm bản dựng hôm nay khác hôm qua mà không ai đổi một dòng nào, và khi hỏng thì hỏng cho tất cả cùng lúc. |
+| Bỏ hẳn container `minio-init` | `-s3.autoCreateBucket` tạo bucket ở lần `PUT` đầu, và danh tính `anonymous` với quyền `Read` thay cho `mc anonymous set download`. Ít đi một container và một ảnh phụ thuộc. |
+| Cấu hình danh tính **sinh lúc khởi động** từ biến môi trường | `-s3.config` chỉ đọc file tĩnh. Đặt sẵn file ấy trong repo nghĩa là khoá production nằm trong lịch sử git. |
+| Healthcheck gọi `/status`, không gọi `/` | `/` trả 403 vì danh tính ẩn danh không được liệt kê bucket — dùng nó thì container không bao giờ lành. |
+| Service đổi tên `minio` → `objectstore` | Giữ tên cũ cho một phần mềm khác là để lại một cái bẫy cho người đọc sau. |
+
+Muốn dùng dịch vụ có sẵn (S3, Cloudflare R2): xoá service này và trỏ `MEDIA_ENDPOINT` +
+`MEDIA_PUBLIC_URL` sang đó. Adapter đã là AWS SDK v2 nên không phải sửa code.
+
+### 4. Cùng lỗ NULL ấy, ở hai ràng buộc có từ V0100
+
+Sau khi vá §1, câu hỏi tiếp theo là "còn chỗ nào nữa không". Phép soi đầu tiên dùng regex tìm cột
+không có `IS NULL` đi kèm — và nó **bỏ sót** `ck_zone_shape`, vì `capacity IS NULL` có mặt trong
+biểu thức, chỉ là ở nhánh kia:
+
+```sql
+   (kind = 'SEATED'   AND row_count > 0 AND seats_per_row > 0 AND capacity IS NULL)
+OR (kind = 'STANDING' AND capacity > 0  AND row_count IS NULL AND seats_per_row IS NULL)
+```
+
+Khu SEATED thiếu `row_count`: nhánh đầu ra NULL, nhánh sau ra sai, `NULL OR false` = NULL, CHECK
+đi qua. Nhìn chữ không đủ.
+
+Phép soi thứ hai bắt Postgres tự tính: thay từng cột bằng NULL hoặc giá trị thật, chạy hết mọi tổ
+hợp, hỏi tổ hợp nào cho ra NULL. Một điều chỉnh quan trọng — **chỉ thay NULL cho cột thật sự cho
+phép NULL**; thay cho cột `NOT NULL` cho ra 66 "lỗ" đều là nhiễu, vì chính `NOT NULL` đã chặn.
+
+Kết quả trên 73 ràng buộc của cả 11 database: đúng **2** lỗ thật, `ck_zone_shape` và
+`ck_template_zone_shape`. `V0104` vá cả hai; soi lại cho 0.
+
+`V0104` **không** dọn dữ liệu, khác hẳn `V0103`. Ở đó bố cục thiếu đặt về NULL được vì NULL nghĩa
+là "xếp tự động" và khu vẫn hiện ra. Ở đây không có giá trị dự phòng an toàn nào — bịa ra số ghế
+là bịa ra thứ đang được bán — nên nếu có hàng hỏng thì `ADD CONSTRAINT` tự hỏng và người triển
+khai phải nhìn từng khu. Hỏng ồn ào đúng hơn là sửa im lặng.
+
+### 5. `rs.getLong` trả 0 cho cột NULL, và 0 ấy đi gọi nhà cung cấp thanh toán
+
+Nửa Java của cùng một lỗi. Soi mọi lời gọi đọc kiểu nguyên thuỷ từ `ResultSet`, đối chiếu tên cột
+với danh sách cột cho phép NULL lấy từ database thật: 13 điểm, trong đó 12 vô hại (10 trong
+`LayoutColumns` đã được `V0103` bảo đảm, 2 là `coalesce` có sẵn).
+
+Điểm thứ 13 là thật. `payment_intents.payos_order_code` cho phép NULL — không phải do thiết kế mà
+vì `V0101` thêm cột vào một bảng đã có dữ liệu thời SePay. `rs.getLong` biến NULL ấy thành `0`, và
+`0` đi tiếp vào miền như một mã đơn thật. `ReconcileIntentHandler` chỉ chặn `isConfirmed()`, nên
+đối soát một đơn cũ sẽ gọi `payos.fetchSettlement(0)` — **một request thật ra payOS với một mã
+bịa**. Trong database phát triển có 29 hàng như thế.
+
+| Quyết định | Vì sao |
+| --- | --- |
+| Đọc bằng `getObject(..., Long.class)` rồi quy về `NO_PAYOS_LINK` | 0 vẫn là giá trị đại diện cho "không có link", nhưng giờ nó được **chọn** ở ranh giới JDBC chứ không phải rơi ra từ `getLong`. |
+| Thêm `PaymentIntent.hasPayosLink()` | Chốt trạng thái (`isConfirmed`) canh một câu hỏi khác với "có link không". Dựa vào cái này để trả lời cái kia là chỗ lỗi hay quay lại. |
+| Không đổi trường sang `Long` | Tám chỗ đọc `payosOrderCode()` truyền thẳng vào gateway nhận `long`. Đổi kiểu là mở tám đường NPE mới trong đúng service không được phép hỏng — đắt hơn nhiều so với lợi ích. |
+
+Test dựng hàng NULL thật trong database rồi khẳng định **không có lời gọi nào** ra payOS. Vô hiệu
+bản sửa thì cả hai đỏ với `Expecting empty but was: [0L]` — con số 0 hiện ra đúng như mô tả.
+
+### Điều rút ra
+
+Cả năm đều nằm ngoài tầm với của unit test, và cả năm đều **im lặng**: một ràng buộc trông như
+đang canh mà không canh, hai nửa hệ thống mâu thuẫn nhưng chỉ lộ ra khi có người sửa sự kiện mẫu,
+một file compose đúng cú pháp nhưng trỏ vào thứ không còn tồn tại, và một `0` không ai gõ ra được
+đi làm khoá gọi sang nhà cung cấp thanh toán. Bản 7 đã nói đúng điều này một lần rồi; bản 9 là lần
+thứ hai cùng một bài học.
+
+Cũng đáng ghi: phép soi **đầu tiên** cho §4 sai, và phép soi thứ hai suýt sai theo kiểu khác (66
+kết quả toàn nhiễu). Một công cụ soi lỗi chưa được kiểm lại chỉ là một nguồn tự tin sai chỗ — nó
+phải chứng minh được rằng nó bắt được cái lỗi đã biết trước, đúng như một test phải đỏ khi bản sửa
+bị gỡ ra.
+
+Một chi tiết đáng ghi riêng: 42 integration test của catalog chạy ở pha `verify` (failsafe), không
+phải `test` (surefire). Chạy `mvn test` thì chúng **báo xanh bằng cách không chạy**.
+
+## Bản 8 — Trình sửa sơ đồ, và chỗ lưu ảnh đầu tiên
+
+Hai mảng đều có chung một hình dạng: phần lõi đã xong từ bản trước, nhưng thiếu đúng cái mảnh
+khiến người dùng chạm tới được.
+
+### 1. Trình sửa sơ đồ — và một endpoint xem trước
+
+Mảng hình học (§1) dựng xong engine, API và bộ vẽ, nhưng **ban tổ chức không có cách nào đặt toạ
+độ từ giao diện**: frontend chỉ có `createZone` (thêm một khu), còn `PUT …/zones` — đường duy nhất
+nhận `layout` và `stage` — không có hàm SDK lẫn màn hình. Hệ quả thực tế là mọi sơ đồ vẫn rơi về
+bố cục tự động, tức là các khối chữ nhật xếp dọc y như trước khi có hình học.
+
+| Quyết định | Nội dung |
+| --- | --- |
+| Thêm `POST …/floor-plan/preview` | Trình sửa phải thấy mặt bằng của thay đổi **chưa lưu**. Cách rẻ nhất là chép công thức `ZoneLayout` sang TypeScript — đúng thứ `plan/frontend.md` bản 5 đã cấm. Nên phép tính ở lại một chỗ và màn hình hỏi nó: đắt hơn một lời gọi mạng, đổi lại thứ xem trước **đúng bằng** thứ sẽ được materialize. |
+| Endpoint không ghi gì | Dựng một `Venue` trong bộ nhớ rồi giải mặt bằng. Không chạm repository, nên không có đường nào để một lần xem trước lỡ tay lưu đè sơ đồ thật. Có test riêng đếm mọi lời gọi ghi. |
+| Không kiểm `VENUE_LAYOUT_LOCKED` / `VENUE_IN_USE` ở xem trước | Xem trước không đổi gì. Chặn nó sẽ làm ban tổ chức không nhìn được sơ đồ của chính địa điểm đang bán vé. Hai cửa ấy ở lại `ConfigureVenueZonesHandler`, đúng chỗ có hậu quả. |
+| Mặt bằng trả thêm `layout` **đã giải** | Khu chưa đặt vị trí vẫn có một chỗ đứng sau khi bố cục tự động chạy. Không lộ ra thì lần kéo đầu tiên vào một khu tự xếp sẽ làm nó nhảy về gốc toạ độ. |
+| Kéo cho vị trí, số cho góc | Vị trí khổ sở khi nhập bằng số và dễ khi kéo; góc quét thì ngược lại — kéo ra một cung 137° là tai nạn, gõ 140 thì không. |
+
+Bản nháp gửi lên giữ nguyên `layout: undefined` cho khu chưa đặt. Điền sẵn giá trị mặc định sẽ
+**ghim mọi khu lại** ngay lần lưu đầu, và chúng thôi tự dịch xuống khi ban tổ chức chèn thêm khu
+phía trên — mất đúng tính chất mà §1 đã dựng.
+
+### 2. Kho ảnh bìa: MinIO, và byte không đi qua backend
+
+Trước đó `events.poster_url` chỉ là một chuỗi — backend *"không tải ảnh về và không kiểm tra gì"*
+— và web-admin còn chưa có ô nhập nào. Giờ có kho vật thể thật (MinIO khi chạy local, S3 ở
+production: cùng giao thức, khác endpoint, nên không có đường mã riêng cho môi trường dev).
+
+| Quyết định | Vì sao |
+| --- | --- |
+| Trình duyệt `PUT` **thẳng** lên kho bằng URL đã ký | catalog là service đọc nhiều ghi ít. Một poster 4 MB đi qua gateway rồi qua JVM ấy là 4 MB trong heap của đúng service đang phục vụ trang danh sách công khai, cộng việc giữ luồng Tomcat suốt thời gian truyền trên một đường mạng ta không kiểm soát. |
+| Hai địa chỉ, không phải một | Chữ ký S3 bao gồm cả tên host. Ký bằng `http://minio:9000` rồi đưa cho trình duyệt cho ra URL vừa không phân giải được vừa sai chữ ký. Nên `MEDIA_ENDPOINT` (nội bộ) tách hẳn `MEDIA_PUBLIC_URL` (trình duyệt). |
+| Trần kích thước thi hành **sau** khi tải lên | URL ký sẵn kiểu `PUT` không chặn được kích thước — chỉ `POST` kèm policy mới làm được, và cách đó đổi hẳn hình dạng request phía trình duyệt. Nên luật chạy ở `PosterUrlPolicy` lúc lưu sự kiện, và vật thể quá cỡ bị **xoá** chứ không nằm lại làm rác. |
+| Kiểm ở handler, không ở annotation | Ba đường tạo/sửa sự kiện phải qua cùng một luật; annotation trên request record chỉ canh được một đường. Và luật chính — "vật thể phải tồn tại, đúng kiểu, đúng cỡ" — là câu hỏi phải đi hỏi kho vật thể. |
+| `null` khác chuỗi rỗng | `Event.rename` là phép patch: chỉ ghi đè khi khác `null`. Gộp hai thứ lại làm nút "xoá ảnh bìa" im lặng không có tác dụng. |
+
+`poster_url` trước đây chỉ bị chặn độ dài. Giờ phải là `https` (ngoại lệ cho `http://localhost` của
+kho nội bộ, nếu không tính năng này không thử được ở máy chưa có chứng chỉ), và URL ngoài bị chặn
+hẳn khi `MEDIA_ALLOW_EXTERNAL_URLS=false` — mặc định ở production, vì mọi khách xem trang tải ảnh
+thẳng từ host lạ đó và host ấy thấy được IP của từng người.
+
+---
+
 ## Bản 7 — Trợ lý AI: nửa còn thiếu của kho tri thức, và ba lỗi ở lượt chat đầu tiên
 
 Bản 6 dựng xong đường chuyển cuộc chat sang người thật. Bản này sửa những gì nó để lại, và phần

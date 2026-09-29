@@ -5,14 +5,19 @@ import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
+import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
 import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
+import com.nexaticket.aichatbox.domain.port.IdentityLookupPort;
 import com.nexaticket.platform.web.error.ApiException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,12 +50,19 @@ public class HandoffUseCase {
 
     private final HandoffRepository handoffs;
     private final ChatHistoryPort history;
+    private final IdentityLookupPort identities;
     private final Clock clock;
     private final AgentMetrics metrics;
 
-    public HandoffUseCase(HandoffRepository handoffs, ChatHistoryPort history, Clock clock, AgentMetrics metrics) {
+    public HandoffUseCase(
+            HandoffRepository handoffs,
+            ChatHistoryPort history,
+            IdentityLookupPort identities,
+            Clock clock,
+            AgentMetrics metrics) {
         this.handoffs = handoffs;
         this.history = history;
+        this.identities = identities;
         this.clock = clock;
         this.metrics = metrics;
     }
@@ -69,7 +81,7 @@ public class HandoffUseCase {
     /** Bản để hiển thị của phiếu đang mở. Tầng interfaces không được chạm vào {@link Handoff}. */
     @Transactional(readOnly = true)
     public Optional<HandoffViews.HandoffRow> openRowFor(UUID sessionId) {
-        return handoffs.openBySession(sessionId).map(handoff -> HandoffViews.HandoffRow.of(handoff, clock.instant()));
+        return handoffs.openBySession(sessionId).map(this::rowOf);
     }
 
     /**
@@ -92,7 +104,7 @@ public class HandoffUseCase {
 
         Handoff opened =
                 escalate(sessionId, userId, HandoffTrigger.CUSTOMER_REQUEST, "Khách bấm nút gặp nhân viên", null);
-        return HandoffViews.HandoffRow.of(opened, clock.instant());
+        return rowOf(opened);
     }
 
     /**
@@ -164,7 +176,7 @@ public class HandoffUseCase {
     public HandoffViews.HandoffRow claim(UUID handoffId, UUID agentId) {
         Optional<Handoff> claimed = handoffs.claim(handoffId, agentId, clock.instant());
         if (claimed.isPresent()) {
-            return HandoffViews.HandoffRow.of(claimed.get(), clock.instant());
+            return rowOf(claimed.get());
         }
 
         // Không nhận được KHÔNG đồng nghĩa với "người khác nhận trước". Ba tình huống khác nhau, và
@@ -178,7 +190,7 @@ public class HandoffUseCase {
             // Chính mình đang giữ phiếu. F5 hoặc bấm hai lần là chuyện xảy ra hàng ngày, và trả 409
             // cho nó nghĩa là màn hình gỡ phiếu khỏi danh sách rồi hiện "người khác đã nhận" về
             // một phiếu mà người dùng đang trả lời. Nhận phiếu là idempotent với chính người nhận.
-            return HandoffViews.HandoffRow.of(current, clock.instant());
+            return rowOf(current);
         }
         throw new ApiException(AiChatboxErrorCode.HANDOFF_ALREADY_TAKEN, "Phiếu này vừa được người khác nhận");
     }
@@ -217,14 +229,14 @@ public class HandoffUseCase {
         // Đóng một phiếu đã đóng thì trả lại chính nó, không ghi lại `resolved_at`: bấm hai lần
         // không được phép dịch mốc thời gian mà báo cáo "xử lý mất bao lâu" đang đọc.
         if (!handoff.isOpen()) {
-            return HandoffViews.HandoffRow.of(handoff, clock.instant());
+            return rowOf(handoff);
         }
         if (handoff.assignedAgentId() != null && !agentId.equals(handoff.assignedAgentId())) {
             throw new ApiException(AiChatboxErrorCode.HANDOFF_NOT_ASSIGNED, "Phiếu này do người khác phụ trách");
         }
         Handoff resolved = handoff.resolve(clock.instant());
         handoffs.save(resolved);
-        return HandoffViews.HandoffRow.of(resolved, clock.instant());
+        return rowOf(resolved);
     }
 
     /**
@@ -234,9 +246,85 @@ public class HandoffUseCase {
      */
     @Transactional(readOnly = true)
     public List<HandoffViews.HandoffRow> queue(UUID mine, int limit, int offset) {
+        return withAgentNames(handoffs.queue(mine, limit, offset));
+    }
+
+    /**
+     * Tra phiếu cho màn lịch sử hỗ trợ.
+     *
+     * @param status {@code OPEN} · {@code WAITING} · {@code ASSIGNED} · {@code RESOLVED}, hoặc
+     *     {@code null} cho mọi trạng thái. Nhận CHUỖI vì bên gọi là tầng interfaces, nơi không được
+     *     chạm vào {@code HandoffStatus} — và vì "phiếu chưa xong gồm những trạng thái nào" là quyết
+     *     định nghiệp vụ, thuộc về đây chứ không thuộc về một ô chọn trên giao diện.
+     * @param query tìm trong lý do chuyển và câu hỏi cuối của khách
+     */
+    @Transactional(readOnly = true)
+    public List<HandoffViews.HandoffRow> search(UUID mine, String status, String query, int limit, int offset) {
+        return search(mine, statusFilter(status), query, limit, offset);
+    }
+
+    /**
+     * Tên trạng thái thành tập trạng thái.
+     *
+     * <p>Tên không hiểu được thì trả tập rỗng, nghĩa là không lọc. Ném lỗi cũng hợp lý, nhưng một ô
+     * chọn gửi sai giá trị là lỗi của giao diện, và đáp lại bằng danh sách đầy đủ hữu ích hơn một màn
+     * hình lỗi.
+     */
+    private static Set<HandoffStatus> statusFilter(String status) {
+        if (status == null || status.isBlank()) {
+            return Set.of();
+        }
+        return switch (status.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "OPEN" -> Set.of(HandoffStatus.WAITING, HandoffStatus.ASSIGNED);
+            case "WAITING" -> Set.of(HandoffStatus.WAITING);
+            case "ASSIGNED" -> Set.of(HandoffStatus.ASSIGNED);
+            case "RESOLVED" -> Set.of(HandoffStatus.RESOLVED);
+            default -> Set.of();
+        };
+    }
+
+    @Transactional(readOnly = true)
+    public List<HandoffViews.HandoffRow> search(
+            UUID mine, Set<HandoffStatus> statuses, String query, int limit, int offset) {
+        // Mới nhất trước, ngược với hàng đợi. Hàng đợi là danh sách việc phải làm nên phiếu chờ lâu
+        // nhất đứng đầu; bảng tra cứu là để xem việc vừa xảy ra.
+        return withAgentNames(handoffs.search(mine, statuses, query, true, limit, offset));
+    }
+
+    /**
+     * Gắn tên người trực vào từng dòng, tra MỘT LẦN cho mỗi người.
+     *
+     * <p>Một hàng đợi 50 phiếu thường do vài người cầm, nên gộp theo id biến 50 lời gọi HTTP thành
+     * hai hoặc ba. Không gộp thì mỗi lần mở màn hình là một cơn mưa request sang identity-service,
+     * và người trực chờ chính cơn mưa ấy.
+     */
+    /**
+     * Một phiếu, kèm tên người đang cầm nó.
+     *
+     * <p>Chỉ gọi identity khi phiếu ĐÃ có người nhận. Phiếu còn trong hàng đợi thì không có ai để
+     * tra, và một lời gọi HTTP để nhận về rỗng nằm ngay trong đường đi của khách là lời gọi tệ nhất
+     * trong hệ thống này.
+     */
+    private HandoffViews.HandoffRow rowOf(Handoff handoff) {
+        String agentName = handoff.assignedAgentId() == null
+                ? null
+                : identities.displayNameOf(handoff.assignedAgentId()).orElse(null);
+        return HandoffViews.HandoffRow.of(handoff, clock.instant(), agentName);
+    }
+
+    private List<HandoffViews.HandoffRow> withAgentNames(List<Handoff> rows) {
         Instant now = clock.instant();
-        return handoffs.queue(mine, limit, offset).stream()
-                .map(handoff -> HandoffViews.HandoffRow.of(handoff, now))
+        Map<UUID, String> names = new HashMap<>();
+        for (Handoff handoff : rows) {
+            UUID agentId = handoff.assignedAgentId();
+            if (agentId != null && !names.containsKey(agentId)) {
+                // `put` kể cả khi rỗng: nhớ luôn cả lần tra không ra, để một id không tra được không
+                // bị hỏi lại cho từng dòng còn lại trong cùng danh sách.
+                names.put(agentId, identities.displayNameOf(agentId).orElse(null));
+            }
+        }
+        return rows.stream()
+                .map(handoff -> HandoffViews.HandoffRow.of(handoff, now, names.get(handoff.assignedAgentId())))
                 .toList();
     }
 
@@ -245,7 +333,7 @@ public class HandoffUseCase {
     public HandoffViews.HandoffThread thread(UUID handoffId, int transcriptLimit) {
         Handoff handoff = require(handoffId);
         return new HandoffViews.HandoffThread(
-                HandoffViews.HandoffRow.of(handoff, clock.instant()),
+                rowOf(handoff),
                 history.transcriptForSupport(handoff.sessionId(), transcriptLimit).stream()
                         .map(HandoffViews.MessageRow::of)
                         .toList());

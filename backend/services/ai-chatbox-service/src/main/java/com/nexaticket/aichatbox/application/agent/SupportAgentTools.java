@@ -16,6 +16,8 @@ public final class SupportAgentTools {
 
     public static final String GET_ORDER_STATUS = "getOrderStatus";
     public static final String GET_EVENT_RULES = "getEventRules";
+    public static final String FIND_EVENTS = "findEvents";
+    public static final String GET_EVENT_DETAILS = "getEventDetails";
 
     /**
      * Tool <b>điều khiển</b>, không phải tool dữ liệu.
@@ -30,6 +32,35 @@ public final class SupportAgentTools {
     private SupportAgentTools() {}
 
     private static final List<ToolSpec> CATALOG = List.of(
+            new ToolSpec(
+                    FIND_EVENTS,
+                    """
+                    Tìm sự kiện đang bán vé theo TÊN mà khách nói, hoặc theo thành phố, hoặc theo nhóm. \
+                    Gọi tool này bất cứ khi nào khách hỏi về một sự kiện, một đêm nhạc, một concert — \
+                    kể cả khi họ chỉ nhớ một phần tên. Trả về tên đầy đủ, thành phố, địa điểm, suất diễn \
+                    gần nhất, giá thấp nhất và mã slug. Dùng slug đó để gọi getEventDetails khi khách \
+                    cần giá từng hạng vé hoặc toàn bộ suất diễn.""",
+                    List.of(
+                            ToolSpec.Param.optionalString(
+                                    "query",
+                                    "Tên hoặc một phần tên sự kiện đúng như khách gõ, ví dụ \"đêm nhạc Trịnh\". "
+                                            + "Bỏ trống khi khách không nêu tên mà chỉ hỏi theo thành phố hoặc nhóm."),
+                            ToolSpec.Param.optionalString(
+                                    "city",
+                                    "Thành phố, chỉ điền khi khách NÓI RA, ví dụ \"Hà Nội\", \"Đà Nẵng\". "
+                                            + "Đừng tự đoán."),
+                            ToolSpec.Param.optionalString(
+                                    "category",
+                                    "Nhóm sự kiện, chỉ điền khi khách nói rõ. Các giá trị dùng được: "
+                                            + "nhac-song, san-khau, the-thao, hoi-thao."))),
+            new ToolSpec(
+                    GET_EVENT_DETAILS,
+                    """
+                    Tra chi tiết MỘT sự kiện theo slug: địa chỉ đầy đủ của địa điểm, từng suất diễn, \
+                    giá của từng hạng vé, hạn bán vé. Chỉ gọi sau khi đã có slug từ findEvents — \
+                    đừng tự dựng slug từ tên sự kiện.""",
+                    List.of(ToolSpec.Param.requiredString(
+                            "slug", "Mã slug lấy từ kết quả findEvents, ví dụ dem-nhac-trinh"))),
             new ToolSpec(
                     GET_ORDER_STATUS,
                     """

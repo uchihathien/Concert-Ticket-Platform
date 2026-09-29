@@ -1,0 +1,54 @@
+# Lớp phủ: cho container Ollama dùng GPU NVIDIA.
+#
+# ---------------------------------------------------------------------------
+# VÌ SAO LÀ TỆP PHỦ, KHÔNG SỬA THẲNG infra.yml
+#
+# Khai `devices: [driver: nvidia]` trong tệp gốc thì máy KHÔNG có GPU NVIDIA sẽ không dựng nổi
+# service này — Docker trả "could not select device driver \"nvidia\" with capabilities: [[gpu]]"
+# và `up` thất bại. Trong một đội mà mỗi người một máy, đó là đổi một tính năng tăng tốc thành một
+# lỗi chặn đường của người khác.
+#
+# Tách ra tệp phủ thì GPU là thứ TỰ CHỌN: ai có thì thêm `-f infra.gpu.yml`, ai không thì chạy như
+# cũ và Ollama dùng CPU.
+#
+# ---------------------------------------------------------------------------
+# CÁCH DÙNG
+#
+#   docker compose -f deploy/compose/infra.yml -f deploy/compose/infra.gpu.yml \
+#                  --profile ai up -d ollama
+#
+# Kiểm xem có ăn không — cột PROCESSOR phải KHÁC "100% CPU":
+#
+#   docker compose -f deploy/compose/infra.yml exec ollama ollama ps
+#
+# ---------------------------------------------------------------------------
+# HAI ĐIỀU KIỆN, THIẾU MỘT LÀ NÓ ÂM THẦM VỀ CPU
+#
+# 1. Driver NVIDIA trên Windows phải ĐỦ MỚI. Bản CUDA trong ảnh ollama đòi driver 550 trở lên; với
+#    driver 546 thì log Ollama ghi `WARN "NVIDIA driver too old" required_driver="550 or newer"` rồi
+#    chạy CPU — không báo lỗi, không ai để ý, chỉ là chậm gấp nhiều lần.
+# 2. Khai báo thiết bị ở đây. Thiếu nó thì container không thấy GPU dù driver mới.
+#
+# Đổi driver trên Windows xong PHẢI `wsl --shutdown` rồi bật lại Docker Desktop: container nạp
+# libcuda từ WSL lúc khởi động, nên máy ảo cũ vẫn giữ bản cũ trong bộ nhớ.
+#
+# ---------------------------------------------------------------------------
+# GIỚI HẠN CỦA VRAM — ĐỌC TRƯỚC KHI KỲ VỌNG
+#
+# `qwen2.5:7b-instruct` chiếm ~5.1GB, mà một RTX 3050 Ti Laptop chỉ có 4GB VRAM và Windows đã dùng
+# sẵn ~0.8GB. Model KHÔNG nằm hết trên GPU: Ollama chia lớp, phần còn lại vẫn ở CPU. Nhanh hơn
+# đáng kể, nhưng không phải nhanh như một máy có VRAM đủ chứa cả model.
+#
+# Muốn model nằm trọn trong VRAM thì phải dùng bản nhỏ hơn (ví dụ `qwen2.5:3b-instruct`, ~2GB) —
+# đổi bằng `OLLAMA_CHAT_MODEL`. Cái giá đã ghi ở application.yml của ai-chatbox-service: mô hình
+# nhỏ gọi tool kém tin cậy hơn, mà agent ấy sống bằng tool.
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

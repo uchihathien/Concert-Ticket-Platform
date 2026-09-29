@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PIDFILE="$ROOT/backend/target/dev-logs/dev-up.pids"
 
 # Mọi cổng dev-up có thể đã chiếm — kể cả khi PIDFILE mất hoặc bạn bật service bằng tay.
-PORTS=(8080 8090 8091 8092 8093 8094 8095 8096 8097 8098 8099 8100 3000 3001 3002 3003)
+PORTS=(8080 8090 8091 8092 8093 8094 8095 8096 8097 8098 8099 8100 8101 3000 3001 3002 3003)
 
 WITH_INFRA=0; PRUNE=0
 for arg in "$@"; do

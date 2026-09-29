@@ -45,6 +45,40 @@ public class AnalyticsSalesAdapter implements SalesReportPort {
         return fetch("/internal/organizations/{id}/sales", organizationId);
     }
 
+    @Override
+    public List<UUID> trendingEventIds(int limit) {
+        try {
+            TrendingResponse response = client.get()
+                    .uri("/internal/events/trending?limit={limit}", limit)
+                    .headers(this::authorize)
+                    .exchange((request, clientResponse) -> {
+                        HttpStatusCode status = clientResponse.getStatusCode();
+                        if (!status.is2xxSuccessful()) {
+                            throw new UpstreamUnavailableException(SERVICE, "Analytics trả " + status, null);
+                        }
+                        return clientResponse.bodyTo(TrendingResponse.class);
+                    });
+            if (response == null || response.events() == null) {
+                return List.of();
+            }
+            return response.events().stream().map(TrendingRow::eventId).toList();
+        } catch (UpstreamUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new UpstreamUnavailableException(SERVICE, "Không gọi được analytics", e);
+        }
+    }
+
+    private void authorize(org.springframework.http.HttpHeaders headers) {
+        if (internalToken != null && !internalToken.isBlank()) {
+            headers.set(InternalApiFilter.HEADER, internalToken);
+        }
+    }
+
+    private record TrendingResponse(List<TrendingRow> events) {}
+
+    private record TrendingRow(UUID eventId, int ticketsSold) {}
+
     private List<SessionSales> fetch(String uriTemplate, UUID id) {
         try {
             SalesResponse response = client.get()

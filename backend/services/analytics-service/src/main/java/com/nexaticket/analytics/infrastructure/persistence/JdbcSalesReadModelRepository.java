@@ -102,4 +102,29 @@ public class JdbcSalesReadModelRepository implements SalesReadModelRepository {
                 rs.getInt("orders_expired"),
                 rs.getInt("orders_cancelled"));
     }
+
+    /**
+     * Xếp hạng bằng một câu GROUP BY, không kéo cả bảng về rồi cộng trong Java.
+     *
+     * <p>`idx_sales_event` phục vụ phép gộp này. Bảng chỉ có một dòng cho mỗi SUẤT diễn — không
+     * phải mỗi vé — nên nó nhỏ hơn số vé bán ra vài bậc và phép gộp rẻ kể cả khi quét toàn bảng.
+     *
+     * <p>Loại sự kiện chưa bán vé nào ra khỏi kết quả: một hàng "0 vé" không nói lên điều gì về độ
+     * hot, và để nó lọt vào thì danh sách "đang hot" sẽ đầy những sự kiện chưa ai mua khi hệ thống
+     * mới chạy.
+     */
+    @Override
+    public List<EventPopularity> trendingEvents(int limit) {
+        return jdbc.query(
+                """
+                SELECT event_id, SUM(tickets_sold) AS sold
+                  FROM session_sales
+                 GROUP BY event_id
+                HAVING SUM(tickets_sold) > 0
+                 ORDER BY sold DESC, event_id
+                 LIMIT ?
+                """,
+                (rs, i) -> new EventPopularity(rs.getObject("event_id", UUID.class), rs.getInt("sold")),
+                limit);
+    }
 }

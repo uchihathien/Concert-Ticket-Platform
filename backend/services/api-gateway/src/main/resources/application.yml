@@ -29,6 +29,13 @@ spring:
         webflux:
           default-filters:
             # Rate limit: public theo IP, authenticated theo user (services.md §0)
+            #
+            # Đây là SÀN áp cho MỌI route, kể cả route thêm vào ngày mai mà người thêm quên nghĩ
+            # tới hạn mức — cố ý giữ như vậy. Route nào cần chặt hơn thì khai thêm bộ giới hạn
+            # riêng của nó; cả hai cùng chạy và cái chặt hơn là cái quyết định.
+            #
+            # Ngưỡng 50 rps hợp lý cho đường đọc. Hai đường KHÔNG hợp lý với nó, vì cái giá của
+            # một request ở đó khác hẳn — xem `inventory-hold-create` và `ai-chat-turn` bên dưới.
             - name: RequestRateLimiter
               args:
                 redis-rate-limiter.replenishRate: ${RATE_LIMIT_RPS:50}
@@ -54,6 +61,12 @@ spring:
             #   /v1/organizations/*/tickets         <  /v1/organizations/**            (ticketing trước identity)
             #   /v1/organizations/*/uploads/**      <  /v1/organizations/**            (catalog trước identity)
             #   /v1/platform/organizations/*/balance <  /v1/platform/organizations/**  (ledger trước identity)
+            #   POST /v1/sessions/*/holds           <  /v1/sessions/**                (hold-create trước inventory)
+            #   POST /v1/chat/agent/support         <  /v1/chat/**                    (chat-turn trước ai-chatbox)
+            # Hai cặp cuối chồng nhau cả về đường dẫn lẫn service ĐÍCH — chúng tách ra chỉ để mang
+            # hạn mức khác nhau. Đảo thứ tự thì không có lỗi nào, không có 404 nào: request vẫn tới
+            # đúng service, chỉ là hạn mức chặt biến mất. Đó là kiểu hỏng tệ nhất trong file này,
+            # nên có test ghim lại (`GatewayRoutingIT`).
             # `/v1/platform/concert-templates/**` KHÔNG chồng với `/v1/platform/organizations/**`
             # của identity, nên thứ tự giữa hai cái đó không quan trọng. Nhưng nó vẫn phải có mặt:
             # thiếu route thì khu vực khung concert của Tổng công ty nhận 404 của chính gateway, và
@@ -70,6 +83,32 @@ spring:
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:
                 - Path=/v1/me/orders,/v1/orders/**
+            # Lượt GIÀNH GHẾ. Hẹp hơn `/v1/sessions/**` nên phải đứng TRƯỚC route inventory.
+            #
+            # Đây là điểm tranh chấp thật của một đợt mở bán, và nó KHÔNG phải `/v1/holds/**` —
+            # đường ấy chỉ có DELETE, tức là NHẢ ghế ra. Bóp nó lại là làm khó đúng cái việc trả
+            # ghế về cho người khác mua.
+            #
+            # 5 rps rộng rãi với một người thật: chọn ghế xong bấm một lần, cùng lắm sửa lại vài
+            # lần. Nhưng nó chặt với một con bot rải request — và ở đây bot phải trả giá bằng đúng
+            # thứ nó muốn cướp. Trần `max_tickets_per_customer` của inventory vẫn là chốt cuối;
+            # cái này chỉ để đám bot không đốt hết kết nối database trước khi chạm tới chốt ấy.
+            #
+            # Khoá đếm theo người dùng (đường này bắt buộc đăng nhập), nên một người bấm nhiều
+            # không ảnh hưởng ai khác — khác hẳn khi đếm chung theo IP của một nhà mạng.
+            - id: inventory-hold-create
+              uri: ${INVENTORY_URL:http://localhost:8092}
+              predicates:
+                - Path=/v1/sessions/*/holds
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: ${RATE_LIMIT_HOLD_RPS:5}
+                    redis-rate-limiter.burstCapacity: ${RATE_LIMIT_HOLD_BURST:10}
+                    key-resolver: "#{@principalOrIpKeyResolver}"
+            # Đọc sơ đồ ghế và nhả hold. Cả hai đều nên rộng rãi: sơ đồ có ETag nên phần lớn lượt
+            # gọi trả 304 rỗng, còn nhả ghế thì càng dễ càng tốt.
             - id: inventory
               uri: ${INVENTORY_URL:http://localhost:8092}
               predicates:
@@ -98,10 +137,29 @@ spring:
               uri: ${PAYMENT_URL:http://localhost:8095}
               predicates:
                 - Path=/api/billing/bank/webhook/**
-            # Trợ lý AI. Không chồng mẫu nào, nhưng CẦN một ghi chú riêng: mỗi request ở đường
-            # này là một lần gọi mô hình có tính tiền, khác hẳn mọi route còn lại vốn chỉ tốn CPU
-            # của ta. Ngưỡng chung 50 rps là quá rộng cho nó — xem hạng mục còn lại trong
-            # production-checklist.
+            # Lượt chat thật — đường DUY NHẤT trong cả hệ mà một request tốn tiền của ta ở bên
+            # ngoài, chứ không chỉ tốn CPU. Hẹp hơn `/v1/chat/**` nên đứng TRƯỚC.
+            #
+            # 1 rps là tốc độ của một người đang gõ. Ai đó viết một vòng lặp gọi đường này sẽ đốt
+            # hạn mức của nhà cung cấp mô hình, và cái mất không phải là tải hệ thống mà là hoá
+            # đơn — một kiểu thiệt hại mà autoscaling không cứu được.
+            #
+            # Cố ý CHỈ bắt đúng đường gọi mô hình. `GET .../messages` là polling để xem lại đoạn
+            # hội thoại và không tốn gì, còn `/v1/support/**` là bàn làm việc của nhân viên hỗ trợ
+            # — bóp hai thứ đó xuống 1 rps là làm hỏng công việc của chính người trực.
+            - id: ai-chat-turn
+              uri: ${AICHATBOX_URL:http://localhost:8101}
+              predicates:
+                - Path=/v1/chat/agent/support
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: ${RATE_LIMIT_CHAT_RPS:1}
+                    redis-rate-limiter.burstCapacity: ${RATE_LIMIT_CHAT_BURST:5}
+                    key-resolver: "#{@principalOrIpKeyResolver}"
+            # Phần còn lại của trợ lý AI và toàn bộ bàn hỗ trợ: đọc hội thoại, hàng đợi phiếu,
+            # kho tri thức. Không có lời gọi mô hình nào ở đây, nên dùng ngưỡng chung.
             - id: ai-chatbox
               uri: ${AICHATBOX_URL:http://localhost:8101}
               predicates:

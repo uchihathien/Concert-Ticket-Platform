@@ -55,6 +55,14 @@ public class ReconcileIntentHandler {
                     "DUPLICATE", true, "Đơn đã được ghi nhận trả tiền lúc " + intent.confirmedAt());
         }
 
+        if (!intent.hasPayosLink()) {
+            // Intent thời SePay: không có link nào để hỏi. Không chặn ở đây thì ta gọi payOS với mã
+            // đơn 0 và nhận về "không biết link này" — một câu đúng về payOS nhưng sai về đơn hàng,
+            // và nó dẫn người đọc đi tìm lỗi ở payOS thay vì ở tuổi của dữ liệu.
+            return new ConfirmTransferHandler.Result(
+                    "UNKNOWN_REFERENCE", true, "Đơn này mở trước khi dùng payOS, không có link để đối soát");
+        }
+
         Optional<PayosGateway.Settlement> found = fetch(intent);
         if (found.isEmpty()) {
             return new ConfirmTransferHandler.Result("UNKNOWN_REFERENCE", true, "payOS không biết link này");

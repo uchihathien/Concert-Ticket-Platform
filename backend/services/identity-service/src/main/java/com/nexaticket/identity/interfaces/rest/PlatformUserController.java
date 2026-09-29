@@ -11,6 +11,7 @@ import com.nexaticket.platform.security.annotation.RequiresPermission;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -133,9 +134,11 @@ public class PlatformUserController {
     @RequiresPermission(Permission.PLATFORM_AUDIT_READ)
     public List<AuditQueries.AuditEntry> auditLogs(
             @RequestParam(required = false) String action,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "0") int offset) {
-        return auditQueries.forPlatform(action, limit, offset);
+        return auditQueries.forPlatform(action, from, to, limit, offset);
     }
 
     /** Lý do được ghi vào nhật ký kiểm toán — thao tác này cần giải thích được sau sáu tháng. */

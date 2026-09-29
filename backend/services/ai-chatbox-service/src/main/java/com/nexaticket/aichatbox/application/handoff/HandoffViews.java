@@ -30,10 +30,24 @@ public final class HandoffViews {
             String reason,
             String lastQuestion,
             UUID assignedAgentId,
+            String assignedAgentName,
             Instant requestedAt,
+            Instant assignedAt,
+            Instant resolvedAt,
             long waitingSeconds) {
 
+        /**
+         * Không kèm tên người trực.
+         *
+         * <p>Dùng ở những chỗ cái tên không nói thêm gì: phiếu vừa mở thì chưa ai nhận, nên không có
+         * tên nào để tra. Gọi identity-service để nhận về rỗng là một lời gọi mạng vô ích nằm ngay
+         * trong đường đi của khách.
+         */
         public static HandoffRow of(Handoff handoff, Instant now) {
+            return of(handoff, now, null);
+        }
+
+        public static HandoffRow of(Handoff handoff, Instant now, String assignedAgentName) {
             return new HandoffRow(
                     handoff.id(),
                     handoff.sessionId(),
@@ -42,8 +56,16 @@ public final class HandoffViews {
                     handoff.reason(),
                     handoff.lastQuestion(),
                     handoff.assignedAgentId(),
+                    assignedAgentName,
                     handoff.requestedAt(),
-                    java.time.Duration.between(handoff.requestedAt(), now).toSeconds());
+                    handoff.assignedAt(),
+                    handoff.resolvedAt(),
+                    // Thời gian CHỜ, nên nó dừng ở lúc được nhận. Phiếu nhận từ ba ngày trước mà vẫn
+                    // hiện "chờ 72 giờ" là con số nói sai chuyện đã xảy ra — người đọc bảng lịch sử
+                    // sẽ tưởng khách bị bỏ quên ba ngày.
+                    java.time.Duration.between(
+                                    handoff.requestedAt(), handoff.assignedAt() != null ? handoff.assignedAt() : now)
+                            .toSeconds());
         }
     }
 

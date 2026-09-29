@@ -60,6 +60,8 @@ public final class FloorPlanViews {
     /**
      * @param outline đa giác bao khu; đóng vòng ở phần tử cuối là ngầm định, frontend nối điểm cuối
      *     về điểm đầu
+     * @param layout bố cục đã giải. Khác {@code AdminZone.layout} ở chỗ nó KHÔNG bao giờ null:
+     *     khu chưa đặt vị trí cũng có một chỗ đứng sau khi bố cục tự động chạy xong.
      * @param seats rỗng ở đường công khai — xem ghi chú của lớp bao
      */
     public record Zone(
@@ -68,6 +70,7 @@ public final class FloorPlanViews {
             String kind,
             int seatCount,
             String layoutShape,
+            CatalogViews.AdminZoneLayout layout,
             List<Point> outline,
             List<Seat> seats) {
 
@@ -78,6 +81,10 @@ public final class FloorPlanViews {
                     zone.kind().name(),
                     zone.seatCount(),
                     zone.layout().shape().name(),
+                    // Bố cục ĐÃ GIẢI, kể cả khu do hệ thống tự xếp. Đây là thứ trình sửa sơ đồ cần
+                    // để ghim một khu tại đúng chỗ nó đang đứng ngay lần kéo đầu tiên — không có
+                    // nó thì khu tự xếp sẽ nhảy về gốc toạ độ khi vừa chạm vào.
+                    CatalogViews.AdminZoneLayout.of(zone.layout()),
                     zone.outline().stream()
                             .map(point -> new Point(point.x(), point.y()))
                             .toList(),

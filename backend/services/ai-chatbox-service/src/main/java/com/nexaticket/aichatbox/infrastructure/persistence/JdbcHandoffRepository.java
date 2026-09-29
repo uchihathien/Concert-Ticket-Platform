@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -91,6 +92,55 @@ public class JdbcHandoffRepository implements HandoffRepository {
      * Cũ nhất trước: hàng đợi hỗ trợ là FIFO, và sắp theo thứ khác nghĩa là có người chờ mãi không
      * tới lượt.
      */
+    @Override
+    public List<Handoff> search(
+            UUID mine, Set<HandoffStatus> statuses, String query, boolean newestFirst, int limit, int offset) {
+        StringBuilder sql = new StringBuilder("select ").append(COLUMNS).append(" from chat_handoffs where 1 = 1");
+
+        // Danh sách tham số rời cho mỗi trạng thái, KHÔNG phải một tham số dạng mảng: JdbcClient gắn
+        // `in (:statuses)` được, nhưng viết tay từng tham số thì câu lệnh sinh ra đọc giống hệt câu
+        // lệnh chạy, và đó là thứ cứu thời gian khi phải soi log truy vấn chậm.
+        if (statuses != null && !statuses.isEmpty()) {
+            sql.append(" and status in (");
+            int i = 0;
+            for (HandoffStatus ignored : statuses) {
+                sql.append(i++ == 0 ? ":s" : ", :s").append(i - 1);
+            }
+            sql.append(')');
+        }
+
+        boolean hasQuery = query != null && !query.isBlank();
+        if (hasQuery) {
+            // Tìm trong lý do chuyển VÀ câu hỏi cuối của khách. Hai cột này là tất cả những gì hiện
+            // trên một dòng của danh sách, nên tìm đúng những gì người ta đang nhìn.
+            //
+            // ILIKE: không phân biệt hoa thường, nhưng CÓ phân biệt dấu — "Trinh" không ra "Trịnh".
+            // Chấp nhận được cho một ô tìm nội bộ; sửa được bằng extension `unaccent` nếu cần.
+            sql.append(" and (reason ilike :q or coalesce(last_question, '') ilike :q)");
+        }
+        if (mine != null) {
+            sql.append(" and assigned_agent_id = :mine");
+        }
+        sql.append(" order by requested_at ")
+                .append(newestFirst ? "desc" : "asc")
+                .append(" limit :limit offset :offset");
+
+        var statement = db.sql(sql.toString()).param("limit", limit).param("offset", offset);
+        if (statuses != null && !statuses.isEmpty()) {
+            int i = 0;
+            for (HandoffStatus status : statuses) {
+                statement = statement.param("s" + i++, status.name());
+            }
+        }
+        if (hasQuery) {
+            statement = statement.param("q", "%" + query.strip() + "%");
+        }
+        if (mine != null) {
+            statement = statement.param("mine", mine);
+        }
+        return statement.query(JdbcHandoffRepository::map).list();
+    }
+
     @Override
     public List<Handoff> queue(UUID mine, int limit, int offset) {
         String scope = mine == null ? "" : " and assigned_agent_id = :mine";

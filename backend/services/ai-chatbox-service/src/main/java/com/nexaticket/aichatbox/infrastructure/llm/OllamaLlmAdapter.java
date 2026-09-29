@@ -72,7 +72,16 @@ public class OllamaLlmAdapter implements LlmProviderPort {
                             // cần trọn một lượt mới quyết định được, nên stream ở đây chỉ làm phần
                             // đọc phức tạp hơn mà không sớm hơn một giây nào.
                             "stream", false,
-                            "options", Map.of("temperature", 0.2)))
+                            // `num_predict` là CHỐT CHẶN, không phải cách định hình câu trả lời —
+                            // việc đó thuộc về luật "tối đa 120 từ" trong prompt hệ thống.
+                            //
+                            // Vì sao vẫn cần: Ollama không giới hạn độ dài sinh chữ, và một mô hình
+                            // nhỏ có thể lặp vòng tới hàng nghìn token. Trên CPU đo được ~1,1
+                            // token/giây, nên một câu trả lời dài chắc chắn vượt hạn 120 giây của
+                            // nhà cung cấp — và lúc đó khách nhận 503 sau hai phút chờ, không nhận
+                            // được phần chữ đã sinh ra. Cắt ở 320 token thì trường hợp xấu nhất
+                            // vẫn trả về một câu trả lời, dù cụt.
+                            "options", Map.of("temperature", 0.2, "num_predict", properties.maxOutputTokens())))
                     .retrieve()
                     .body(JsonNode.class);
         } catch (RuntimeException e) {

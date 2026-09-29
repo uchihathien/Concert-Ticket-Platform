@@ -19,6 +19,15 @@ public interface SalesReportPort {
     /** @throws UpstreamUnavailableException khi không hỏi được analytics-service */
     List<SessionSales> forOrganization(UUID organizationId);
 
+    /**
+     * Sự kiện bán chạy nhất, xếp giảm dần.
+     *
+     * <p>Trả về <b>thứ tự</b>, không trả về số vé: trang chủ chỉ cần biết xếp ai trước ai, còn số
+     * vé một sự kiện bán được là con số kinh doanh của ban tổ chức ấy. Cổng không nhận thứ mà nó
+     * không dùng — có nhận thì sớm muộn sẽ có người hiển thị nó ra.
+     */
+    List<UUID> trendingEventIds(int limit);
+
     /** @param grossVnd tổng khách trả, KHÔNG phải số tổ chức sẽ nhận */
     record SessionSales(
             UUID eventSessionId,

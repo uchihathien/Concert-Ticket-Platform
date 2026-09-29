@@ -25,5 +25,17 @@ public record ToolSpec(String name, String description, List<Param> params) {
         public static Param requiredString(String name, String description) {
             return new Param(name, "string", description, true);
         }
+
+        /**
+         * Tham số mô hình được phép bỏ trống.
+         *
+         * <p>Cần cho những bộ lọc mà câu hỏi thường không nêu — khách hỏi "có đêm nhạc nào không"
+         * mà không nói thành phố. Khai chúng là bắt buộc thì mô hình buộc phải điền, và nó điền
+         * bằng một giá trị tự nghĩ ra: một thành phố khách chưa hề nhắc tới, lọc mất đúng kết quả
+         * khách muốn.
+         */
+        public static Param optionalString(String name, String description) {
+            return new Param(name, "string", description, false);
+        }
     }
 }

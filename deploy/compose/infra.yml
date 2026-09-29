@@ -147,48 +147,60 @@ services:
   # ObjectStoragePort). Hệ quả: container này phải gọi được từ trình duyệt, nên nó mở cổng ra host
   # và phải khai CORS.
   # ---------------------------------------------------------------------------
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  # ---------------------------------------------------------------------------
+  # Kho ảnh (S3).
+  #
+  # Đây từng là MinIO. MinIO đã gỡ ảnh container cộng đồng khỏi mọi registry công khai —
+  # `minio/minio` và `minio/mc` không còn kéo được nữa, kể cả bằng tag phiên bản cũ. Hậu quả là
+  # file này có một giai đoạn KHÔNG AI khởi động được, và lỗi hiện ra là "pull access denied",
+  # một câu không hề gợi ý rằng nguyên nhân nằm ở chuyện cấp phép của nhà cung cấp.
+  #
+  # SeaweedFS thay vào chỗ đó: vẫn là S3 thật, Apache-2.0, một container. Đã kiểm đúng sáu luồng
+  # mà ứng dụng dùng — URL ký sẵn PUT được, chữ ký sai bị chặn, HEAD trả đúng content-type và kích
+  # thước (PosterUrlPolicy dựa vào cả hai), GET ẩn danh đọc được, CORS preflight đúng, và xoá thật
+  # sự xoá. Không phải bản giả lập cho test.
+  #
+  # Bài học đã ghim vào file: **không dùng tag `latest` cho hạ tầng**. Tag nổi làm bản dựng hôm
+  # nay khác bản dựng hôm qua mà không ai đổi một dòng nào, và khi nó hỏng thì hỏng cho tất cả
+  # cùng lúc.
+  # ---------------------------------------------------------------------------
+  objectstore:
+    image: chrislusf/seaweedfs:4.47
     environment:
-      MINIO_ROOT_USER: ${MEDIA_ACCESS_KEY:-nexaticket}
-      MINIO_ROOT_PASSWORD: ${MEDIA_SECRET_KEY:-nexaticket-dev-secret}
+      MEDIA_ACCESS_KEY: ${MEDIA_ACCESS_KEY:-nexaticket}
+      MEDIA_SECRET_KEY: ${MEDIA_SECRET_KEY:-nexaticket-dev-secret}
       # Trình duyệt PUT thẳng lên đây nên CORS là bắt buộc. `*` chỉ đúng ở máy phát triển —
       # xem prod.yml để biết cách siết lại.
-      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+      MEDIA_CORS_ORIGIN: "*"
+    # `-s3.config` chỉ đọc được file tĩnh, nên file được sinh tại chỗ từ biến môi trường. Nếu đặt
+    # sẵn trong repo thì đó là khoá production nằm trong lịch sử git.
+    #
+    # Danh tính `anonymous` với quyền `Read` là thứ thay cho `mc anonymous set download` của MinIO:
+    # khách xem trang không có khoá, nên ảnh bìa phải đọc được mà không cần ký.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat > /tmp/s3.json <<EOF
+        {"identities":[
+          {"name":"anonymous","actions":["Read"]},
+          {"name":"app","credentials":[{"accessKey":"$${MEDIA_ACCESS_KEY}","secretKey":"$${MEDIA_SECRET_KEY}"}],
+           "actions":["Admin","Read","Write","List","Tagging"]}
+        ]}
+        EOF
+        exec weed server -dir=/data -s3 -s3.port=9000 -s3.config=/tmp/s3.json \
+          -s3.allowedOrigins="$${MEDIA_CORS_ORIGIN}" -s3.autoCreateBucket
     ports:
       - "9000:9000"   # S3 API
-      - "9001:9001"   # console
     volumes:
-      - miniodata:/data
+      - mediadata:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      # `/` trả 403 vì danh tính ẩn danh không được liệt kê bucket — dùng nó làm healthcheck thì
+      # container không bao giờ lành. `/status` là endpoint trả 200 khi cổng S3 đã phục vụ được.
+      test: ["CMD", "curl", "-sf", "-o", "/dev/null", "http://localhost:9000/status"]
       interval: 10s
       timeout: 5s
       retries: 20
-
-  # ---------------------------------------------------------------------------
-  # Tạo bucket, mở quyền đọc công khai, khai CORS. Chạy một lần rồi thoát.
-  #
-  # Ba việc này KHÔNG làm được từ catalog-service lúc khởi động: nó sẽ là một service tự cấp cho
-  # mình quyền quản trị trên kho vật thể, chỉ để làm một việc đúng một lần cho mỗi môi trường.
-  # ---------------------------------------------------------------------------
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    environment:
-      MEDIA_BUCKET: ${MEDIA_BUCKET:-nexaticket-media}
-      MEDIA_ACCESS_KEY: ${MEDIA_ACCESS_KEY:-nexaticket}
-      MEDIA_SECRET_KEY: ${MEDIA_SECRET_KEY:-nexaticket-dev-secret}
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 $$MEDIA_ACCESS_KEY $$MEDIA_SECRET_KEY &&
-      mc mb --ignore-existing local/$$MEDIA_BUCKET &&
-      mc anonymous set download local/$$MEDIA_BUCKET &&
-      echo 'bucket $$MEDIA_BUCKET san sang'
-      "
 
 volumes:
   pgdata:
@@ -196,4 +208,4 @@ volumes:
   # bắt tải lại từ đầu.
   ollamadata:
   rabbitdata:
-  miniodata:
+  mediadata:

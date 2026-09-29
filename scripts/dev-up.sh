@@ -2,8 +2,11 @@
 # Bật cả hệ thống ở máy phát triển: hạ tầng Docker + backend + (tuỳ chọn) frontend.
 #
 #   ./scripts/dev-up.sh                  # hạ tầng + install + 7 service lõi
+#   ./scripts/dev-up.sh --demo           # BẬT HẾT để demo: hạ tầng + AI + 13 service + 4 app
 #   ./scripts/dev-up.sh --skip-install   # bỏ qua `mvnw install` (chỉ khi KHÔNG đụng vào platform/)
-#   ./scripts/dev-up.sh --all            # thêm ledger, payout, notification, realtime
+#   ./scripts/dev-up.sh --all            # thêm ledger, payout, notification, realtime, AI
+#   ./scripts/dev-up.sh --jar            # chạy jar đã build thay vì spring-boot:run (nhẹ hơn 1 nửa)
+#   ./scripts/dev-up.sh --with-ai        # thêm Ollama (hồ sơ `ai`) và nạp sẵn model
 #   ./scripts/dev-up.sh --with-frontend  # bật luôn 4 app Next.js
 #   ./scripts/dev-up.sh --with-frontend=web-customer,web-admin   # chỉ những app cần
 #   ./scripts/dev-up.sh --no-infra       # hạ tầng đã chạy sẵn
@@ -39,11 +42,34 @@ EXTRA=(
   ai-chatbox-service:8101
 )
 
+# --- Trần heap của JVM và của Next (chỉ dùng ở chế độ --jar) --------------------------------
+#
+# Không đặt thì JVM lấy mặc định 25% RAM vật lý — 4 GB mỗi tiến trình, nhân mười ba là một lời hứa
+# mà máy 16 GB không giữ được. Đo thật lúc chạy: mỗi service dùng 70–130 MB, nên 384 MB là trên mức
+# cần và dưới xa mức gây sức ép.
+#
+# Next cũng vậy: một dev server phình tới ~4 GB commit sau vài chục lần hot-reload. Đo được hai app
+# giữ 8,4 GB; chặn heap xuống còn 3,9 GB.
+JVM_OPTS="-Xmx384m -XX:MaxMetaspaceSize=192m"
+NEXT_HEAP_MB=1024
+
 SKIP_INSTALL=0; WITH_FRONTEND=0; WITH_INFRA=1; SERVICES=("${CORE[@]}"); FRONTEND_APPS=""
+USE_JAR=0; WITH_AI=0
 for arg in "$@"; do
   case "$arg" in
     --skip-install)  SKIP_INSTALL=1 ;;
     --all)           SERVICES=("${CORE[@]}" "${EXTRA[@]}") ;;
+    --jar)           USE_JAR=1 ;;
+    --with-ai)       WITH_AI=1 ;;
+    # Một cờ cho việc hay làm nhất: bật HẾT để demo.
+    #
+    # Kéo theo --jar chứ không phải tình cờ: `spring-boot:run` tốn HAI JVM mỗi service (Maven ngồi
+    # chờ + app làm việc), tức ~1,2 GB trả cho những tiến trình Maven không làm gì. Với mười ba
+    # service cộng bốn app Next thì đó đúng là phần đẩy máy qua trần bộ nhớ.
+    --demo)
+      SERVICES=("${CORE[@]}" "${EXTRA[@]}")
+      USE_JAR=1; WITH_AI=1; WITH_FRONTEND=1; SKIP_INSTALL=1
+      ;;
     --with-frontend) WITH_FRONTEND=1 ;;
     # Chỉ bật những app thật sự cần. Bốn dev server Next chiếm ~2,6 GB, và phần lớn thời gian
     # người ta chỉ mở một. Ví dụ: --with-frontend=web-customer,web-admin
@@ -52,7 +78,7 @@ for arg in "$@"; do
       FRONTEND_APPS="${arg#*=}"
       ;;
     --no-infra)      WITH_INFRA=0 ;;
-    -h|--help)       sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help)       sed -n '2,15p' "$0"; exit 0 ;;
     *) echo "Tham số lạ: $arg (xem --help)" >&2; exit 2 ;;
   esac
 done
@@ -142,6 +168,36 @@ if [ "$WITH_INFRA" = 1 ]; then
   "$ROOT/scripts/apply-rabbitmq-topology.sh" >/dev/null
 fi
 
+if [ "$WITH_AI" = 1 ]; then
+  # Ollama nằm ở hồ sơ `ai` nên `compose up` thường KHÔNG dựng nó — ảnh cộng model là ~6 GB, bắt
+  # người làm frontend tải chúng là vô lý. Xem ghi chú ở infra.yml.
+  #
+  # Kèm tệp phủ GPU khi có: thiếu nó thì container không thấy GPU và Ollama chạy CPU — chậm gấp
+  # nhiều lần mà KHÔNG báo lỗi gì. Tệp phủ tách riêng vì máy không có GPU NVIDIA sẽ không dựng nổi
+  # service nếu khai thiết bị trong tệp gốc.
+  gpu_overlay=()
+  if [ -f "$ROOT/deploy/compose/infra.gpu.yml" ] && docker info 2>/dev/null | grep -qi "nvidia"; then
+    gpu_overlay=(-f "$ROOT/deploy/compose/infra.gpu.yml")
+    echo "==> Ollama (có GPU)"
+  else
+    echo "==> Ollama (CPU — không thấy runtime nvidia; xem deploy/compose/infra.gpu.yml)"
+  fi
+  docker compose -f "$ROOT/deploy/compose/infra.yml" "${gpu_overlay[@]}" --profile ai up -d ollama
+  wait_http "Ollama" "http://localhost:11434/api/tags" 60
+
+  # Nạp model vào bộ nhớ TRƯỚC khi có người hỏi. Lượt chat đầu tiên phải đọc 4,7 GB từ đĩa, và
+  # người đang demo sẽ nhìn một khung chat im lặng suốt hai mươi giây mà không biết vì sao.
+  echo "    nạp model vào bộ nhớ (lần đầu ~30s)"
+  for m in qwen2.5:7b-instruct bge-m3; do
+    curl -fs -o /dev/null --max-time 600 http://localhost:11434/api/generate \
+      -H 'Content-Type: application/json' \
+      -d "{\"model\":\"$m\",\"prompt\":\"x\",\"stream\":false,\"keep_alive\":\"30m\",\"options\":{\"num_predict\":1}}" \
+      || echo "    CẢNH BÁO: chưa nạp được $m — đã `ollama pull` chưa?" >&2
+  done
+  # Cột PROCESSOR nói thật về việc GPU có được dùng hay không. In ra để không ai phải đoán.
+  docker compose -f "$ROOT/deploy/compose/infra.yml" exec -T ollama ollama ps 2>/dev/null | sed 's/^/    /' || true
+fi
+
 if [ "$SKIP_INSTALL" = 0 ]; then
   # `install`, không phải `compile`. `spring-boot:run` giải dependency `com.nexaticket:starter-*`
   # từ kho ~/.m2 chứ không từ target/classes của reactor: sửa platform/ mà chỉ compile thì service
@@ -188,8 +244,24 @@ for entry in "${SERVICES[@]}"; do
   env_prefix=(MANAGEMENT_PORT="$mport")
   [ "$svc" = "payment-service" ] && env_prefix+=(PAYMENT_SANDBOX=true)
 
-  (cd "$ROOT/backend" && env "${env_prefix[@]}" ./mvnw -q -pl "services/$svc" spring-boot:run \
-      > "$LOGS/$svc.log" 2>&1) &
+  if [ "$USE_JAR" = 1 ]; then
+    # MỘT JVM thay vì hai, và có trần heap. Đây là chế độ đúng khi bật cả stack để xem/demo.
+    #
+    # Cái mất: không có hot reload. Sửa code service thì phải build lại jar
+    # (`./mvnw -pl services/<tên> -DskipTests package`) rồi bật lại — nên khi đang SỬA một service
+    # thì bỏ --jar đi, `spring-boot:run` tiện hơn hẳn.
+    jar=$(ls "$ROOT/backend/services/$svc/target/"*-SNAPSHOT.jar 2>/dev/null | head -1)
+    if [ -z "$jar" ]; then
+      echo "    $svc KHÔNG có jar — chạy `./mvnw -DskipTests package` trước, hoặc bỏ --jar" >&2
+      failed=1
+      continue
+    fi
+    (cd "$ROOT/backend/services/$svc" \
+        && env "${env_prefix[@]}" java $JVM_OPTS -jar "$jar" > "$LOGS/$svc.log" 2>&1) &
+  else
+    (cd "$ROOT/backend" && env "${env_prefix[@]}" ./mvnw -q -pl "services/$svc" spring-boot:run \
+        > "$LOGS/$svc.log" 2>&1) &
+  fi
   echo "$!:$port:$svc" >> "$PIDFILE"
   echo "    $svc → :$port (quản trị :$mport, log: backend/target/dev-logs/$svc.log)"
 done
@@ -210,15 +282,44 @@ if [ "$WITH_FRONTEND" = 1 ]; then
   else
     echo "==> Frontend (4 app Next.js — dùng --with-frontend=web-customer để bật ít hơn)"
   fi
+  # NODE_OPTIONS chặn heap từng dev server — xem ghi chú ở NEXT_HEAP_MB.
   # shellcheck disable=SC2086
-  (cd "$ROOT/frontend" && corepack pnpm dev $filters > "$LOGS/frontend.log" 2>&1) &
+  (cd "$ROOT/frontend" && NODE_OPTIONS="--max-old-space-size=$NEXT_HEAP_MB" corepack pnpm dev $filters \
+      > "$LOGS/frontend.log" 2>&1) &
   echo "$!:3000:frontend" >> "$PIDFILE"
-  wait_http "web-customer" "http://localhost:3000" 90 || failed=1
+  # Chờ TỪNG app được bật, không chỉ web-customer: app thứ ba, thứ tư là những cái dễ chết vì hết
+  # bộ nhớ nhất, và chúng chết bằng `ERR_MEMORY_ALLOCATION_FAILED` trong log chứ không ở màn hình.
+  if [ -n "$FRONTEND_APPS" ]; then
+    for app in ${FRONTEND_APPS//,/ }; do
+      case "$app" in
+        web-customer) wait_http "$app" "http://localhost:3000" 90 || failed=1 ;;
+        web-admin)    wait_http "$app" "http://localhost:3001" 90 || failed=1 ;;
+        web-scanner)  wait_http "$app" "http://localhost:3002" 90 || failed=1 ;;
+        web-platform) wait_http "$app" "http://localhost:3003" 90 || failed=1 ;;
+      esac
+    done
+  else
+    for p in 3000 3001 3002 3003; do wait_http "app :$p" "http://localhost:$p" 120 || failed=1; done
+  fi
+fi
+
+# --- Bộ nhớ còn lại -------------------------------------------------------------------------
+#
+# In ra cuối cùng, vì đây là con số quyết định stack này sống được bao lâu. Trên 90% commit thì lần
+# hot-reload tiếp theo của Next có thể giết một tiến trình bất kỳ — đã xảy ra ba lần trong một buổi.
+if command -v powershell >/dev/null 2>&1; then
+  powershell -NoProfile -Command '
+    $c = (Get-Counter "\Memory\Committed Bytes").CounterSamples.CookedValue / 1MB
+    $l = (Get-Counter "\Memory\Commit Limit").CounterSamples.CookedValue / 1MB
+    $pct = [int]($c / $l * 100)
+    $warn = if ($pct -ge 90) { "  <-- SAT TRAN, tat mot app Next di" } else { "" }
+    "commit: {0} / {1} MB ({2}%){3}" -f [int]$c, [int]$l, $pct, $warn' 2>/dev/null | sed 's/^/==> /'
 fi
 
 echo
 if [ "$failed" = 0 ]; then
   echo "Xong. Khách 3000 · Tổ chức 3001 · Soát vé 3002 · Nền tảng 3003 · Gateway 8080 · Keycloak 8081"
+  echo "Tài khoản dev: customer · organizer · staff · superadmin (mật khẩu trùng tên đăng nhập)"
 else
   echo "Có service không lên — đọc log ở backend/target/dev-logs/" >&2
 fi

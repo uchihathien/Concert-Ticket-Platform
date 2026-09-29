@@ -37,6 +37,24 @@ public interface ObjectStoragePort {
     PresignedUpload presignUpload(String key, String contentType);
 
     /**
+     * Ghi thẳng một vật thể từ phía server.
+     *
+     * <p>Nghe như đi ngược lại cả ghi chú ở đầu cổng này — nhưng luật ở đó nói về <b>byte của người
+     * dùng</b>: một poster 4 MB do trình duyệt gửi lên không được đi qua JVM của service đọc nhiều
+     * nhất hệ thống.
+     *
+     * <p>Đường này khác hẳn: byte <b>sinh ra bên trong chính service</b> (ảnh bìa mẫu tự vẽ, vài KB,
+     * lúc khởi động, không có người dùng nào chờ). Không có trình duyệt để ký URL cho, và ký một
+     * URL rồi tự gọi lại chính mình là đi vòng cho vui.
+     *
+     * <p>Cố ý nhận {@code byte[]} chứ không nhận {@code InputStream}: nhận luồng là mở cửa cho ai
+     * đó nối thẳng body của request vào đây, và khi ấy luật trên mất hiệu lực mà không ai nhận ra.
+     * Mảng buộc người gọi phải cầm trọn nội dung trong tay trước — thứ chỉ hợp lý với dữ liệu nhỏ
+     * do chính mình sinh.
+     */
+    void put(String key, String contentType, byte[] content);
+
+    /**
      * Kích thước và kiểu thật của vật thể sau khi đã tải lên.
      *
      * <p>Đây là chỗ <b>duy nhất</b> biết được ảnh thật sự nặng bao nhiêu. URL ký sẵn kiểu
