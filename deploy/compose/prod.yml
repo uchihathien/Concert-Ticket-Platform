@@ -31,6 +31,14 @@ x-service-env: &service-env
   RABBITMQ_USER: ${RABBITMQ_USER:?can RABBITMQ_USER}
   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?can RABBITMQ_PASSWORD}
   REDIS_HOST: redis
+  # Redis prod chạy với `--requirepass`, nhưng application.yml của api-gateway và inventory-service chỉ
+  # khai host/port — không có chỗ nào nhận mật khẩu. Hậu quả không phải "không kết nối được": kết nối
+  # vẫn mở, và MỖI lệnh trả NOAUTH. Gateway log `Error calling rate limiter lua` rồi CHO QUA (rate
+  # limiting tắt im lặng ở production); inventory thì hỏng ở cổng kiểm tồn kho Redis lúc giữ ghế.
+  # Biến này là relaxed binding của Spring Boot cho `spring.data.redis.password`, nên có hiệu lực
+  # mà không cần build lại ảnh; application.yml cũng được sửa để lần build sau không còn phụ thuộc
+  # vào tên biến này. Service không dùng Redis thì bỏ qua biến, vô hại.
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?can REDIS_PASSWORD}
   IDENTITY_URL: http://identity-service:8080
   CATALOG_URL: http://catalog-service:8080
   INVENTORY_URL: http://inventory-service:8080

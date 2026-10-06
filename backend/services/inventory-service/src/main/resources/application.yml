@@ -23,6 +23,8 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Rỗng ở local (Redis dev không đặt mật khẩu); production đặt qua REDIS_PASSWORD.
+      password: ${REDIS_PASSWORD:}
       timeout: 1s
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
