@@ -30,8 +30,17 @@ say "Docker (repo chính thức)"
 # Bản `docker.io` trong Ubuntu thường cũ và KHÔNG có compose v2 — mà prod.yml dùng cú pháp v2
 # (`mem_limit`, `--wait`, anchor YAML). Dùng repo của Docker để tránh một lớp lỗi khó đoán.
 sudo install -m 0755 -d /etc/apt/keyrings
+# `--batch --yes --no-tty` là BẮT BUỘC khi chạy qua SSM, không phải để cho gọn.
+#
+# Lệnh này chạy không có terminal. File đích đã tồn tại từ một lần chạy trước thì gpg hỏi
+# "File exists. Overwrite?" và đi tìm /dev/tty để đọc câu trả lời:
+#
+#     gpg: cannot open '/dev/tty': No such device or address
+#
+# Thông báo đó không nói gì về nguyên nhân thật (một câu hỏi không ai trả lời được), và nó chỉ xuất
+# hiện ở lần chạy THỨ HAI — nên lần đầu xanh, lần chạy lại đỏ.
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  | sudo gpg --batch --yes --no-tty --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
 https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
@@ -48,7 +57,9 @@ say "AWS CLI v2"
 # Bản trong apt là v1 và không đọc được một số cú pháp dùng ở đây.
 if ! command -v aws >/dev/null; then
   curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
-  unzip -q /tmp/awscli.zip -d /tmp && sudo /tmp/aws/install
+  # `-o` ghi đè không hỏi — CÙNG LỚP LỖI với gpg ở trên: `/tmp/aws` còn sót từ một lần chạy dở
+  # thì unzip hỏi "replace?" và đi tìm TTY không tồn tại. Lỗi chỉ xuất hiện ở lần chạy thứ hai.
+  unzip -q -o /tmp/awscli.zip -d /tmp && sudo /tmp/aws/install --update
 fi
 aws --version
 
@@ -93,7 +104,9 @@ say "Certbot"
 # snapd cũng chưa sẵn sàng ngay sau khi boot: `snap install` khi đó trả
 # "error: cannot communicate with server". `snap wait` chờ đúng việc đó.
 sudo snap wait system seed.loaded 2>/dev/null || true
-sudo snap install --classic certbot >/dev/null
+# Kiểm trước khi cài: `snap install` trên gói đã có trả về lỗi, và `set -e` sẽ dừng cả script ở
+# lần chạy thứ hai.
+snap list certbot >/dev/null 2>&1 || sudo snap install --classic certbot >/dev/null
 sudo ln -sf /snap/bin/certbot /usr/bin/certbot
 
 cat <<'NEXT'
