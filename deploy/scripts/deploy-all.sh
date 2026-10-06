@@ -57,67 +57,69 @@ if phase 2 "Bí mật"; then
   DOMAIN="$DOMAIN" bash "$HERE/gen-secrets.sh" >/dev/null || die "gen-secrets.sh thất bại."
   ok "41 bí mật và URL đã nằm ở Parameter Store"
 
-  # Tám giá trị chỉ bạn lấy được. HỎI thay vì bắt gõ tám lệnh aws.
+  # $1=tên  $2=kiểu(sec|str)  $3=mô tả  $4=mặc định  $5=luật kiểm (host|email|rỗng)
   #
   # `read -rs` cho khoá: không hiện ra màn hình, không vào ~/.bash_history. Giá trị đi thẳng từ bàn
   # phím vào Parameter Store — không qua file, không qua biến môi trường của tiến trình khác.
+  #
+  # Kiểm ĐỊNH DẠNG, không chỉ "có nhập hay chưa". Đã xảy ra thật: người dùng gõ địa chỉ email vào ô
+  # SMTP_HOST. Giá trị được nhận, script báo ✓, và lỗi chỉ lộ ra nhiều bước sau — khi Keycloak không
+  # gửi được thư tới một hostname không tồn tại. Dấu ✓ sau một giá trị sai còn tệ hơn không có dấu
+  # gì: nó xác nhận một điều không đúng.
+  #
+  # Khai NGOÀI nhánh điều kiện bên dưới, vì bước đọc lại ở cuối luôn chạy và nó cần hàm này.
+  ask() {
+    local val
+    while :; do
+      if [ "$2" = sec ]; then
+        printf '\n  %s\n  %s: ' "$3" "$1"; read -rs val; echo
+      else
+        printf '\n  %s\n  %s [%s]: ' "$3" "$1" "${4:-}"; read -r val
+        [ -n "$val" ] || val="${4:-}"
+      fi
+      if [ -z "$val" ]; then info "bỏ qua $1"; return 0; fi
+      case "${5:-}" in
+        host)
+          # Tên máy chủ: KHÔNG chứa @, và phải có ít nhất một dấu chấm.
+          case "$val" in
+            *@*) echo "    [sai] '$val' la dia chi email, khong phai ten may chu. Gmail: smtp.gmail.com" >&2
+                 continue ;;
+            *.*) ;;
+            *)   echo "    [sai] '$val' khong giong ten may chu (thieu dau cham)." >&2
+                 continue ;;
+          esac ;;
+        email)
+          case "$val" in
+            *@*.*) ;;
+            *) echo "    [sai] '$val' khong giong dia chi email." >&2; continue ;;
+          esac ;;
+      esac
+      break
+    done
+    local t=String; [ "$2" = sec ] && t=SecureString
+    aws ssm put-parameter --name "$PREFIX/$1" --type "$t" --value "$val" --overwrite >/dev/null
+    ok "$1"
+  }
+
+  EXTERNAL="SUPER_ADMIN_EMAILS SMTP_HOST SMTP_USER SMTP_FROM SMTP_PASSWORD
+            PAYOS_CLIENT_ID PAYOS_API_KEY PAYOS_CHECKSUM_KEY"
   need_external=0
-  for v in SUPER_ADMIN_EMAILS SMTP_HOST SMTP_USER SMTP_FROM SMTP_PASSWORD \
-           PAYOS_CLIENT_ID PAYOS_API_KEY PAYOS_CHECKSUM_KEY; do
+  for v in $EXTERNAL; do
     aws ssm get-parameter --name "$PREFIX/$v" >/dev/null 2>&1 || need_external=1
   done
 
   if [ "$need_external" -eq 0 ]; then
-    ok "tám giá trị ngoài đã có (bỏ qua phần hỏi)"
+    ok "tám giá trị ngoài đã có"
   else
-    cat <<'ASK'
+    cat <<'ASKNOTE'
 
     Tám giá trị cuối. Chuẩn bị sẵn:
       · Gmail App Password — Google Account > Security > 2-Step Verification > App passwords
         (16 ký tự, BỎ HẾT dấu cách khi dán)
-      · Ba khoá payOS — trang quản trị merchant
+      · Ba khoá payOS — trang quản trị merchant. Chưa có thì gõ `chua-co` rồi bật PAYMENT_SANDBOX.
 
-    Bỏ trống rồi Enter = giữ giá trị đang có (nếu đã nạp trước đó).
-ASK
-    # $1=tên  $2=kiểu(sec|str)  $3=mô tả  $4=mặc định  $5=luật kiểm (host|email|rỗng)
-    #
-    # Kiểm ĐỊNH DẠNG, không chỉ "có nhập hay chưa". Đã xảy ra thật: người dùng gõ địa chỉ email vào
-    # ô SMTP_HOST. Giá trị được nhận, script báo ✓, và lỗi chỉ lộ ra nhiều bước sau — khi Keycloak
-    # không gửi được thư tới một hostname không tồn tại. Lúc đó không ai nối hiện tượng ấy với một
-    # câu trả lời đã gõ từ mười phút trước.
-    ask() {
-      local val
-      while :; do
-        if [ "$2" = sec ]; then
-          printf '\n  %s\n  %s: ' "$3" "$1"; read -rs val; echo
-        else
-          printf '\n  %s\n  %s [%s]: ' "$3" "$1" "${4:-}"; read -r val
-          [ -n "$val" ] || val="${4:-}"
-        fi
-        if [ -z "$val" ]; then info "bỏ qua $1"; return 0; fi
-        case "${5:-}" in
-          host)
-            # Tên máy chủ: KHÔNG chứa @, và phải có ít nhất một dấu chấm.
-            case "$val" in
-              *@*) echo "    [sai] '$val' la dia chi email, khong phai ten may chu. Gmail: smtp.gmail.com" >&2
-                   continue ;;
-              *.*) ;;
-              *)   echo "    [sai] '$val' khong giong ten may chu (thieu dau cham)." >&2
-                   continue ;;
-            esac ;;
-          email)
-            case "$val" in
-              *@*.*) ;;
-              *) echo "    [sai] '$val' khong giong dia chi email." >&2; continue ;;
-            esac ;;
-        esac
-        break
-      done
-      local t=String; [ "$2" = sec ] && t=SecureString
-      aws ssm put-parameter --name "$PREFIX/$1" --type "$t" --value "$val" --overwrite >/dev/null
-      ok "$1"
-    }
-
+    Bỏ trống rồi Enter = giữ giá trị đang có.
+ASKNOTE
     ask SUPER_ADMIN_EMAILS str "Email được cấp SUPER_ADMIN ở lần đăng nhập đầu" "" email
     ask SMTP_HOST          str "Máy chủ SMTP — KHÔNG phải email của bạn" "smtp.gmail.com" host
     ask SMTP_USER          str "Tài khoản Gmail gửi thư" "" email
@@ -127,6 +129,37 @@ ASK
     ask PAYOS_API_KEY      sec "payOS API Key"
     ask PAYOS_CHECKSUM_KEY sec "payOS Checksum Key — khoá ký webhook, lộ là giả được 'đã trả tiền'"
   fi
+
+  # Đọc lại — LUÔN chạy, kể cả khi đã bỏ qua phần hỏi.
+  #
+  # Luật kiểm định dạng không bắt được lỗi đánh máy: `ten@gmail.ocm` đúng dạng email nên nó qua, rồi
+  # thư gửi vào hư không và lỗi lộ ra ở một chỗ không liên quan. Đây cũng là chỗ DUY NHẤT sửa được
+  # một giá trị đã nạp sai ở lần chạy trước — nếu bước này nằm trong nhánh `else` thì lần chạy lại
+  # sẽ bỏ qua nó, và người dùng không có đường nào để sửa.
+  #
+  # Chỉ in lại giá trị KHÔNG phải bí mật. Đọc bốn khoá kia ra màn hình là phá đúng điều mà
+  # `read -rs` được dùng để bảo vệ.
+  while :; do
+    printf '\n  Đọc lại — bốn giá trị này đi vào thư gửi cho khách:\n\n'
+    for v in SUPER_ADMIN_EMAILS SMTP_HOST SMTP_USER SMTP_FROM; do
+      printf '    %-20s %s\n' "$v" \
+        "$(aws ssm get-parameter --name "$PREFIX/$v" --query Parameter.Value --output text 2>/dev/null)"
+    done
+    printf '\n  Đúng cả chưa?  [Enter = đi tiếp · gõ tên biến để sửa] : '
+    read -r answer
+    case "$answer" in
+      ''|y|Y|yes) break ;;
+      SUPER_ADMIN_EMAILS) ask SUPER_ADMIN_EMAILS str "Email được cấp SUPER_ADMIN" "" email ;;
+      SMTP_HOST)  ask SMTP_HOST str "Máy chủ SMTP — KHÔNG phải email của bạn" "smtp.gmail.com" host ;;
+      SMTP_USER)  ask SMTP_USER str "Tài khoản Gmail gửi thư" "" email ;;
+      SMTP_FROM)  ask SMTP_FROM str "Địa chỉ hiện ở ô Người gửi" "" email ;;
+      SMTP_PASSWORD)      ask SMTP_PASSWORD      sec "Gmail App Password" ;;
+      PAYOS_CLIENT_ID)    ask PAYOS_CLIENT_ID    sec "payOS Client ID" ;;
+      PAYOS_API_KEY)      ask PAYOS_API_KEY      sec "payOS API Key" ;;
+      PAYOS_CHECKSUM_KEY) ask PAYOS_CHECKSUM_KEY sec "payOS Checksum Key" ;;
+      *) echo "    Enter để đi tiếp, hoặc gõ tên biến cần sửa (ví dụ: SMTP_USER)." ;;
+    esac
+  done
 fi
 
 # ===========================================================================
