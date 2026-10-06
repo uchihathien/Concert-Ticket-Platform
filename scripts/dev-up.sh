@@ -131,6 +131,12 @@ if [ -f "$ROOT/.env" ]; then
   unset DB_URL DB_USER DB_PASSWORD
 fi
 
+# Mobile / Expo trên LAN phải dùng cùng issuer và API base với Keycloak đang chạy. Nếu không gán
+# biến này ở đây, Spring Boot sẽ mặc định vào `http://localhost:8081/...` và JWT `iss` sẽ bị reject.
+export OIDC_ISSUER="${OIDC_ISSUER:-http://172.16.0.149:8081/realms/nexaticket}"
+export KEYCLOAK_ISSUER="${KEYCLOAK_ISSUER:-$OIDC_ISSUER}"
+export NEXT_PUBLIC_API_BASE_URL="${NEXT_PUBLIC_API_BASE_URL:-http://172.16.0.149:8080}"
+
 # Cổng quản trị của mỗi service. Từ khi actuator tách khỏi cổng ứng dụng, MỌI service đều mặc định
 # `MANAGEMENT_PORT:9090` — đúng cho production (một service một container) và sai hoàn toàn ở đây,
 # nơi mười hai service dùng chung một máy. Cái nào bind 9090 trước thì sống, phần còn lại chết bằng
@@ -241,7 +247,7 @@ for entry in "${SERVICES[@]}"; do
   # Qua `env`, không phải một tiền tố gán biến dựng từ mảng: `"${env_prefix[@]}" ./mvnw` khiến
   # bash coi "PAYMENT_SANDBOX=true" là TÊN LỆNH và chết với "command not found". Phép gán biến
   # phải nằm nguyên văn trong câu lệnh lúc parse, không đến từ một lần khai triển.
-  env_prefix=(MANAGEMENT_PORT="$mport")
+  env_prefix=(MANAGEMENT_PORT="$mport" OIDC_ISSUER="$OIDC_ISSUER" KEYCLOAK_ISSUER="$KEYCLOAK_ISSUER")
   [ "$svc" = "payment-service" ] && env_prefix+=(PAYMENT_SANDBOX=true)
 
   if [ "$USE_JAR" = 1 ]; then

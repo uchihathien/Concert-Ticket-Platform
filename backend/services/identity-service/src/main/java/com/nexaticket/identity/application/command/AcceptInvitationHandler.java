@@ -15,6 +15,7 @@ import com.nexaticket.platform.web.error.ApiException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -46,12 +47,30 @@ public class AcceptInvitationHandler {
 
     @Transactional
     public OrganizationView handle(String rawToken) {
-        var currentUser = TenantContext.requireAuthenticated();
-        var user = users.findById(currentUser.userId()).orElseThrow(() -> ApiException.notFound("User"));
-
+        var user = currentUser();
         Invitation invitation = invitations
                 .findByTokenHash(Invitation.hash(rawToken))
                 .orElseThrow(() -> new ApiException(IdentityErrorCode.INVITATION_INVALID, "Invitation not found"));
+
+        return accept(invitation, user);
+    }
+
+    @Transactional
+    public OrganizationView handle(UUID invitationId) {
+        var user = currentUser();
+        Invitation invitation = invitations
+                .findById(invitationId)
+                .orElseThrow(() -> new ApiException(IdentityErrorCode.INVITATION_INVALID, "Invitation not found"));
+
+        return accept(invitation, user);
+    }
+
+    private UserRepository.UserRecord currentUser() {
+        var currentUser = TenantContext.requireAuthenticated();
+        return users.findById(currentUser.userId()).orElseThrow(() -> ApiException.notFound("User"));
+    }
+
+    private OrganizationView accept(Invitation invitation, UserRepository.UserRecord user) {
 
         // Lời mời gửi cho một địa chỉ cụ thể; người khác cầm được token cũng không dùng được.
         if (!invitation.email().equalsIgnoreCase(user.email())) {

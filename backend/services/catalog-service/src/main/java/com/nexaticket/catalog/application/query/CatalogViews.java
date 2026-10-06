@@ -138,6 +138,10 @@ public final class CatalogViews {
             Integer maxTicketsPerCustomer,
             List<AdminTicketType> ticketTypes) {}
 
+    /** Dữ liệu tối thiểu cho staff chọn suất diễn để check-in. */
+    public record CheckinSession(
+            UUID eventSessionId, UUID eventId, String eventTitle, String venueName, Instant startsAt, Instant endsAt) {}
+
     public record AdminTicketType(
             UUID id, UUID venueZoneId, String zoneCode, String zoneName, String name, long priceVnd, int capacity) {}
 

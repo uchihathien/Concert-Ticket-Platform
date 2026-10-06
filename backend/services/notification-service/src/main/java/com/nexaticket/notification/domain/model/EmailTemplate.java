@@ -41,7 +41,7 @@ public enum EmailTemplate {
             case ORGANIZATION_INVITATION -> """
                     Bạn được mời tham gia %s trên NexaTicket.
 
-                    Mở liên kết trong ứng dụng để chấp nhận lời mời.
+                    Mở ứng dụng NexaTicket, đăng nhập bằng địa chỉ email này và chấp nhận lời mời đang chờ.
                     """
                     .formatted(payload.getOrDefault("headline", ""));
             case ORDER_PAID -> """

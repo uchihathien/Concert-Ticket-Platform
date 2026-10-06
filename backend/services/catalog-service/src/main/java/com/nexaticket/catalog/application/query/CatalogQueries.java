@@ -78,6 +78,9 @@ public interface CatalogQueries {
     /** Bảng sự kiện của khu vực quản trị, gồm cả bản nháp. */
     List<CatalogViews.AdminEventRow> organizationEvents(UUID organizationId);
 
+    /** Suất của sự kiện đã xuất bản mà nhân viên có thể chọn để soát vé. */
+    List<CatalogViews.CheckinSession> checkinSessions(UUID organizationId);
+
     /**
      * Suất diễn này có thật không.
      *

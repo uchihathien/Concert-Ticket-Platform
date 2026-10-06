@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -85,7 +86,7 @@ public abstract class CatalogTestBase {
             // Đọc cờ mỗi lần gọi, không chụp giá trị lúc tạo bean: context của Spring được cache
             // giữa các lớp test, nên bean này sống lâu hơn bất kỳ ca test nào.
             return claims -> new MembershipLookup.Principal(
-                    UserId.of(USER), Map.of(TenantId.of(ORG), Role.EVENT_MANAGER), SUPER_ADMIN.get());
+                    UserId.of(USER), Map.of(TenantId.of(ORG), ORGANIZATION_ROLE.get()), SUPER_ADMIN.get());
         }
     }
 
@@ -98,6 +99,12 @@ public abstract class CatalogTestBase {
      */
     private static final java.util.concurrent.atomic.AtomicBoolean SUPER_ADMIN =
             new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    private static final AtomicReference<Role> ORGANIZATION_ROLE = new AtomicReference<>(Role.EVENT_MANAGER);
+
+    protected static void actAsCheckinStaff() {
+        ORGANIZATION_ROLE.set(Role.CHECKIN_STAFF);
+    }
 
     /** Chạy phần còn lại của ca test với tư cách Tổng công ty. Tự tắt ở ca sau. */
     protected static void actAsSuperAdmin() {
@@ -112,6 +119,7 @@ public abstract class CatalogTestBase {
      * không bị bắt, vì superadmin đi qua được mọi cửa.
      */
     protected static void actAsOrganizer() {
+        ORGANIZATION_ROLE.set(Role.EVENT_MANAGER);
         SUPER_ADMIN.set(false);
     }
 
@@ -128,6 +136,7 @@ public abstract class CatalogTestBase {
     @BeforeEach
     void resetCatalog() {
         SUPER_ADMIN.set(false);
+        ORGANIZATION_ROLE.set(Role.EVENT_MANAGER);
         jdbc.update("TRUNCATE ticket_types, event_sessions, events, venue_zones, venues, "
                 + "concert_template_zones, concert_templates, outbox CASCADE");
     }
