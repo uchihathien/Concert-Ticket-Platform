@@ -264,20 +264,21 @@ fqdn() { [ "$1" = "@" ] && echo "$DOMAIN" || echo "$1.$DOMAIN"; }
 # Ba công cụ vì không công cụ nào chắc chắn có: `dig` nằm trong bind-utils và KHÔNG phải bản
 # CloudShell nào cũng cài sẵn — máy viết script này không có `dig`.
 resolve() {
+  local srv="${2:-8.8.8.8}"
   if command -v dig >/dev/null 2>&1; then
-    dig +short "$1" @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+    dig +short "$1" "@$srv" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
   elif command -v nslookup >/dev/null 2>&1; then
     # CHỈ đọc phần sau dòng `Name:`. Dòng `Address:` đầu tiên là địa chỉ của chính máy chủ DNS, nên
     # đọc bừa sẽ trả về 8.8.8.8 cho mọi tên KHÔNG tồn tại — một kết quả trông như hợp lệ.
     # `Addresses:` (số nhiều) xuất hiện khi có nhiều bản ghi; lấy cả các dòng tiếp theo của nó.
-    nslookup "$1" 8.8.8.8 2>/dev/null | awk '
+    nslookup "$1" "$srv" 2>/dev/null | awk '
       /^Name:/ { ans = 1; next }
       ans && /^Address(es)?:/ { sub(/^Address(es)?:[ \t]*/, ""); print; inlist = 1; next }
       inlist && /^[ \t]+[0-9]/ { gsub(/[ \t]/, ""); print; next }
       { inlist = 0 }
     ' | tr -d ' '
   elif command -v host >/dev/null 2>&1; then
-    host -t A "$1" 8.8.8.8 2>/dev/null | awk '/has address/ {print $NF}'
+    host -t A "$1" "$srv" 2>/dev/null | awk '/has address/ {print $NF}'
   else
     getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | sort -u
   fi
@@ -287,11 +288,24 @@ resolve() {
 #
 # Đòi mọi câu trả lời khớp, không phải "có $EIP trong số đó": một bản ghi cũ còn sót làm nửa số lượt
 # truy cập đi sai máy chủ, và đó là lỗi gián đoạn — thứ khó lần ra nhất.
+# Ba resolver công khai, độc lập nhau. Một tên coi là ĐÚNG chỉ khi cả ba đồng ý.
+#
+# Hỏi lại cùng một resolver nhiều lần là tín hiệu yếu: 8.8.8.8 có rất nhiều điểm phục vụ, và những
+# điểm đã hỏi tên này lúc nó CHƯA tồn tại còn giữ câu trả lời phủ định — trường cuối của bản ghi SOA
+# là TTL cho câu trả lời đó, với zone này là 3600 giây. Nên lặp lại chỉ đo được "lần này rơi vào điểm
+# nào", không đo được việc lan truyền đã xong.
+#
+# Ba nhà cung cấp khác nhau cùng trả lời đúng là bằng chứng mạnh hơn hẳn — và Let's Encrypt cũng xác
+# minh từ nhiều hướng, nên đây là phép thử gần với thứ sẽ thật sự xảy ra.
+RESOLVERS="8.8.8.8 1.1.1.1 9.9.9.9"
+
 points_only_to() {
-  local name="$1" want="$2" got
-  got=$(resolve "$name")
-  [ -n "$got" ] || return 1
-  [ "$(echo "$got" | sort -u)" = "$want" ]
+  local name="$1" want="$2" got srv
+  for srv in $RESOLVERS; do
+    got=$(resolve "$name" "$srv")
+    [ -n "$got" ] || return 1
+    [ "$(echo "$got" | sort -u)" = "$want" ] || return 1
+  done
 }
 
 if phase 5 "Chờ DNS"; then
@@ -319,7 +333,25 @@ if phase 5 "Chờ DNS"; then
       wrong=$(resolve "$name" | sort -u | grep -v "^$EIP\$" | tr '\n' ' ')
       [ -z "$wrong" ] || stale="$stale$name còn trỏ về $wrong|"
     done
-    if [ -z "$bad" ]; then dns_ok=1; ok "cả bảy tên đã trỏ về $EIP"; break; fi
+    # ĐÒI BA VÒNG LIÊN TIẾP ĐÚNG, không phải một.
+    #
+    # Trong lúc lan truyền, 8.8.8.8 trả lời khác nhau giữa các lần gọi — nó có nhiều điểm phục vụ,
+    # và những điểm đã hỏi tên này lúc nó CHƯA tồn tại còn giữ câu trả lời phủ định. Trường cuối của
+    # bản ghi SOA là TTL cho câu trả lời phủ định đó; với zone này là 3600, tức tới một giờ.
+    #
+    # Đo thật trên tai-khoan.concertth.site: mười lần gọi thì năm lần ra IP, năm lần không có gì.
+    # Một vòng kiểm đúng vào lúc may mắn sẽ cho script đi tiếp, rồi certbot gặp đúng lần trả lời
+    # phủ định và thất bại — mà Let's Encrypt chỉ cho 5 lần thất bại mỗi giờ cho mỗi bộ tên. Đổi một
+    # phút chờ thêm lấy việc không bị khoá một tiếng là đổi rất đáng.
+    if [ -z "$bad" ]; then
+      streak=$((${streak:-0} + 1))
+      if [ "$streak" -ge 3 ]; then dns_ok=1; ok "cả bảy tên trỏ về $EIP, ổn định qua 3 lần kiểm"; break; fi
+      printf '
+    cả bảy tên đúng — xác nhận lại lần %d/3...                              ' "$streak"
+      sleep 10
+      continue
+    fi
+    streak=0
 
     # In cảnh báo bản ghi cũ MỘT LẦN. Lặp mỗi 10 giây thì nó trôi mất giữa dòng đếm thời gian.
     if [ -n "$stale" ] && [ -z "${stale_shown:-}" ]; then
