@@ -17,11 +17,61 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-southeast-1}"
 tmp=$(mktemp); chmod 600 "$tmp"
 trap 'rm -f "$tmp"' EXIT
 
-# `--with-decryption` giải mã SecureString. `--recursive` để thêm tham số sau này không phải sửa script.
-aws ssm get-parameters-by-path --path "$PREFIX/" --with-decryption --recursive \
-    --query 'Parameters[].[Name,Value]' --output text \
+# Hai đường lấy tham số, thử lần lượt.
+#
+# ĐƯỜNG 1 — `GetParametersByPath`: một lời gọi lấy hết, không cần biết trước tên biến nào.
+#
+# ĐƯỜNG 2 — `GetParameters` theo TÊN, từng lô 10: dùng khi đường 1 bị từ chối. Tài khoản nằm trong
+# AWS Organization có thể có Service Control Policy chặn riêng `GetParametersByPath` — nó là lời gọi
+# LIỆT KÊ, nên bị siết chặt hơn việc đọc một tham số đã biết tên. Đã xảy ra thật trên tài khoản do
+# tổ chức cấp:
+#
+#     AccessDeniedException ... not authorized to perform: ssm:GetParametersByPath
+#     with an explicit deny in a service control policy
+#
+# Danh sách tên rút THẲNG từ prod.yml — mọi biến compose tham chiếu tới, cả bắt buộc (`${X:?}`) lẫn
+# có mặc định (`${X:-...}`). Không giữ một bản sao sẽ lệch khi ai đó thêm biến mới.
+compose="$(cd "$(dirname "$0")/../compose" && pwd)/prod.yml"
+[ -f "$compose" ] || { echo "Không thấy $compose" >&2; exit 1; }
+
+by_path() {
+  aws ssm get-parameters-by-path --path "$PREFIX/" --with-decryption --recursive \
+      --query 'Parameters[].[Name,Value]' --output text 2>"$err"
+}
+
+by_name() {
+  # Mọi tên biến prod.yml nhắc tới, bỏ dòng comment (dòng 8 có ví dụ `${X:?...}` trong lời giải thích).
+  local names batch full
+  names=$(grep -v '^[[:space:]]*#' "$compose" \
+          | grep -oE '[$][{][A-Z_][A-Z_0-9]*' | tr -d '${' | sort -u)
+  # Lô 10 là trần của API; chia nhỏ hơn chỉ tốn thêm lời gọi.
+  # `--query` chỉ in tham số CÓ THẬT; tên không tồn tại nằm ở InvalidParameters và bị bỏ qua — đó là
+  # hành vi mong muốn, vì prod.yml nhắc cả những biến chỉ có ý nghĩa ở máy phát triển.
+  echo "$names" | xargs -n 10 | while read -r batch; do
+    full=""
+    for b in $batch; do full="$full $PREFIX/$b"; done
+    # shellcheck disable=SC2086
+    aws ssm get-parameters --names $full --with-decryption \
+      --query 'Parameters[].[Name,Value]' --output text 2>>"$err" || true
+  done
+}
+
+err=$(mktemp); trap 'rm -f "$tmp" "$err"' EXIT
+
+raw=$(by_path) || raw=""
+if [ -z "$raw" ]; then
+  if grep -q "service control policy\|AccessDenied" "$err"; then
+    echo "  GetParametersByPath bị Service Control Policy chặn — chuyển sang đọc theo tên." >&2
+  else
+    echo "  GetParametersByPath không trả về gì:" >&2
+    sed 's/^/    /' "$err" >&2
+  fi
+  raw=$(by_name)
+fi
+
+printf '%s\n' "$raw" \
   | sed "s|^$PREFIX/||" \
-  | awk -F'\t' 'NF >= 2 { $1=$1; printf "%s=%s\n", $1, substr($0, index($0, "\t") + 1) }' \
+  | awk -F'\t' 'NF >= 2 { printf "%s=%s\n", $1, substr($0, index($0, "\t") + 1) }' \
   >> "$tmp"
 
 n=$(grep -c '=' "$tmp" || true)
@@ -50,4 +100,25 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-echo "Đã sinh $OUT ($n biến)"
+# GHI FILE. Dòng này từng bị một bản vá xoá mất, và script vẫn in "Đã sinh ... (56 biến)" như
+# thường — báo thành công mà không ghi gì. Compose sau đó chết vì thiếu biến, ở một chỗ cách đây rất
+# xa, và không ai nghĩ tới việc kiểm xem file có tồn tại hay không.
+install -m 600 "$tmp" "$OUT"
+
+# Đọc lại từ ĐÍCH, không tin vào việc lệnh trên đã chạy. Một thông báo thành công phải dựa trên trạng
+# thái quan sát được, không dựa trên việc mã nguồn đã đi qua dòng nào.
+[ -s "$OUT" ] || { echo "Ghi $OUT thất bại hoặc file rỗng." >&2; exit 1; }
+
+# Siết quyền lần nữa và KIỂM LẠI. `install -m 600` đã đặt quyền, nhưng file này chứa toàn bộ bí mật
+# của hệ thống — mật khẩu 13 database, khoá payOS, secret Keycloak. Để nó 644 là mọi user trên máy
+# đọc được, và đó không phải thứ nên phụ thuộc vào một cờ của một lệnh.
+chmod 600 "$OUT"
+perm=$(stat -c %a "$OUT" 2>/dev/null || stat -f %Lp "$OUT" 2>/dev/null || echo '?')
+case "$perm" in
+  600) ;;
+  *) echo "CẢNH BÁO: $OUT đang có quyền $perm, đáng lẽ 600." >&2 ;;
+esac
+written=$(grep -c '^[A-Z_][A-Z_0-9]*=' "$OUT" || true)
+[ "$written" -ge 49 ] || { echo "$OUT chỉ có $written biến, cần tối thiểu 49." >&2; exit 1; }
+
+echo "Đã sinh $OUT ($written biến)"
