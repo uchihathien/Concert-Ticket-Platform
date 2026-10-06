@@ -168,6 +168,11 @@ jobs:
           # làm việc này, và vì một ảnh thiếu làm CẢ `compose up` chết, bỏ dòng này nghĩa là không
           # container nào được tạo — kể cả 21 ảnh vừa kéo xong.
           \$compose build rabbitmq
+          # Hạ tầng trước, rồi topology, rồi mới tới 19 service. `depends_on: service_healthy`
+          # chỉ bảo đảm broker đã CHẠY, không bảo đảm nó có exchange và queue — mà năm service
+          # có @RabbitListener sẽ crash-loop nếu queue chưa tồn tại.
+          \$compose up -d --no-build --wait rabbitmq postgres redis
+          bash deploy/scripts/apply-topology.sh
           # --no-build: trên máy chủ không có mã nguồn frontend. Thiếu cờ này thì compose thấy
           # thiếu ảnh là đi build, và chết ở một build context không tồn tại.
           # --wait: trả về khi container HEALTHY, không phải khi đã tạo xong.

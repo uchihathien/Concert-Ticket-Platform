@@ -23,4 +23,26 @@ public record ToolInvocation(String callId, String toolName, Map<String, Object>
         Object value = arguments.get(name);
         return value == null ? null : value.toString();
     }
+
+    /**
+     * Đọc một tham số dạng số nguyên.
+     *
+     * <p>Nhận cả số lẫn chuỗi số: mô hình khai {@code "quantity": "2"} thường như {@code 2}, và hai
+     * cách ấy cùng nghĩa là hai vé. Trả null khi thiếu hoặc không phải số — người gọi tự quyết, vì
+     * "không rõ số lượng" là câu nên hỏi lại khách chứ không phải lỗi hệ thống.
+     */
+    public Integer intArg(String name) {
+        Object value = arguments.get(name);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value.toString().strip());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
 }

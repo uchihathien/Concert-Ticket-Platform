@@ -53,6 +53,21 @@ ExecStartPre=-/usr/local/bin/nexa-env
 #
 # Build có cache nên mỗi lần khởi động chỉ mất vài giây.
 ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env build rabbitmq
+# ÁP TOPOLOGY RABBITMQ TRƯỚC KHI 19 SERVICE KHỞI ĐỘNG.
+#
+# `depends_on: rabbitmq: service_healthy` chỉ bảo đảm BROKER đã chạy, không bảo đảm nó có exchange và
+# queue nào. Topology là nguồn chân lý ở deploy/rabbitmq/topology.yaml và phải được áp bằng một bước
+# deploy (plan/README.md §4) — `dev-up.sh` và `e2e.yml` đều gọi, đường production thì trước đây không.
+#
+# Hậu quả đã xảy ra thật: broker lên trắng, và đúng năm service có `@RabbitListener` — analytics,
+# inventory, ledger, notification, ticketing — chết lúc khai queue rồi crash-loop, trong khi bảy
+# service không chạm RabbitMQ vẫn healthy. `up --wait` đỏ ở một cái tên ngẫu nhiên trong năm cái đó,
+# nên triệu chứng trông như lỗi của service chứ không như thiếu một bước deploy.
+#
+# Hai dòng, theo thứ tự này: dựng hạ tầng và CHỜ nó healthy, rồi áp topology. Sau đó ExecStart bật
+# phần còn lại, lúc queue đã có mặt — nên không service nào phải crash-loop để chờ.
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --no-build --wait rabbitmq postgres redis
+ExecStartPre=/usr/bin/bash /srv/nexaticket/deploy/scripts/apply-topology.sh
 # --no-build: máy chủ KHÔNG có mã nguồn frontend (repo riêng). Thiếu cờ này thì compose thấy thiếu
 # ảnh là đi build, và chết ở một build context không tồn tại.
 # --wait: trả về khi container HEALTHY, không phải khi vừa tạo xong.

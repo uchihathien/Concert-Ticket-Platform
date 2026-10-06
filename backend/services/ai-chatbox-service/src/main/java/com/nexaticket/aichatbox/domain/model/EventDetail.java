@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.domain.model;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Một sự kiện với đủ thứ khách hay hỏi: diễn ở đâu, khi nào, vé bao nhiêu.
@@ -30,12 +31,21 @@ public record EventDetail(
         sessions = sessions == null ? List.of() : List.copyOf(sessions);
     }
 
-    public record Session(Instant startsAt, Instant endsAt, Instant salesCloseAt, List<Tier> tiers) {
+    /**
+     * @param id mã suất diễn — thứ tool giữ chỗ cần. Là mã duy nhất của catalog được phép đi vào
+     *     prompt, vì không có nó thì mô hình không có cách nào nói với inventory "suất nào"; và nó
+     *     chỉ đi ra từ kết quả tool, nên mô hình không tự dựng được.
+     */
+    public record Session(UUID id, Instant startsAt, Instant endsAt, Instant salesCloseAt, List<Tier> tiers) {
         public Session {
             tiers = tiers == null ? List.of() : List.copyOf(tiers);
         }
     }
 
-    /** Một hạng vé: tên khách đọc được, giá, và khu vực tương ứng trên sơ đồ. */
-    public record Tier(String name, long priceVnd, String zoneName) {}
+    /**
+     * Một hạng vé: tên khách đọc được, giá, và khu vực tương ứng trên sơ đồ.
+     *
+     * @param zoneCode mã khu để giữ chỗ — cùng lý do với {@code Session.id}
+     */
+    public record Tier(String name, long priceVnd, String zoneCode, String zoneName) {}
 }

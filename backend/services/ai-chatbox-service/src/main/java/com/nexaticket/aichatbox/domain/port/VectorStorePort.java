@@ -66,8 +66,17 @@ public interface VectorStorePort {
      */
     List<KnowledgeEntry> listChunks(UUID eventId, int limit, int offset);
 
-    /** Ghi hoặc ghi đè quy định của một sự kiện. Ghi đè hoàn toàn, không trộn. */
-    void upsertRules(UUID eventId, String eventTitle, String content, boolean published);
+    /**
+     * Ghi hoặc ghi đè quy định của một sự kiện. Ghi đè hoàn toàn, không trộn.
+     *
+     * @param refundPolicy phần có cấu trúc — xem {@link com.nexaticket.aichatbox.domain.model.EventRules}
+     */
+    void upsertRules(
+            UUID eventId,
+            String eventTitle,
+            String content,
+            com.nexaticket.aichatbox.domain.model.RefundPolicy refundPolicy,
+            boolean published);
 
     /** Quy định kể cả bản nháp — đường của người soạn. */
     Optional<RulesEntry> findRulesForCurator(UUID eventId);
