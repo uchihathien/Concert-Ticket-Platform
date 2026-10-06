@@ -10,7 +10,22 @@ set -euo pipefail
 
 PREFIX="${PREFIX:-/nexaticket}"
 OUT="${OUT:-/srv/nexaticket/deploy/compose/.env}"
-export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-ap-southeast-1}"
+# Vùng lấy từ METADATA của chính instance, không ghim cứng.
+#
+# Script này chạy trên máy chủ, nơi AWS_REGION không được đặt. Ghim một vùng ở đây thì nó đọc
+# Parameter Store của vùng KHÁC vùng instance đang nằm — không thấy tham số nào, và nếu tổ chức có
+# Service Control Policy chỉ cho phép một vùng thì lời gọi còn bị "explicit deny", khiến lỗi trông
+# như SSM bị chặn thay vì vùng bị sai.
+#
+# IMDSv2 (bắt buộc trên instance này): phải lấy token trước, không gọi thẳng được.
+if [ -z "${AWS_REGION:-}${AWS_DEFAULT_REGION:-}" ]; then
+  _tok=$(curl -sS -m 3 -X PUT http://169.254.169.254/latest/api/token            -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' 2>/dev/null || true)
+  if [ -n "$_tok" ]; then
+    AWS_DEFAULT_REGION=$(curl -sS -m 3 -H "X-aws-ec2-metadata-token: $_tok"       http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null || true)
+  fi
+fi
+export AWS_DEFAULT_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}"
+export AWS_REGION="$AWS_DEFAULT_REGION"
 
 # Quyền 600 ngay từ lúc tạo, TRƯỚC khi có nội dung: tạo file rồi mới chmod để lại một khoảng thời
 # gian file chứa mọi bí mật của hệ thống mà ai đọc cũng được.
@@ -53,6 +68,18 @@ by_path() {
 }
 
 by_name() {
+  # Thử MỘT tên trước khi chạy cả bảy lô.
+  #
+  # Nếu Service Control Policy chặn `GetParameters` thì cả bảy lô đều thất bại y như nhau, và vòng
+  # lặp in ra năm mươi dòng AccessDenied giống hệt — che mất mọi thứ đáng đọc trong output. Một lời
+  # gọi thăm dò trả lời cùng câu hỏi bằng một dòng.
+  if ! aws ssm get-parameter --name "$PREFIX/INTERNAL_SHARED_SECRET" --with-decryption         >/dev/null 2>"$err"; then
+    if grep -q "service control policy" "$err"; then
+      echo "  Đọc theo tên cũng bị Service Control Policy chặn (ssm:GetParameters)." >&2
+      return 0
+    fi
+  fi
+
   # Mọi tên biến prod.yml nhắc tới, bỏ dòng comment (dòng 8 có ví dụ `${X:?...}` trong lời giải thích).
   local names batch full
   names=$(grep -v '^[[:space:]]*#' "$COMPOSE_FILE" \

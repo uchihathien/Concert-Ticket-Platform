@@ -14,9 +14,26 @@
 set -euo pipefail
 
 DOMAIN="${DOMAIN:?Dat DOMAIN, vi du: DOMAIN=concertth.site bash gen-secrets.sh}"
-REGION="${REGION:-ap-southeast-1}"
+# Vùng: ưu tiên AWS_REGION của môi trường, KHÔNG ghim cứng một vùng.
+#
+# AWS CLI chọn endpoint theo AWS_REGION TRƯỚC AWS_DEFAULT_REGION. Bản trước ghim ap-southeast-1 và
+# chỉ export AWS_DEFAULT_REGION, nên AWS_REGION của CloudShell thắng: mọi tài nguyên được tạo ở vùng
+# của CloudShell, trong khi script tin là ap-southeast-1.
+#
+# Hậu quả đã xảy ra thật, và nó giả dạng thành một chuỗi lỗi khác hẳn:
+#   - Elastic IP cấp ra là 52.62.179.59, thuộc ap-southeast-2 — không phải vùng script khai.
+#   - gen-secrets.sh ghi tham số vào ap-southeast-2 (AWS_REGION thắng).
+#   - pull-env.sh trên máy chủ đọc ap-southeast-1 (ở đó AWS_REGION không được đặt) -> không thấy gì.
+#   - create-bucket gửi tới endpoint ap-southeast-2 kèm LocationConstraint=ap-southeast-1 ->
+#     IllegalLocationConstraintException.
+#   - Và nặng nhất: Service Control Policy của tổ chức CHỈ cho phép một vùng, nên mọi lời gọi tới
+#     vùng sai bị "explicit deny" — thông điệp nói về `ssm:GetParameters`, khiến ta tưởng SSM bị
+#     chặn, trong khi thứ bị chặn là VÙNG.
+#
+# Export CẢ HAI biến để không còn chỗ cho sự khác biệt.
+REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}}"
 PREFIX="${PREFIX:-/nexaticket}"
-export AWS_DEFAULT_REGION="$REGION"
+export AWS_DEFAULT_REGION="$REGION" AWS_REGION="$REGION"
 
 created=0; kept=0
 

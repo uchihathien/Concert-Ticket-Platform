@@ -11,7 +11,8 @@
 set -euo pipefail
 
 NAME="${NAME:-nexaticket}"
-export AWS_DEFAULT_REGION="${REGION:-ap-southeast-1}"
+REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}}"
+export AWS_DEFAULT_REGION="$REGION" AWS_REGION="$REGION"
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 say() { printf '
 === %s
