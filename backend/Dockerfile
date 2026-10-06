@@ -33,8 +33,20 @@ RUN test -n "$SERVICE" || (echo "Thiếu --build-arg SERVICE=<tên module>" && e
 #
 # `-am` dựng cả các module platform mà service phụ thuộc vào.
 # Bỏ test: chúng đã chạy ở CI với Testcontainers, và chạy lại ở đây đòi Docker-trong-Docker.
+# `sh ./mvnw`, KHÔNG `./mvnw` — phòng cho bit thực thi.
+#
+# Mọi lần CI đều đỏ với `exit code: 126` ở đúng dòng này. 126 nghĩa là "tìm thấy nhưng không chạy
+# được", khác 127 ("không tìm thấy") — manh mối duy nhất phân biệt vấn đề quyền với vấn đề đường dẫn.
+# `backend/mvnw` nằm trong git ở mode 644: `chmod +x` trên Windows không được ghi lại
+# (core.fileMode false), nên runner Linux checkout ra một file không thực thi được.
+#
+# Build ở máy phát triển Windows VẪN XANH, vì Docker Desktop gán 0755 cho file chép từ host — nên lỗi
+# chỉ xuất hiện trên Linux, tức là chỉ trên CI và trên máy chủ. Đó là lý do nó sống sót 26 lần chạy.
+#
+# Mode trong git đã sửa (`git update-index --chmod=+x`). Vẫn gọi qua `sh` vì lần sau có ai sửa file
+# trên Windows và mode lại mất, nó vẫn chạy.
 RUN --mount=type=cache,target=/root/.m2 \
-    ./mvnw -B -ntp -pl "services/$SERVICE" -am -DskipTests package
+    sh ./mvnw -B -ntp -pl "services/$SERVICE" -am -DskipTests package
 
 # Bung jar thành từng tầng.
 #
