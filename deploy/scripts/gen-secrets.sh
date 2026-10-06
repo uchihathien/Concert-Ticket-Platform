@@ -144,8 +144,13 @@ cat <<MANUAL
   # p VOYAGE_API_KEY    '<pa-...>'
   # aws ssm put-parameter --name $PREFIX/AI_PROVIDER --type String --value anthropic --overwrite
 
-  Kiểm lại đã đủ 49 biến bắt buộc:
+  Kiểm lại:
+    # ĐỪNG dùng --query 'length(Parameters)': AWS CLI phân trang, và JMESPath được áp cho TỪNG
+    # trang, nên bạn nhận một số mỗi trang (10 10 10 10 7) chứ không phải tổng. Đếm TÊN thì đúng:
     aws ssm get-parameters-by-path --path $PREFIX/ --recursive \
-      --query 'length(Parameters)' --output text
+      --query 'Parameters[].Name' --output text | tr '\t' '\n' | wc -l
+
+    # Và kiểm có thiếu biến bắt buộc nào không — báo thẳng TÊN, không chỉ đếm:
+    bash deploy/scripts/pull-env.sh   # chạy trên máy chủ; ở đây chỉ để xem danh sách thiếu
 ================================================================
 MANUAL
