@@ -7,7 +7,7 @@ import jakarta.annotation.PostConstruct;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -25,7 +25,7 @@ import org.springframework.web.client.RestClient;
  * thứ chạy trơn tru, truy vấn vẫn trả kết quả, và kết quả vô nghĩa vì vector cũ và mới không nằm
  * trong cùng một không gian. Đổi mô hình ⇒ nhúng lại toàn bộ kho tri thức.
  */
-@ConditionalOnProperty(name = EmbeddingProvider.PROPERTY, havingValue = "anthropic")
+@ConditionalOnExpression("'${nexaticket.aichatbox.embedding.provider:}' == 'anthropic'")
 @Component
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.embedding")
 public class VoyageEmbeddingAdapter implements EmbeddingPort {

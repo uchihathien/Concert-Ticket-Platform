@@ -288,7 +288,13 @@ services:
       # EMBEDDING_PROVIDER=local — Claude trả lời, bge-m3 lo phần nhúng. Cần bật profile ai-local
       # để container ollama chạy, nhưng chỉ nạp mô hình nhúng (~1,2 GB) chứ không nạp mô hình 7B.
       # EMBEDDING_PROVIDER=none thì tắt hẳn RAG: trợ lý vẫn tra được đơn, mất tri thức nền.
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
+      # `:-${AI_PROVIDER:-local}` chứ KHÔNG `:-` trơn. Bản trước truyền chuỗi RỖNG khi biến chưa khai,
+      # và Spring chỉ dùng giá trị mặc định sau dấu `:` khi property THIẾU HẲN — không phải khi rỗng.
+      # Hậu quả: `embedding.provider` = "", không khớp local/anthropic/none, `matchIfMissing` cũng
+      # không cứu vì property CÓ mặt, nên KHÔNG bean EmbeddingPort nào được dựng và service chết ngay
+      # lúc khởi động với "No qualifying bean". Cùng lớp lỗi với `?? ` không bắt chuỗi rỗng ở
+      # NEXT_PUBLIC_API_BASE_URL — rỗng không phải thiếu, và hai thứ đó không được đối xử như nhau.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-${AI_PROVIDER:-local}}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3}
