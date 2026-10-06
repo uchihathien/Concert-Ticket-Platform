@@ -3,6 +3,7 @@ package com.nexaticket.platform.security;
 
 import com.nexaticket.platform.security.tenant.HttpMembershipLookup;
 import com.nexaticket.platform.security.tenant.InternalApiFilter;
+import com.nexaticket.platform.security.tenant.InternalTokenPropagation;
 import com.nexaticket.platform.security.tenant.MembershipLookup;
 import com.nexaticket.platform.security.tenant.TenantFilter;
 import org.slf4j.Logger;
@@ -165,5 +166,16 @@ public class SecurityAutoConfiguration {
                     + "không, vì /internal/memberships tạo được người dùng với email tuỳ ý.");
         }
         return http.build();
+    }
+
+    /**
+     * Gắn {@code X-Internal-Token} cho mọi request tới {@code /internal/**} của mọi RestClient dựng từ
+     * builder được tiêm. Xem {@link InternalTokenPropagation} cho lý do nó tồn tại — mười một adapter
+     * đã quên header này và chỉ production mới lộ.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public InternalTokenPropagation internalTokenPropagation(InternalApiProperties internal) {
+        return new InternalTokenPropagation(internal);
     }
 }
