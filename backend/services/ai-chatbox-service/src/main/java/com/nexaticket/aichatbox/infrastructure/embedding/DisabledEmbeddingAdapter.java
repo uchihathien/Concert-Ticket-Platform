@@ -5,7 +5,7 @@ import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
  * sẽ làm một phép kiểm lược đồ thất bại vì một lý do không liên quan gì tới lược đồ.
  */
 @Component
-@ConditionalOnProperty(name = EmbeddingProvider.PROPERTY, havingValue = "none")
+@ConditionalOnExpression("'${nexaticket.aichatbox.embedding.provider:}' == 'none'")
 public class DisabledEmbeddingAdapter implements EmbeddingPort {
     private static final Logger log = LoggerFactory.getLogger(DisabledEmbeddingAdapter.class);
 

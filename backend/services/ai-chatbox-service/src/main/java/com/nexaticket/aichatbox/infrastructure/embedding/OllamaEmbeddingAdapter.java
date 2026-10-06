@@ -7,7 +7,7 @@ import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
 import com.nexaticket.aichatbox.infrastructure.llm.OllamaProperties;
 import java.time.Duration;
 import java.util.Map;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -32,7 +32,13 @@ import org.springframework.web.client.RestClient;
  * đây gọi cùng một chỗ, và điều đó đúng chứ không phải chưa làm xong.
  */
 @Component
-@ConditionalOnProperty(name = EmbeddingProvider.PROPERTY, havingValue = "local", matchIfMissing = true)
+// RỖNG PHẢI ĐƯỢC COI NHƯ THIẾU. @ConditionalOnProperty không phân biệt được hai thứ đó: property có
+// mặt với giá trị "" thì `matchIfMissing` không áp dụng và `havingValue` không khớp, nên cả ba adapter
+// cùng vắng mặt và service chết lúc khởi động với "No qualifying bean of type EmbeddingPort" — đã xảy
+// ra thật trên production, 17 lần restart. @ConditionalOnExpression xử lý được vì SpEL nhìn thấy
+// chuỗi. Tên property là EmbeddingProvider.PROPERTY; annotation chỉ nhận hằng chuỗi nên phải viết lại.
+@ConditionalOnExpression(
+        "'${nexaticket.aichatbox.embedding.provider:local}'.isEmpty() or '${nexaticket.aichatbox.embedding.provider:local}' == 'local'")
 public class OllamaEmbeddingAdapter implements EmbeddingPort {
 
     private final RestClient client;
