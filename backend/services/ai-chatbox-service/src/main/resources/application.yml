@@ -121,6 +121,13 @@ nexaticket:
       # cố phía nhà cung cấp chiếm hết luồng của Tomcat.
       timeout: ${ANTHROPIC_TIMEOUT:60s}
     embedding:
+      # local | anthropic | none — TÁCH khỏi `provider` ở trên. Xem EmbeddingProvider.
+      #
+      # Mặc định là chính giá trị của AI_PROVIDER, nên cấu hình đang chạy không đổi hành vi. Khai
+      # riêng khi hai thứ cần khác nhau — trường hợp thường gặp nhất: có khoá Anthropic nhưng không
+      # có khoá Voyage, đặt AI_PROVIDER=anthropic và EMBEDDING_PROVIDER=local để Claude trả lời còn
+      # bge-m3 lo phần nhúng (1,2 GB RAM, vài trăm ms mỗi vector, không tốn phí).
+      provider: ${EMBEDDING_PROVIDER:${AI_PROVIDER:local}}
       # Claude không có endpoint nhúng. Voyage là nhà cung cấp Anthropic khuyến nghị đi kèm.
       api-key: ${VOYAGE_API_KEY:}
       model: ${EMBEDDING_MODEL:voyage-3.5}
