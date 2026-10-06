@@ -241,24 +241,47 @@ fi
 HOSTS="@ to-chuc soat-ve quan-tri api tai-khoan media"
 fqdn() { [ "$1" = "@" ] && echo "$DOMAIN" || echo "$1.$DOMAIN"; }
 
-# Hỏi THẲNG 8.8.8.8 chứ không qua resolver của hệ thống: resolver cache cả câu trả lời phủ định,
-# nên sau khi bạn tạo bản ghi nó vẫn trả về "không có" thêm vài phút nữa — và vòng chờ bên dưới sẽ
-# đứng mãi dù DNS đã đúng.
+# Trả về MỌI địa chỉ A của một tên, mỗi dòng một địa chỉ — không phải chỉ một.
+#
+# Vì sao phải lấy hết: một tên có thể mang HAI bản ghi A trỏ hai IP khác nhau, và DNS trả về luân
+# phiên. Lấy một địa chỉ thì phép kiểm bên dưới đúng hay sai tuỳ lần gọi — nó sẽ xanh một cách may
+# mắn, rồi certbot hỏng sau đó vì Let's Encrypt gặp đúng lần trả về IP sai. Đã xảy ra thật: bản ghi
+# `@` cũ trỏ IP mẫu nằm lại cạnh bản ghi mới, và năm lần gọi thì một lần ra IP cũ.
+#
+# Hỏi THẲNG 8.8.8.8 chứ không qua resolver của hệ thống: resolver cache cả câu trả lời phủ định, nên
+# sau khi tạo bản ghi nó vẫn trả "không có" thêm vài phút và vòng chờ sẽ đứng dù DNS đã đúng.
 #
 # Ba công cụ vì không công cụ nào chắc chắn có: `dig` nằm trong bind-utils và KHÔNG phải bản
-# CloudShell nào cũng cài sẵn. `getent` là lối cuối, dùng resolver hệ thống nên có nhược điểm trên.
+# CloudShell nào cũng cài sẵn — máy viết script này không có `dig`.
 resolve() {
   if command -v dig >/dev/null 2>&1; then
-    dig +short "$1" @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | tail -1
+    dig +short "$1" @8.8.8.8 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
   elif command -v nslookup >/dev/null 2>&1; then
-    # CHỈ đọc phần sau dòng `Name:`. Dòng `Address:` đầu tiên là địa chỉ của chính máy chủ DNS,
-    # nên đọc bừa sẽ trả về 8.8.8.8 cho mọi tên KHÔNG tồn tại — một kết quả trông như hợp lệ.
-    nslookup "$1" 8.8.8.8 2>/dev/null | awk '/^Name:/ {ans=1} ans && /^Address(es)?:/ {a=$2} END {print a}'
+    # CHỈ đọc phần sau dòng `Name:`. Dòng `Address:` đầu tiên là địa chỉ của chính máy chủ DNS, nên
+    # đọc bừa sẽ trả về 8.8.8.8 cho mọi tên KHÔNG tồn tại — một kết quả trông như hợp lệ.
+    # `Addresses:` (số nhiều) xuất hiện khi có nhiều bản ghi; lấy cả các dòng tiếp theo của nó.
+    nslookup "$1" 8.8.8.8 2>/dev/null | awk '
+      /^Name:/ { ans = 1; next }
+      ans && /^Address(es)?:/ { sub(/^Address(es)?:[ \t]*/, ""); print; inlist = 1; next }
+      inlist && /^[ \t]+[0-9]/ { gsub(/[ \t]/, ""); print; next }
+      { inlist = 0 }
+    ' | tr -d ' '
   elif command -v host >/dev/null 2>&1; then
-    host -t A "$1" 8.8.8.8 2>/dev/null | awk '/has address/ {print $NF}' | tail -1
+    host -t A "$1" 8.8.8.8 2>/dev/null | awk '/has address/ {print $NF}'
   else
-    getent hosts "$1" 2>/dev/null | awk '{print $1}' | tail -1
+    getent ahostsv4 "$1" 2>/dev/null | awk '{print $1}' | sort -u
   fi
+}
+
+# Tên này đã trỏ ĐÚNG và CHỈ trỏ về $EIP chưa?
+#
+# Đòi mọi câu trả lời khớp, không phải "có $EIP trong số đó": một bản ghi cũ còn sót làm nửa số lượt
+# truy cập đi sai máy chủ, và đó là lỗi gián đoạn — thứ khó lần ra nhất.
+points_only_to() {
+  local name="$1" want="$2" got
+  got=$(resolve "$name")
+  [ -n "$got" ] || return 1
+  [ "$(echo "$got" | sort -u)" = "$want" ]
 }
 
 if phase 5 "Chờ DNS"; then
@@ -277,8 +300,7 @@ if phase 5 "Chờ DNS"; then
   for round in $(seq 1 180); do      # 180 × 10s = 30 phút
     bad=""
     for h in $HOSTS; do
-      got=$(resolve "$(fqdn "$h")")
-      [ "$got" = "$EIP" ] || bad="$bad $(fqdn "$h")"
+      points_only_to "$(fqdn "$h")" "$EIP" || bad="$bad $(fqdn "$h")"
     done
     if [ -z "$bad" ]; then dns_ok=1; ok "cả bảy tên đã trỏ về $EIP"; break; fi
     printf '\r    chờ %-4s còn thiếu: %-60s' "$((round * 10))s" "$(echo $bad | cut -c1-60)"
