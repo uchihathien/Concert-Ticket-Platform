@@ -15,6 +15,10 @@ public final class HandoffViews {
     /**
      * Một phiếu trong hàng đợi.
      *
+     * @param intent khách cần gì — GENERAL · ORDER_STATUS · BOOKING · REFUND · INCIDENT · COMPLAINT
+     *     · EVENT_INFO. Để màn hình lọc và tô màu; người trực chuyên một mảng chỉ nhìn mảng ấy.
+     * @param details JSON có cấu trúc đi kèm (mã đơn, loại sự cố, kết quả xét chính sách…), hoặc
+     *     {@code null}. Màn hình tự đọc; không có hình dạng cố định vì mỗi ý định mang dữ liệu khác.
      * @param lastQuestion câu khách đang hỏi, chụp lúc chuyển. Có mặt ở <b>danh sách</b> chứ không
      *     chỉ ở trang chi tiết: với hàng đợi 40 phiếu, bắt người trực mở từng cái để biết nội dung
      *     là bắt họ mở 40 lần.
@@ -27,7 +31,9 @@ public final class HandoffViews {
             UUID sessionId,
             String status,
             String trigger,
+            String intent,
             String reason,
+            String details,
             String lastQuestion,
             UUID assignedAgentId,
             String assignedAgentName,
@@ -53,7 +59,9 @@ public final class HandoffViews {
                     handoff.sessionId(),
                     handoff.status().name(),
                     handoff.trigger().name(),
+                    handoff.intent().name(),
                     handoff.reason(),
+                    handoff.details(),
                     handoff.lastQuestion(),
                     handoff.assignedAgentId(),
                     assignedAgentName,
@@ -69,8 +77,20 @@ public final class HandoffViews {
         }
     }
 
-    /** Hội thoại đầy đủ kèm phiếu đang mở — một request cho cả màn hình của người trực. */
-    public record HandoffThread(HandoffRow handoff, List<MessageRow> messages) {}
+    /**
+     * Hội thoại đầy đủ kèm phiếu — một request cho cả màn hình của người trực.
+     *
+     * <p>Cũng là thứ {@code claim} trả về: người trực vừa nhận phiếu cần đọc ngay toàn bộ những gì
+     * khách, trợ lý và (nếu có) người trực trước đã nói, không phải nhận xong rồi hỏi thêm một lần.
+     *
+     * @param checklist việc người trực nên kiểm theo khung mẫu của loại sự cố; rỗng với phiếu
+     *     không phải sự cố
+     */
+    public record HandoffThread(HandoffRow handoff, List<MessageRow> messages, List<String> checklist) {
+        public HandoffThread {
+            checklist = checklist == null ? List.of() : List.copyOf(checklist);
+        }
+    }
 
     /**
      * @param role USER · ASSISTANT · AGENT. Ba vai, không phải hai: khách phải biết mình đang nói

@@ -12,4 +12,15 @@ import java.util.UUID;
  * {@code published} vào đó là mời một lời gọi quên kiểm cờ và đọc bản nháp ra cho khách. Ở đây thì
  * ngược lại: người soạn phải thấy bản nháp, nếu không họ không có cách nào soạn.
  */
-public record RulesEntry(UUID eventId, String eventTitle, String content, boolean published, Instant updatedAt) {}
+public record RulesEntry(
+        UUID eventId,
+        String eventTitle,
+        String content,
+        RefundPolicy refundPolicy,
+        boolean published,
+        Instant updatedAt) {
+
+    public RulesEntry {
+        refundPolicy = refundPolicy == null ? RefundPolicy.NONE : refundPolicy;
+    }
+}

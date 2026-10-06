@@ -54,7 +54,7 @@ $APT update -qq
 # không container nào được tạo — đúng cái hố mà bản trước đã rơi vào theo một đường khác.
 $APT install -y -qq \
   docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin \
-  nginx git unzip jq
+  nginx git unzip jq python3-yaml
 
 sudo usermod -aG docker ubuntu
 docker --version && docker compose version && docker buildx version

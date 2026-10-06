@@ -76,11 +76,16 @@ public class AgentMetrics {
         rounds.record(used);
     }
 
-    /** @param trigger lý do chuyển — tách tag để phân biệt "trợ lý hụt" với "khách không tin" */
-    public void recordHandoff(String trigger) {
+    /**
+     * @param trigger lý do chuyển — tách tag để phân biệt "trợ lý hụt" với "khách không tin"
+     * @param intent khách cần gì — tách tag để biết bàn hỗ trợ đang nhận việc gì nhiều nhất: REFUND
+     *     tăng là chuyện chính sách, INCIDENT tăng là chuyện của ticketing hay payment
+     */
+    public void recordHandoff(String trigger, String intent) {
         Counter.builder("aichatbox.handoff.opened")
                 .description("Số phiếu chuyển sang người thật")
                 .tag("trigger", trigger)
+                .tag("intent", intent)
                 .register(registry)
                 .increment();
     }
