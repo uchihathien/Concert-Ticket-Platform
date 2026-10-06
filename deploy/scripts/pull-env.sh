@@ -157,6 +157,17 @@ fi
 # xa, và không ai nghĩ tới việc kiểm xem file có tồn tại hay không.
 install -m 600 "$tmp" "$OUT"
 
+# Chủ sở hữu theo THƯ MỤC ĐÍCH, không theo người đang chạy script.
+#
+# systemd gọi script này bằng root (ExecStartPre), nên .env thành root:root mode 600. Khi đó `ubuntu`
+# không đọc được, và mọi lệnh `docker compose --env-file .env` chạy dưới `ubuntu` đều hỏng — kể cả
+# smoke.sh. Triệu chứng là MƯỜI LĂM mục đỏ cùng lúc, trông như cả cụm chết, trong khi nguyên nhân là
+# một dòng "Permission denied" lọt giữa output.
+if [ "$(id -u)" = 0 ]; then
+  owner=$(stat -c '%u:%g' "$(dirname "$OUT")" 2>/dev/null || echo '')
+  [ -z "$owner" ] || chown "$owner" "$OUT"
+fi
+
 # Đọc lại từ ĐÍCH, không tin vào việc lệnh trên đã chạy. Một thông báo thành công phải dựa trên trạng
 # thái quan sát được, không dựa trên việc mã nguồn đã đi qua dòng nào.
 [ -s "$OUT" ] || { echo "Ghi $OUT thất bại hoặc file rỗng." >&2; exit 1; }
