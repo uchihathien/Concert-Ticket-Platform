@@ -176,7 +176,11 @@ services:
       PAYOS_API_KEY: ${PAYOS_API_KEY:?can PAYOS_API_KEY}
       # Khoa nay ky va kiem chu ky webhook. Sai khoa = moi khoan tien phai xac nhan tay.
       PAYOS_CHECKSUM_KEY: ${PAYOS_CHECKSUM_KEY:?can PAYOS_CHECKSUM_KEY}
-      PAYOS_WEBHOOK_URL: ${PUBLIC_API_BASE_URL:?}/api/billing/bank/webhook
+      # Đường dẫn ĐẦY ĐỦ tới PayosWebhookController: `/api/billing/bank/webhook` là @RequestMapping
+      # của lớp, `/payos` là @PostMapping của phương thức. Bản trước thiếu `/payos`: payOS gọi thử
+      # lúc đăng ký nhận 404 "No handler for this path" và báo "webhook không hoạt động" — trong khi
+      # endpoint thật vẫn sống, chỉ ở một đường dẫn dài hơn 6 ký tự. Khớp docs/03-seat-checkout/api/payos-webhook.md.
+      PAYOS_WEBHOOK_URL: ${PUBLIC_API_BASE_URL:?}/api/billing/bank/webhook/payos
       # Trang khách mà payOS đưa người mua về sau khi trả/huỷ. Mặc định dev là localhost:3000 —
       # ở production là một tab trình duyệt trắng ngay sau khi tiền đã đi.
       WEB_BASE_URL: ${WEB_CUSTOMER_URL:?can WEB_CUSTOMER_URL}
