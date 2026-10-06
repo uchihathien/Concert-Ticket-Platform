@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.application.knowledge;
 
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
+import com.nexaticket.aichatbox.domain.model.RefundPolicy;
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import com.nexaticket.platform.web.error.ApiException;
@@ -110,10 +111,27 @@ public class KnowledgeBaseUseCase {
                 .toList();
     }
 
+    /**
+     * @param refundAllowed sự kiện có nhận yêu cầu hoàn vé không
+     * @param refundWindowHours số giờ kể từ lúc thanh toán còn được xin hoàn; 0 là không giới hạn.
+     *     Hai giá trị thô thay vì một {@code RefundPolicy} vì bên gọi là tầng interfaces, nơi không
+     *     được chạm vào kiểu của domain; phép dựng — và phép kiểm số âm — nằm ở đây.
+     */
     @Transactional
-    public KnowledgeViews.RulesRow upsertRules(UUID eventId, String eventTitle, String content, boolean published) {
-        knowledge.upsertRules(eventId, eventTitle, content, published);
-        log.info("Ghi quy định sự kiện {} (đã công bố: {})", eventId, published);
+    public KnowledgeViews.RulesRow upsertRules(
+            UUID eventId,
+            String eventTitle,
+            String content,
+            boolean refundAllowed,
+            int refundWindowHours,
+            boolean published) {
+        RefundPolicy refundPolicy = new RefundPolicy(refundAllowed, refundWindowHours);
+        knowledge.upsertRules(eventId, eventTitle, content, refundPolicy, published);
+        log.info(
+                "Ghi quy định sự kiện {} (đã công bố: {}, hoàn vé: {})",
+                eventId,
+                published,
+                refundPolicy.allowed() ? refundPolicy.windowHours() + "h" : "không");
         return rules(eventId);
     }
 

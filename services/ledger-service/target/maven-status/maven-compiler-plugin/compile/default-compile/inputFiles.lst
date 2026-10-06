@@ -1,0 +1,11 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/LedgerApplication.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/application/command/RecordPaymentHandler.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/application/query/LedgerQueries.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/domain/model/AccountCode.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/domain/model/Direction.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/domain/model/JournalEntry.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/domain/model/Posting.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/domain/port/LedgerRepository.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/infrastructure/amqp/OrderPaidListener.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/infrastructure/persistence/JdbcLedgerRepository.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/main/java/com/nexaticket/ledger/interfaces/rest/PlatformLedgerController.java

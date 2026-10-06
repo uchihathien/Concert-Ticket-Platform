@@ -1,0 +1,9 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/AnalyticsApplication.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/application/command/ApplySalesDeltaHandler.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/application/query/SalesQueries.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/domain/model/SalesDelta.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/domain/port/SalesReadModelRepository.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/infrastructure/amqp/OrderEventsListener.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/infrastructure/persistence/JdbcSalesReadModelRepository.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/interfaces/rest/InternalSalesController.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/analytics-service/src/main/java/com/nexaticket/analytics/interfaces/rest/SalesDashboardController.java

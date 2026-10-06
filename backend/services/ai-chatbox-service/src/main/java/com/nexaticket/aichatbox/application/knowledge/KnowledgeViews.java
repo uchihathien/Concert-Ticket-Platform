@@ -42,12 +42,29 @@ public final class KnowledgeViews {
         }
     }
 
-    /** @param published {@code false} là bản nháp — khách không thấy, tool không đọc */
-    public record RulesRow(UUID eventId, String eventTitle, String content, boolean published, Instant updatedAt) {
+    /**
+     * @param published {@code false} là bản nháp — khách không thấy, tool không đọc
+     * @param refundAllowed sự kiện có nhận yêu cầu hoàn vé không
+     * @param refundWindowHours số giờ kể từ lúc thanh toán còn được xin hoàn; 0 là không giới hạn
+     */
+    public record RulesRow(
+            UUID eventId,
+            String eventTitle,
+            String content,
+            boolean refundAllowed,
+            int refundWindowHours,
+            boolean published,
+            Instant updatedAt) {
 
         public static RulesRow of(RulesEntry entry) {
             return new RulesRow(
-                    entry.eventId(), entry.eventTitle(), entry.content(), entry.published(), entry.updatedAt());
+                    entry.eventId(),
+                    entry.eventTitle(),
+                    entry.content(),
+                    entry.refundPolicy().allowed(),
+                    entry.refundPolicy().windowHours(),
+                    entry.published(),
+                    entry.updatedAt());
         }
     }
 }

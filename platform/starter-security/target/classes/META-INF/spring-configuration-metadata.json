@@ -1,0 +1,38 @@
+{
+  "groups": [
+    {
+      "name": "nexaticket.identity",
+      "type": "com.nexaticket.platform.security.IdentityServiceProperties",
+      "sourceType": "com.nexaticket.platform.security.IdentityServiceProperties"
+    },
+    {
+      "name": "nexaticket.internal",
+      "type": "com.nexaticket.platform.security.InternalApiProperties",
+      "sourceType": "com.nexaticket.platform.security.InternalApiProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "nexaticket.identity.base-url",
+      "type": "java.lang.String",
+      "description": "ví dụ {@code http:\/\/identity-service:8090}",
+      "sourceType": "com.nexaticket.platform.security.IdentityServiceProperties"
+    },
+    {
+      "name": "nexaticket.identity.membership-cache-ttl",
+      "type": "java.time.Duration",
+      "description": "bao lâu thì hỏi lại identity-service về một phiên. Đây là <b>độ trễ tối đa<\/b> của bốn thao tác quản trị ở mọi service KHÁC identity: đổi vai trò, gỡ thành viên, thu hồi phiên, khoá tài khoản. Ở chính identity-service thì cả bốn có hiệu lực ngay vì nó đọc thẳng database. <p>Hạ xuống thì lưu lượng tới identity tăng theo đúng tỷ lệ nghịch — 10 giây là gấp sáu lần 60 giây. Với môi trường cần thu hồi gần như tức thì, cách đúng không phải hạ về 1 giây mà là phát sự kiện huỷ cache: identity đã có outbox và RabbitMQ, chỉ thiếu một consumer ở starter-security. Đó là thay đổi đụng tới cả mười một service nên phải là một quyết định riêng, không phải hệ quả của việc chỉnh một con số.",
+      "sourceType": "com.nexaticket.platform.security.IdentityServiceProperties"
+    },
+    {
+      "name": "nexaticket.internal.shared-secret",
+      "type": "java.lang.String",
+      "description": "giá trị của header {@code X-Internal-Token}",
+      "sourceType": "com.nexaticket.platform.security.InternalApiProperties"
+    }
+  ],
+  "hints": [],
+  "ignored": {
+    "properties": []
+  }
+}

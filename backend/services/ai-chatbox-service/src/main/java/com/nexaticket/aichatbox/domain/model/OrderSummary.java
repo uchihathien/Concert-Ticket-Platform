@@ -14,10 +14,17 @@ import java.util.UUID;
  *
  * <p>Bản nội bộ của ordering ({@code /internal/orders/{id}}) có hoa hồng nền tảng và không kiểm
  * chủ sở hữu; nó dành cho sổ cái và chi trả — xem {@code OrderingClientPort}.
+ *
+ * @param eventId sự kiện của đơn — <b>không</b> để mô hình đọc, mà để tool hoàn vé tra được
+ *     {@code event_rules} của đúng sự kiện ấy. {@code null} với đơn tạo trước khi ordering có cột
+ *     này.
+ * @param eventSessionId suất diễn của đơn, cùng mục đích
  */
 public record OrderSummary(
         UUID orderId,
         String orderNumber,
+        UUID eventId,
+        UUID eventSessionId,
         String status,
         long totalVnd,
         Instant paymentExpiresAt,

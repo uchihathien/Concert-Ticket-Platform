@@ -7,6 +7,10 @@ import java.util.UUID;
 /**
  * Một phiếu chuyển cuộc chat sang người thật.
  *
+ * @param intent khách đang cần gì — nhãn để bàn hỗ trợ chia việc. Xem {@link SupportIntent}.
+ * @param details dữ liệu có cấu trúc đi kèm phiếu, dạng JSON, do tầng application dựng: mã đơn,
+ *     loại sự cố, lý do hoàn vé… {@code null} với phiếu không có gì ngoài câu hỏi. Giữ ở dạng chuỗi
+ *     để domain không phải biết Jackson; người trực đọc nó qua màn hình, không phải qua mô hình.
  * @param lastQuestion câu hỏi đang treo, chụp lại lúc chuyển. Người trực cần biết ngay khách đang
  *     hỏi gì mà không phải mở cả hội thoại — với hàng đợi 40 phiếu thì đó là 40 lần mở.
  */
@@ -16,22 +20,38 @@ public record Handoff(
         UUID userId,
         HandoffStatus status,
         HandoffTrigger trigger,
+        SupportIntent intent,
         String reason,
+        String details,
         String lastQuestion,
         UUID assignedAgentId,
         Instant requestedAt,
         Instant assignedAt,
         Instant resolvedAt) {
 
+    public Handoff {
+        // Phiếu cũ trong database không có cột này — đọc lên là GENERAL, không phải null.
+        intent = intent == null ? SupportIntent.GENERAL : intent;
+    }
+
     public static Handoff request(
-            UUID sessionId, UUID userId, HandoffTrigger trigger, String reason, String lastQuestion, Instant now) {
+            UUID sessionId,
+            UUID userId,
+            HandoffTrigger trigger,
+            SupportIntent intent,
+            String reason,
+            String details,
+            String lastQuestion,
+            Instant now) {
         return new Handoff(
                 UUID.randomUUID(),
                 sessionId,
                 userId,
                 HandoffStatus.WAITING,
                 trigger,
+                intent,
                 reason,
+                details,
                 lastQuestion,
                 null,
                 now,
@@ -56,7 +76,9 @@ public record Handoff(
                 userId,
                 HandoffStatus.ASSIGNED,
                 trigger,
+                intent,
                 reason,
+                details,
                 lastQuestion,
                 agentId,
                 requestedAt,
@@ -72,7 +94,9 @@ public record Handoff(
                 userId,
                 HandoffStatus.RESOLVED,
                 trigger,
+                intent,
                 reason,
+                details,
                 lastQuestion,
                 assignedAgentId,
                 requestedAt,

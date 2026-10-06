@@ -1,0 +1,12 @@
+com/nexaticket/aichatbox/ArchitectureTest.class
+com/nexaticket/aichatbox/support/FakeAiProviders$FakeLlm.class
+com/nexaticket/aichatbox/application/KnowledgeBaseIT.class
+com/nexaticket/aichatbox/application/HandoffIntentTest.class
+com/nexaticket/aichatbox/support/AiChatboxTestBase.class
+com/nexaticket/aichatbox/application/HandoffFlowIT.class
+com/nexaticket/aichatbox/support/FakeAiProviders$FakeEmbeddings.class
+com/nexaticket/aichatbox/interfaces/ChatIdempotencyIT.class
+com/nexaticket/aichatbox/support/FakeAiProviders.class
+com/nexaticket/aichatbox/application/TurnAdmissionTest.class
+com/nexaticket/aichatbox/application/AnswerGroundingTest.class
+com/nexaticket/aichatbox/infrastructure/seed/KnowledgeSeederIT.class

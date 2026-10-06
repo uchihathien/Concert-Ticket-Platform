@@ -1,0 +1,6 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ordering-service/src/test/java/com/nexaticket/ordering/ArchitectureTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ordering-service/src/test/java/com/nexaticket/ordering/CheckoutSagaIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ordering-service/src/test/java/com/nexaticket/ordering/OrderLifecycleIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ordering-service/src/test/java/com/nexaticket/ordering/domain/OrderTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ordering-service/src/test/java/com/nexaticket/ordering/support/FakeRemoteServices.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ordering-service/src/test/java/com/nexaticket/ordering/support/OrderingTestBase.java

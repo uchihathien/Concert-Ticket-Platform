@@ -1,0 +1,9 @@
+com/nexaticket/ordering/support/FakeRemoteServices.class
+com/nexaticket/ordering/support/OrderingTestBase.class
+com/nexaticket/ordering/ArchitectureTest.class
+com/nexaticket/ordering/support/FakeRemoteServices$FakePricing.class
+com/nexaticket/ordering/support/FakeRemoteServices$FakePayment.class
+com/nexaticket/ordering/support/FakeRemoteServices$FakeInventory.class
+com/nexaticket/ordering/domain/OrderTest.class
+com/nexaticket/ordering/OrderLifecycleIT.class
+com/nexaticket/ordering/CheckoutSagaIT.class

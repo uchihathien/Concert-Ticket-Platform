@@ -1,0 +1,15 @@
+# Profile test: Testcontainers cấp datasource, không cần RabbitMQ thật.
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:0/realms/test
+
+nexaticket:
+  outbox:
+    publish-interval-ms: 999999   # publisher không tự chạy trong test
