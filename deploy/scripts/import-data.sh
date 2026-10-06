@@ -28,8 +28,6 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ENV_FILE="$ROOT/deploy/compose/.env"
 C="docker compose -f $ROOT/deploy/compose/prod.yml --env-file $ENV_FILE"
 PG=nexaticket-prod-postgres-1
-KC=nexaticket-prod-keycloak-1
-REALM=nexaticket
 DBS="identity catalog inventory ordering payment ledger payout ticketing notification analytics ai_chatbox"
 SERVICES="identity-service catalog-service inventory-service ordering-service payment-service ledger-service payout-service ticketing-service notification-service analytics-service ai-chatbox-service realtime-gateway api-gateway"
 
@@ -37,14 +35,15 @@ val() { grep -E "^$1=" "$ENV_FILE" | head -1 | cut -d= -f2-; }
 MEDIA_PUBLIC_URL="$(val MEDIA_PUBLIC_URL)"
 [ -n "$MEDIA_PUBLIC_URL" ] || { echo "Thiếu MEDIA_PUBLIC_URL trong .env" >&2; exit 1; }
 psql() { docker exec -i "$PG" psql -U postgres -v ON_ERROR_STOP=1 -q "$@"; }
-kc()   { docker exec "$KC" /opt/keycloak/bin/kcadm.sh "$@"; }
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 tar -C "$TMP" -xzf "$PKG"; WORK="$TMP/nexaticket-data"
 
 echo "==> 1. Version Flyway"
 while read -r db v; do
-  pv=$(psql -d "${db}_db" -tAc "select max(version) from flyway_schema_history where success" | tr -d '[:space:]')
+  # </dev/null: `docker exec -i` đọc stdin, mà stdin của vòng lặp là flyway.txt — không chặn thì
+  # nó nuốt hết file sau database đầu tiên và vòng lặp kết thúc im lặng, 10 database không được kiểm.
+  pv=$(psql -d "${db}_db" -tAc "select max(version) from flyway_schema_history where success" </dev/null | tr -d '[:space:]')
   [ "$v" = "$pv" ] || { echo "    LỆCH $db: gói V$v, máy chủ V$pv. Deploy đúng commit của gói rồi chạy lại." >&2; exit 1; }
   printf '    %-13s V%s khớp\n' "$db" "$v"
 done < "$WORK/flyway.txt"
@@ -77,24 +76,10 @@ $C start objectstore >/dev/null 2>&1
 echo "    volume $vol đã thay"
 
 echo "==> 5. Keycloak: tạo user và nối idp_subject"
-docker exec "$KC" sh -c '/opt/keycloak/bin/kcadm.sh config credentials --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"' >/dev/null
-printf '\n    %-40s %s\n' "EMAIL" "MẬT KHẨU TẠM (đổi ở lần đăng nhập đầu)"
-psql -d identity_db -tAc "select email || '|' || coalesce(full_name, '') from users order by is_super_admin desc, email" \
-| while IFS='|' read -r email name; do
-  [ -n "$email" ] || continue
-  id=$(kc get users -r "$REALM" -q "email=$email" -q exact=true --fields id --format csv --noquotes 2>/dev/null | head -1 || true)
-  if [ -n "$id" ]; then
-    printf '    %-40s %s\n' "$email" "(đã có, giữ nguyên mật khẩu)"
-  else
-    pw=$(tr -dc 'A-Za-z2-9' </dev/urandom | head -c 12)
-    first="${name%% *}"; last="${name#* }"; [ "$last" = "$name" ] && last=""
-    id=$(kc create users -r "$REALM" -i -s "username=$email" -s "email=$email" -s "firstName=$first" -s "lastName=$last" \
-           -s enabled=true -s emailVerified=true \
-           -s "credentials=[{\"type\":\"password\",\"value\":\"$pw\",\"temporary\":true}]")
-    printf '    %-40s %s\n' "$email" "$pw"
-  fi
-  psql -d identity_db -c "update users set idp_subject = '$id' where email = '$email'"
-done
+# Tách thành script riêng vì nó phải chạy lại được độc lập: bản đầu chết ở đúng bước này (xem bẫy
+# ghi trong relink-keycloak-users.sh), để lại 13 service đã dừng và dữ liệu đã nạp — chạy lại cả
+# import là xoá nạp lại 92 nghìn dòng chỉ để tới được bước 5.
+bash "$ROOT/deploy/scripts/relink-keycloak-users.sh"
 
 echo
 echo "==> 6. Bật lại"
