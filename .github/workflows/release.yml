@@ -99,6 +99,14 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    # Secret phải đi qua `env` ở cấp job để các bước dưới kiểm được "đã khai chưa".
+    #
+    # Context `secrets` KHÔNG dùng được trong `if` ở cấp step — GitHub chỉ cho phép
+    # github/needs/strategy/matrix/job/runner/env/vars/steps/inputs ở đó. Viết
+    # `if: ${{ secrets.X != '' }}` làm cả workflow chết ngay lúc xác thực, với 0 job và không một
+    # dòng log nào: lỗi không nằm ở bước nào cả nên không có chỗ để đọc. `env` thì được phép.
+    env:
+      AWS_SG_ID: ${{ secrets.AWS_SG_ID }}
     steps:
       # Mở cổng 22 cho ĐÚNG runner này, rồi đóng lại ở bước cuối.
       #
@@ -109,19 +117,19 @@ jobs:
       # Cả ba bước này TỰ BỎ QUA nếu chưa khai secret AWS_SG_ID — để bạn chạy được pipeline trước,
       # rồi siết sau, mà không phải sửa file này.
       - name: Lấy credential AWS (OIDC)
-        if: ${{ secrets.AWS_SG_ID != '' }}
+        if: ${{ env.AWS_SG_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
           aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
 
       - name: Mở cổng 22 cho runner
-        if: ${{ secrets.AWS_SG_ID != '' }}
+        if: ${{ env.AWS_SG_ID != '' }}
         run: |
           RUNNER_IP=$(curl -s --max-time 10 https://checkip.amazonaws.com)
           echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
           aws ec2 authorize-security-group-ingress \
-            --group-id "${{ secrets.AWS_SG_ID }}" \
+            --group-id "$AWS_SG_ID" \
             --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
           echo "Đã mở 22 ← $RUNNER_IP/32"
 
@@ -164,9 +172,9 @@ jobs:
       # `if: always()` là BẮT BUỘC, không phải cho gọn: deploy hỏng giữa chừng mà không đóng thì
       # rule nằm lại vĩnh viễn, và sau vài lần Security Group đầy những /32 không ai nhớ của ai.
       - name: Đóng cổng 22
-        if: ${{ always() && secrets.AWS_SG_ID != '' && env.RUNNER_IP != '' }}
+        if: ${{ always() && env.AWS_SG_ID != '' && env.RUNNER_IP != '' }}
         run: |
           aws ec2 revoke-security-group-ingress \
-            --group-id "${{ secrets.AWS_SG_ID }}" \
+            --group-id "$AWS_SG_ID" \
             --protocol tcp --port 22 --cidr "$RUNNER_IP/32" || true
           echo "Đã đóng 22 ← $RUNNER_IP/32"
