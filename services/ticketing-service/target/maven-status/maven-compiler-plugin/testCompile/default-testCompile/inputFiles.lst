@@ -1,8 +1,0 @@
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/ArchitectureTest.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/IssueOnOrderPaidIT.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/OrderingFailureKindTest.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/QrTokenIT.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/TicketCheckinIT.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/application/TicketSearchQueryTest.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/domain/TicketTest.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ticketing-service/src/test/java/com/nexaticket/ticketing/support/TicketingTestBase.java

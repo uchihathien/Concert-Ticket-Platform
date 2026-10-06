@@ -1,9 +1,0 @@
-32145:8080:api-gateway
-32158:8093:ordering-service
-32165:8095:payment-service
-32172:8097:ticketing-service
-32179:8094:ledger-service
-32186:8096:payout-service
-32193:8098:notification-service
-32202:8100:realtime-gateway
-32209:8101:ai-chatbox-service

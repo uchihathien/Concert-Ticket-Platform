@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.nexaticket.catalog.CustomSeatingIT
--------------------------------------------------------------------------------
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.165 s -- in com.nexaticket.catalog.CustomSeatingIT
