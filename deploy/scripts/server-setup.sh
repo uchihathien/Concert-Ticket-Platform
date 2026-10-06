@@ -85,11 +85,24 @@ sudo systemctl restart ssh
 echo "Chỉ còn đăng nhập bằng khoá; root không đăng nhập được."
 
 say "Mã nguồn"
+# CLONE nếu chưa có, CẬP NHẬT nếu đã có.
+#
+# Bản trước chỉ clone, nên repo trên máy chủ đứng mãi ở commit của lần chạy đầu. Mọi bản sửa push
+# sau đó không bao giờ tới máy chủ — và script vẫn chạy, vẫn báo xanh ở bước này, rồi hỏng ở bước sau
+# bằng đúng lỗi đã được sửa từ lâu. Đã xảy ra thật: `nexa-env` tiếp tục lỗi
+# `ssm:GetParametersByPath` dù đường dự phòng đã có trong repo mười phút trước đó.
+#
+# `reset --hard origin/main` chứ không `git pull`: repo ở đây có thể đang ở trạng thái detached HEAD
+# vì release.yml checkout theo SHA. `git pull` khi đó không làm gì có ích, và nó thất bại một cách
+# khó hiểu. Không mất gì: file không theo dõi (`deploy/compose/.env`) vẫn nguyên.
 sudo install -d -o ubuntu -g ubuntu /srv/nexaticket
 if [ ! -d /srv/nexaticket/.git ]; then
   git clone --quiet https://github.com/uchihathien/Concert-Ticket-Platform.git /srv/nexaticket
+else
+  git -C /srv/nexaticket fetch --quiet origin main
+  git -C /srv/nexaticket reset --hard --quiet origin/main
 fi
-cd /srv/nexaticket && git log --oneline -1
+cd /srv/nexaticket && echo "  commit: $(git log --oneline -1)"
 
 say "Nginx, systemd, script sinh .env"
 sudo install -m 755 deploy/scripts/pull-env.sh /usr/local/bin/nexa-env
