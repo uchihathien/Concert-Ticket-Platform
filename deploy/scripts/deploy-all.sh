@@ -192,7 +192,9 @@ fi
 # sẽ tạo cây /srv/nexaticket thuộc root — sau đó mọi lệnh git và docker của `ubuntu` đều hỏng vì
 # quyền. `ubuntu` có sudo không mật khẩu nên bên trong script vẫn làm được việc cần root.
 on_server() {
-  local desc="$1" script="$2" timeout="${3:-900}"
+  # $4 = "soft": TRẢ VỀ mã lỗi thay vì dừng cả script. Cần cho bước có đường dự phòng — `die`
+  # là `exit 1`, nên `if ! on_server ...` sẽ không bao giờ chạy tới nhánh thứ hai.
+  local desc="$1" script="$2" timeout="${3:-900}" mode="${4:-hard}"
   info "$desc"
   local cid
   cid=$(aws ssm send-command --instance-ids "$INST" \
@@ -223,6 +225,7 @@ on_server() {
   --- hoặc vào thẳng máy chủ xem (không cần khoá, không cần cổng 22) ---
     aws ssm start-session --target $INST
 HINT
+    if [ "$mode" = soft ]; then return 1; fi
     die "$desc — thất bại ($st)."
   fi
   ok "$desc"
@@ -244,7 +247,18 @@ if phase 4 "Cài máy chủ"; then
   on_server "cài Docker, AWS CLI, swap, Nginx, certbot, mã nguồn" \
     "curl -fsSL https://raw.githubusercontent.com/uchihathien/Concert-Ticket-Platform/main/deploy/scripts/server-setup.sh | bash" \
     1800
-  on_server "sinh .env từ Parameter Store" "nexa-env"
+  # Thử để MÁY CHỦ tự đọc Parameter Store trước — đó là đường sạch nhất: bí mật không đi qua đâu
+  # ngoài giữa instance và SSM API.
+  #
+  # Service Control Policy của Organization có thể chặn (đã xảy ra trên tài khoản do tổ chức cấp:
+  # chặn cả `GetParametersByPath` lẫn `GetParameters`). Khi đó rơi sang `push-env.sh`: CloudShell đọc
+  # được nên nó sinh .env rồi chuyển qua S3. Xem javadoc của push-env.sh để biết vì sao là S3 chứ
+  # không phải nhúng nội dung vào lệnh SSM.
+  if ! on_server "sinh .env từ Parameter Store" "nexa-env" 300 soft; then
+    info "máy chủ không đọc được Parameter Store — chuyển sang đẩy .env từ CloudShell qua S3"
+    INSTANCE="$INST" bash "$HERE/push-env.sh" | sed 's/^/    /'       || die "Không chuyển được .env sang máy chủ."
+    ok "sinh .env từ Parameter Store (qua S3)"
+  fi
 fi
 
 # ===========================================================================
