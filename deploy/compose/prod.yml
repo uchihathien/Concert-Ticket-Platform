@@ -31,10 +31,42 @@ x-service-env: &service-env
   RABBITMQ_USER: ${RABBITMQ_USER:?can RABBITMQ_USER}
   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?can RABBITMQ_PASSWORD}
   REDIS_HOST: redis
+  # Địa chỉ identity-service cho TenantFilter của starter-security — thuộc tính
+  # `nexaticket.identity.base-url`, mặc định dev `http://localhost:8090`. IDENTITY_URL ở dưới KHÔNG
+  # tới được nó: chỉ catalog-service khai `base-url: ${IDENTITY_URL:...}` trong application.yml,
+  # mười service kia không khai, nên trong container chúng gọi localhost:8090 — một địa chỉ không có
+  # gì — và HttpMembershipLookup nuốt lỗi I/O thành "ẩn danh". Triệu chứng: cùng một token, đọc sơ đồ
+  # ghế thì 200 (không cần danh tính), giữ ghế thì 401 "Authentication required"; catalog công khai
+  # xanh nên smoke test không bắt được. Tên biến theo relaxed binding của Spring Boot, cùng cách với
+  # NEXATICKET_INTERNAL_SHAREDSECRET ở trên; application.yml của từng service cũng được sửa để lần
+  # build sau không còn phụ thuộc tên biến này.
+  NEXATICKET_IDENTITY_BASEURL: http://identity-service:8080
+  # Redis prod chạy với `--requirepass`, nhưng application.yml của api-gateway và inventory-service chỉ
+  # khai host/port — không có chỗ nào nhận mật khẩu. Hậu quả không phải "không kết nối được": kết nối
+  # vẫn mở, và MỖI lệnh trả NOAUTH. Gateway log `Error calling rate limiter lua` rồi CHO QUA (rate
+  # limiting tắt im lặng ở production); inventory thì hỏng ở cổng kiểm tồn kho Redis lúc giữ ghế.
+  # Biến này là relaxed binding của Spring Boot cho `spring.data.redis.password`, nên có hiệu lực
+  # mà không cần build lại ảnh; application.yml cũng được sửa để lần build sau không còn phụ thuộc
+  # vào tên biến này. Service không dùng Redis thì bỏ qua biến, vô hại.
+  SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?can REDIS_PASSWORD}
+  # ĐỦ MƯỜI địa chỉ, cho mọi service, dù service đó có gọi hay không. Bản trước chỉ cấp bốn
+  # (identity, catalog, inventory, analytics) — đủ cho catalog, là service duy nhất smoke test đi
+  # qua. ordering thiếu PAYMENT_URL nên gọi payment ở localhost:8095 — `Connection refused`, và
+  # PlaceOrderHandler dịch nó thành 503 "Payment unavailable, please retry" cho khách, đúng ở bước
+  # thanh toán. Mỗi service có một mặc định dev riêng cho từng URL, nên một biến thiếu không hỏng
+  # lúc khởi động, không hỏng ở healthcheck, chỉ hỏng ở đúng lời gọi đầu tiên cần nó. Cấp dư rẻ
+  # hơn nhiều so với cấp thiếu.
   IDENTITY_URL: http://identity-service:8080
   CATALOG_URL: http://catalog-service:8080
   INVENTORY_URL: http://inventory-service:8080
+  ORDERING_URL: http://ordering-service:8080
+  PAYMENT_URL: http://payment-service:8080
+  LEDGER_URL: http://ledger-service:8080
+  PAYOUT_URL: http://payout-service:8080
+  TICKETING_URL: http://ticketing-service:8080
+  NOTIFICATION_URL: http://notification-service:8080
   ANALYTICS_URL: http://analytics-service:8080
+  AICHATBOX_URL: http://ai-chatbox-service:8080
   # Dữ liệu mẫu TẮT ở mọi service. ProductionHardening cũng chặn, nhưng khai ở đây để người đọc
   # compose không phải đi tra mặc định trong application.yml là gì.
   CATALOG_DEMO_DATA: "false"
@@ -144,7 +176,14 @@ services:
       PAYOS_API_KEY: ${PAYOS_API_KEY:?can PAYOS_API_KEY}
       # Khoa nay ky va kiem chu ky webhook. Sai khoa = moi khoan tien phai xac nhan tay.
       PAYOS_CHECKSUM_KEY: ${PAYOS_CHECKSUM_KEY:?can PAYOS_CHECKSUM_KEY}
-      PAYOS_WEBHOOK_URL: ${PUBLIC_API_BASE_URL:?}/api/billing/bank/webhook
+      # Đường dẫn ĐẦY ĐỦ tới PayosWebhookController: `/api/billing/bank/webhook` là @RequestMapping
+      # của lớp, `/payos` là @PostMapping của phương thức. Bản trước thiếu `/payos`: payOS gọi thử
+      # lúc đăng ký nhận 404 "No handler for this path" và báo "webhook không hoạt động" — trong khi
+      # endpoint thật vẫn sống, chỉ ở một đường dẫn dài hơn 6 ký tự. Khớp docs/03-seat-checkout/api/payos-webhook.md.
+      PAYOS_WEBHOOK_URL: ${PUBLIC_API_BASE_URL:?}/api/billing/bank/webhook/payos
+      # Trang khách mà payOS đưa người mua về sau khi trả/huỷ. Mặc định dev là localhost:3000 —
+      # ở production là một tab trình duyệt trắng ngay sau khi tiền đã đi.
+      WEB_BASE_URL: ${WEB_CUSTOMER_URL:?can WEB_CUSTOMER_URL}
       PAYMENT_SANDBOX: "false"
 
   ledger-service:
@@ -244,6 +283,12 @@ services:
       # không qua /internal/** — xem OrderingHttpAdapter.
       ORDERING_URL: http://ordering-service:8080
       AI_PROVIDER: ${AI_PROVIDER:-local}
+      # TÁCH khỏi AI_PROVIDER. Mặc định đi theo nó, nên không khai thì hành vi không đổi.
+      # Có khoá Anthropic nhưng KHÔNG có khoá Voyage: đặt AI_PROVIDER=anthropic và
+      # EMBEDDING_PROVIDER=local — Claude trả lời, bge-m3 lo phần nhúng. Cần bật profile ai-local
+      # để container ollama chạy, nhưng chỉ nạp mô hình nhúng (~1,2 GB) chứ không nạp mô hình 7B.
+      # EMBEDDING_PROVIDER=none thì tắt hẳn RAG: trợ lý vẫn tra được đơn, mất tri thức nền.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3}
@@ -318,6 +363,9 @@ services:
       NEXATICKET_INTERNAL_SHAREDSECRET: ${INTERNAL_SHARED_SECRET:?}
       OIDC_ISSUER: ${OIDC_ISSUER:?}
       REDIS_HOST: redis
+      # Khối env này KHÔNG dùng anchor x-service-env, nên mật khẩu Redis phải cấp riêng — thiếu nó
+      # thì rate limiter log `Error calling rate limiter lua` 40 lần mỗi phút rồi cho qua.
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?can REDIS_PASSWORD}
       # Liệt kê tường minh bốn origin. `*` cộng với `allowCredentials` bị trình duyệt từ chối
       # thẳng, nên "mở hết cho xong" ở đây còn hỏng nhanh hơn là nguy hiểm — nhưng vẫn không làm.
       NEXATICKET_GATEWAY_ALLOWEDORIGINS: ${WEB_CUSTOMER_URL:?},${WEB_ADMIN_URL:?},${WEB_SCANNER_URL:?},${WEB_PLATFORM_URL:?}
@@ -377,6 +425,15 @@ services:
       KEYCLOAK_ISSUER: ${OIDC_ISSUER:?}
       KEYCLOAK_CLIENT_ID: web-customer
       KEYCLOAK_CLIENT_SECRET: ${KC_SECRET_WEB_CUSTOMER:?can secret client web-customer}
+      # HAI địa chỉ API, cùng một lý do với MEDIA_ENDPOINT / MEDIA_PUBLIC_URL ở catalog-service:
+      #   - NEXT_PUBLIC_API_BASE_URL : nhúng vào bundle lúc build, TRÌNH DUYỆT gọi -> tên miền thật.
+      #   - API_BASE_URL             : server-api.ts đọc lúc chạy, TIẾN TRÌNH NODE trong container gọi
+      #                                khi render phía server -> đi thẳng tới gateway qua mạng compose.
+      # Thiếu dòng này thì SSR rơi về NEXT_PUBLIC_API_BASE_URL: mỗi lần render trang chủ, container
+      # đi ra internet, tới Elastic IP của chính máy này, qua Nginx, rồi mới vào gateway cách nó một
+      # bridge. Chậm hơn, phụ thuộc hairpin NAT của AWS, và khi đường đó hỏng thì trang khách trống
+      # trơn trong khi smoke test — chạy từ host — vẫn xanh.
+      API_BASE_URL: http://api-gateway:8080
       REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
     depends_on:
       redis: {condition: service_healthy}

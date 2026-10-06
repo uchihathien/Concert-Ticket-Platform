@@ -52,6 +52,12 @@ server:
   shutdown: graceful
 
 nexaticket:
+  # TenantFilter của starter-security hỏi identity-service xem người gọi là ai và thuộc tổ chức nào.
+  # KHÔNG có dòng này thì mặc định dev http://localhost:8090 thắng dù IDENTITY_URL đã đặt — trong
+  # container đó là một địa chỉ không có gì, lỗi I/O bị nuốt thành "ẩn danh", và mọi endpoint cần
+  # danh tính trả 401 trong khi service vẫn healthy. Cùng mẫu với catalog-service.
+  identity:
+    base-url: ${IDENTITY_URL:http://localhost:8090}
   aichatbox:
     # local | anthropic — xem LlmProvider.
     #
@@ -115,6 +121,13 @@ nexaticket:
       # cố phía nhà cung cấp chiếm hết luồng của Tomcat.
       timeout: ${ANTHROPIC_TIMEOUT:60s}
     embedding:
+      # local | anthropic | none — TÁCH khỏi `provider` ở trên. Xem EmbeddingProvider.
+      #
+      # Mặc định là chính giá trị của AI_PROVIDER, nên cấu hình đang chạy không đổi hành vi. Khai
+      # riêng khi hai thứ cần khác nhau — trường hợp thường gặp nhất: có khoá Anthropic nhưng không
+      # có khoá Voyage, đặt AI_PROVIDER=anthropic và EMBEDDING_PROVIDER=local để Claude trả lời còn
+      # bge-m3 lo phần nhúng (1,2 GB RAM, vài trăm ms mỗi vector, không tốn phí).
+      provider: ${EMBEDDING_PROVIDER:${AI_PROVIDER:local}}
       # Claude không có endpoint nhúng. Voyage là nhà cung cấp Anthropic khuyến nghị đi kèm.
       api-key: ${VOYAGE_API_KEY:}
       model: ${EMBEDDING_MODEL:voyage-3.5}
@@ -178,3 +191,4 @@ management:
 logging:
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
+
