@@ -157,6 +157,36 @@ if [ "$INST" = "None" ]; then
 
   for attempt in $(seq 1 12); do
     if INST=$(launch 2>/tmp/run-err); then break; fi
+    # Tai khoan goi Free Tier (loai tai khoan moi cua AWS tu 2025) KHONG duoc chay instance
+    # ngoai danh sach free-tier. Day la chan cung o phia AWS, khong phai van de cau hinh —
+    # thu lai bao nhieu lan cung vo ich, nen dung ngay va noi ro phai lam gi.
+    if grep -q "not eligible for Free Tier" /tmp/run-err; then
+      cat >&2 <<FREETIER
+
+  Tai khoan AWS cua ban dang o goi FREE TIER, va goi do chi cho phep instance
+  thuoc danh sach free-tier (t3.micro — 1 GB RAM).
+
+  He thong nay la 22 container, can khoang 11-12 GB. 1 GB khong du cho rieng
+  Keycloak, nen khong co cach tinh chinh nao cuu duoc.
+
+  CACH DUY NHAT: nang tai khoan len goi tra phi.
+    Console > Billing and Cost Management > tim phan goi tai khoan / Free tier
+    > Upgrade to paid plan.
+  Credit mien phi dang co VAN GIU NGUYEN sau khi nang.
+
+  Chi phi thuc te neu TAT MAY ngoai gio lam viec (4h/ngay x 20 ngay):
+    t3.xlarge  ~0.21 USD/gio  ->  ~17 USD/thang
+    EBS 80 GB                 ->  ~8 USD/thang
+    IPv4                      ->  ~3.6 USD/thang
+  Voi 100 USD credit thi du khoang 3-4 thang.
+
+  Sau khi nang, nho dat canh bao chi tieu:
+    Billing > Budgets > Create budget > nguong 20 USD
+
+  Roi chay lai: DOMAIN=concertth.site bash deploy/scripts/deploy-all.sh
+FREETIER
+      exit 1
+    fi
     if ! grep -q "Invalid IAM Instance Profile" /tmp/run-err; then
       cat /tmp/run-err >&2; exit 1       # loi khac: dung ngay, dung thu lai mu quang
     fi
