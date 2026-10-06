@@ -35,6 +35,24 @@ WorkingDirectory=/srv/nexaticket
 # mới chỉ là tiện thêm, không phải điều kiện.
 ExecStartPre=/usr/bin/test -s /srv/nexaticket/deploy/compose/.env
 ExecStartPre=-/usr/local/bin/nexa-env
+
+# Build rabbitmq TẠI CHỖ. Đây là service DUY NHẤT trong prod.yml được dựng trên máy chủ.
+#
+# Ảnh của nó tự dựng để bật plugin delayed message (cần cho retry backoff — ADR-1009) và KHÔNG được
+# đẩy lên GHCR, nên `--no-build` ở ExecStart không có đường nào lấy được nó:
+#
+#     service:rabbitmq:1 Error response from daemon: No such image: nexaticket-prod-rabbitmq:latest
+#
+# Một ảnh thiếu làm CẢ `compose up` chết, nên 21 container còn lại cũng không được tạo — triệu chứng
+# là `docker ps` trống trơn và 502 ở mọi tên miền. Hai mươi mốt ảnh kia đã kéo xong trước đó; thứ chặn
+# tất cả là ảnh nhỏ nhất.
+#
+# Dòng này phải nằm TRƯỚC ExecStart, và KHÔNG có dấu `-`: khác với `nexa-env` ở trên (có .env đẩy
+# bằng push-env.sh làm đường dự phòng), ở đây không có nguồn thứ hai nào cho ảnh. Build hỏng mà vẫn
+# đi tiếp thì ExecStart chết sau đó với một thông điệp nói về ảnh thiếu, không nói về build hỏng.
+#
+# Build có cache nên mỗi lần khởi động chỉ mất vài giây.
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env build rabbitmq
 # --no-build: máy chủ KHÔNG có mã nguồn frontend (repo riêng). Thiếu cờ này thì compose thấy thiếu
 # ảnh là đi build, và chết ở một build context không tồn tại.
 # --wait: trả về khi container HEALTHY, không phải khi vừa tạo xong.
