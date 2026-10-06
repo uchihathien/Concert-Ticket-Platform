@@ -20,6 +20,10 @@ VOLUME_SIZE="${VOLUME_SIZE:-80}"
 export AWS_DEFAULT_REGION="$REGION"
 say() { printf '\n=== %s\n' "$*"; }
 
+# Thu muc tam cho thong diep loi cua cac lenh duoc phep that bai.
+TMPDIR_OIDC=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_OIDC"' EXIT
+
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 say "Tài khoản $ACCOUNT · vùng $REGION · loại máy $INSTANCE_TYPE"
 
@@ -219,52 +223,81 @@ fi
 aws ec2 associate-address --instance-id "$INST" --allocation-id "$ALLOC" >/dev/null
 EIP=$(aws ec2 describe-addresses --allocation-ids "$ALLOC" --query 'Addresses[0].PublicIp' --output text)
 
-# --- IAM role cho GitHub Actions (OIDC) --------------------------------------
-# Để CI mở/đóng cổng 22 quanh mỗi lần deploy, thay vì để 22 mở cho cả internet.
+# --- IAM role cho GitHub Actions (OIDC) — TUỲ CHỌN ---------------------------
+# Chỉ phục vụ một việc: để CI tự mở/đóng cổng 22 quanh mỗi lần deploy, thay vì để 22 mở cho cả
+# internet. Mọi thứ khác của hệ thống KHÔNG phụ thuộc vào nó.
 #
-# OIDC, KHÔNG phải access key lưu trong secret: GitHub xuất trình một token ngắn hạn do chính nó
+# OIDC chứ không phải access key lưu trong secret: GitHub xuất trình một token ngắn hạn do chính nó
 # ký, AWS đổi lấy credential tạm. Không có khoá dài hạn nào tồn tại để bị lộ hay phải xoay vòng.
 #
-# BỎ QUA được: nếu không khai secret AWS_SG_ID trên GitHub thì release.yml tự nhảy qua hai bước
-# mở/đóng, và khi đó bạn phải tự mở 22 cho runner bằng cách khác.
-say "IAM role cho GitHub Actions"
+# KHÔNG CHẶN LUỒNG nếu thất bại. Tài khoản do trường hoặc tổ chức cấp thường nằm trong một AWS
+# Organization có Service Control Policy chặn `iam:CreateOpenIDConnectProvider`, và người dùng không
+# sửa được SCP từ bên trong. Dừng cả lần dựng vì một tính năng tuỳ chọn là sai.
+say "IAM role cho GitHub Actions (tuỳ chọn)"
 GH_REPO="${GH_REPO:-uchihathien/Concert-Ticket-Platform}"
 OIDC_ARN="arn:aws:iam::$ACCOUNT:oidc-provider/token.actions.githubusercontent.com"
+OIDC_OK=1
 
 if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "$OIDC_ARN" >/dev/null 2>&1; then
-  aws iam create-open-id-connect-provider     --url https://token.actions.githubusercontent.com     --client-id-list sts.amazonaws.com     --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 >/dev/null
-  echo "Đã khai GitHub làm nhà cung cấp OIDC"
+  if aws iam create-open-id-connect-provider \
+       --url https://token.actions.githubusercontent.com \
+       --client-id-list sts.amazonaws.com \
+       --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 >/dev/null 2>"$TMPDIR_OIDC/err"; then
+    echo "  Đã khai GitHub làm nhà cung cấp OIDC"
+  else
+    OIDC_OK=0
+    if grep -qE "service control policy|AccessDenied|explicit deny" "$TMPDIR_OIDC/err"; then
+      cat <<'SCPNOTE'
+  BỎ QUA — tài khoản này bị chặn bởi Service Control Policy của AWS Organization.
+
+  Thường gặp ở tài khoản do trường hoặc tổ chức cấp. Bạn không sửa được SCP từ bên trong tài khoản
+  thành viên; phải nhờ người quản lý Organization, và việc đó không đáng cho một tính năng tuỳ chọn.
+
+  HỆ QUẢ: chỉ mất phần CI tự mở/đóng cổng 22. Toàn bộ phần còn lại chạy bình thường.
+  Khi bật auto-deploy trên GitHub, ĐỪNG khai secret AWS_SG_ID — release.yml tự nhảy qua ba bước đó.
+SCPNOTE
+    else
+      echo "  Không khai được nhà cung cấp OIDC:" >&2
+      sed 's/^/    /' "$TMPDIR_OIDC/err" >&2
+      echo "  Bỏ qua và đi tiếp — đây là tính năng tuỳ chọn." >&2
+    fi
+  fi
 else
-  echo "Đã có nhà cung cấp OIDC"
+  echo "  Đã có nhà cung cấp OIDC"
 fi
 
-# `sub` ghim ĐÚNG repo và ĐÚNG nhánh main. Thiếu điều kiện này thì bất kỳ workflow nào của bất kỳ
-# repo nào trên GitHub cũng assume được role — một lỗi cấu hình rất phổ biến và rất tốn kém.
-if ! aws iam get-role --role-name "$NAME-github" >/dev/null 2>&1; then
-  aws iam create-role --role-name "$NAME-github" --assume-role-policy-document "{
-    \"Version\":\"2012-10-17\",
-    \"Statement\":[{
-      \"Effect\":\"Allow\",
-      \"Principal\":{\"Federated\":\"$OIDC_ARN\"},
-      \"Action\":\"sts:AssumeRoleWithWebIdentity\",
-      \"Condition\":{
-        \"StringEquals\":{\"token.actions.githubusercontent.com:aud\":\"sts.amazonaws.com\"},
-        \"StringLike\":{\"token.actions.githubusercontent.com:sub\":\"repo:$GH_REPO:ref:refs/heads/main\"}
-      }}]}" >/dev/null
-  echo "Đã tạo role $NAME-github cho $GH_REPO (chỉ nhánh main)"
-else
-  echo "Đã có role $NAME-github"
-fi
+if [ "$OIDC_OK" = 1 ]; then
+  # `sub` ghim ĐÚNG repo và ĐÚNG nhánh main. Thiếu điều kiện này thì bất kỳ workflow nào của bất kỳ
+  # repo nào trên GitHub cũng assume được role — một lỗi cấu hình rất phổ biến và rất tốn kém.
+  if ! aws iam get-role --role-name "$NAME-github" >/dev/null 2>&1; then
+    aws iam create-role --role-name "$NAME-github" --assume-role-policy-document "{
+      \"Version\":\"2012-10-17\",
+      \"Statement\":[{
+        \"Effect\":\"Allow\",
+        \"Principal\":{\"Federated\":\"$OIDC_ARN\"},
+        \"Action\":\"sts:AssumeRoleWithWebIdentity\",
+        \"Condition\":{
+          \"StringEquals\":{\"token.actions.githubusercontent.com:aud\":\"sts.amazonaws.com\"},
+          \"StringLike\":{\"token.actions.githubusercontent.com:sub\":\"repo:$GH_REPO:ref:refs/heads/main\"}
+        }}]}" >/dev/null
+    echo "Đã tạo role $NAME-github cho $GH_REPO (chỉ nhánh main)"
+  else
+    echo "Đã có role $NAME-github"
+  fi
 
-# Quyền HẸP NHẤT có thể: chỉ sửa ingress của đúng một Security Group.
-aws iam put-role-policy --role-name "$NAME-github" --policy-name sg-ingress   --policy-document "{
-    \"Version\":\"2012-10-17\",
-    \"Statement\":[{
-      \"Effect\":\"Allow\",
-      \"Action\":[\"ec2:AuthorizeSecurityGroupIngress\",\"ec2:RevokeSecurityGroupIngress\"],
-      \"Resource\":\"arn:aws:ec2:$REGION:$ACCOUNT:security-group/$SG\"
-    }]}" >/dev/null
-GH_ROLE_ARN="arn:aws:iam::$ACCOUNT:role/$NAME-github"
+  # Quyền HẸP NHẤT có thể: chỉ sửa ingress của đúng một Security Group.
+  aws iam put-role-policy --role-name "$NAME-github" --policy-name sg-ingress   --policy-document "{
+      \"Version\":\"2012-10-17\",
+      \"Statement\":[{
+        \"Effect\":\"Allow\",
+        \"Action\":[\"ec2:AuthorizeSecurityGroupIngress\",\"ec2:RevokeSecurityGroupIngress\"],
+        \"Resource\":\"arn:aws:ec2:$REGION:$ACCOUNT:security-group/$SG\"
+      }]}" >/dev/null
+  GH_ROLE_ARN="arn:aws:iam::$ACCOUNT:role/$NAME-github"
+else
+  # Khong co nha cung cap OIDC thi role nay vo dung: trust policy cua no tro vao chinh ARN do.
+  GH_ROLE_ARN="(bo qua - SCP chan OIDC)"
+fi
 
 # --- Cảnh báo chi tiêu -------------------------------------------------------
 # Tạo NGAY lúc dựng hạ tầng, không để "làm sau".
@@ -312,9 +345,15 @@ cat <<SUMMARY
         Elastic IP: $EIP
         SG        : $SG
         GitHub secrets cần tạo:
-          AWS_SG_ID        = $SG
-          AWS_DEPLOY_ROLE  = $GH_ROLE_ARN
           DEPLOY_TARGET    = ubuntu@$EIP
+          AWS_SG_ID        = $(if [ "$OIDC_OK" = 1 ]; then echo "$SG"; else echo "ĐỪNG khai — xem bên dưới"; fi)
+          AWS_DEPLOY_ROLE  = $GH_ROLE_ARN
+$(if [ "$OIDC_OK" != 1 ]; then cat <<'NOTE'
+        SCP của Organization chặn OIDC, nên CI không tự mở/đóng được cổng 22.
+        ĐỪNG khai AWS_SG_ID — release.yml tự nhảy qua ba bước đó và deploy bằng SSH.
+        Khi đó cổng 22 phải mở cho runner bằng cách khác (xem mục 5.2 trong hướng dẫn).
+NOTE
+fi)
 
   BƯỚC TIẾP THEO — theo đúng thứ tự:
 
