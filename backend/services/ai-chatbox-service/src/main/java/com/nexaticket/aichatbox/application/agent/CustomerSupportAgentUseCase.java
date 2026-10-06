@@ -106,7 +106,44 @@ public class CustomerSupportAgentUseCase {
      *     ở bước đầu tiên
      * @param userId lấy từ JWT đã xác thực
      */
+    /**
+     * Trợ lý KHÔNG dùng được thì chuyển thẳng cho người thật, thay vì trả 503 cho khách.
+     *
+     * <p>Trước đây nhánh này kết thúc bằng {@code ASSISTANT_UNAVAILABLE} và không để lại dấu vết nào:
+     * câu hỏi KHÔNG được lưu (lịch sử chỉ ghi sau khi mô hình trả lời xong — xem {@code appendTurn}
+     * bên dưới), nên phiên chat không tồn tại, nút "gặp nhân viên" trả 404 vì không có phiên để mở
+     * phiếu, và bàn hỗ trợ không bao giờ biết có người vừa hỏi. Khách gặp một cánh cửa đóng, không
+     * phải một hàng chờ.
+     *
+     * <p>Nay: ghi câu hỏi, mở phiếu, trả lời bình thường. Khách thấy "đã chuyển cho nhân viên", người
+     * trực thấy phiếu kèm câu hỏi và tên người hỏi. Hệ thống không có trợ lý vẫn là một hệ thống hỗ
+     * trợ khách hàng chạy được — chỉ chậm hơn.
+     *
+     * <p>Bắt theo MÃ LỖI, không theo kiểu ngoại lệ: {@code ask()} đã dịch
+     * {@code LlmUnavailableException} thành {@code ApiException} trước khi ném, và bắt lại
+     * {@code ApiException} chung chung sẽ nuốt cả những lỗi phải nổi lên (phiên không thuộc về
+     * người gọi, tham số sai).
+     */
     public AgentReply executeAgentProcess(UUID sessionId, UUID userId, String userQuery) {
+        try {
+            return runAgent(sessionId, userId, userQuery);
+        } catch (ApiException e) {
+            if (e.errorCode() != AiChatboxErrorCode.ASSISTANT_UNAVAILABLE) {
+                throw e;
+            }
+            log.warn("Trợ lý không dùng được — chuyển phiên {} cho nhân viên hỗ trợ", sessionId);
+            history.append(sessionId, userId, ChatRole.USER, userQuery);
+            handoffs.escalate(
+                    sessionId,
+                    userId,
+                    HandoffTrigger.ASSISTANT_UNAVAILABLE,
+                    "Trợ lý không dùng được — chuyển thẳng cho nhân viên",
+                    userQuery);
+            return new AgentReply(sessionId, SupportAgentPrompts.assistantUnavailableMessage(), List.of());
+        }
+    }
+
+    private AgentReply runAgent(UUID sessionId, UUID userId, String userQuery) {
         // Bước 1 — lịch sử. Đặt trước mọi thứ khác vì nó cũng là bước kiểm quyền: hỏi lịch sử của
         // một phiên không phải của mình thì dừng ngay, trước khi tiêu một đồng nào cho embedding
         // hay cho mô hình.

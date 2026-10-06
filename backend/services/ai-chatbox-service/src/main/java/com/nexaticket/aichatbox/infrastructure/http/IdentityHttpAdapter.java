@@ -37,11 +37,42 @@ public class IdentityHttpAdapter implements IdentityLookupPort {
      * để hiện lên màn hình.
      */
     private final Map<UUID, String> names = new ConcurrentHashMap<>();
+    // Cache riêng cho contact. Không gộp vào `names` vì một lần tra ra tên nhưng không có email vẫn
+    // là một kết quả hợp lệ, và gộp lại thì không phân biệt được "chưa tra" với "tra rồi, không có".
+    private final Map<UUID, IdentityLookupPort.Contact> contacts = new ConcurrentHashMap<>();
 
     private final RestClient client;
 
     public IdentityHttpAdapter(@Qualifier("identityClient") RestClient client) {
         this.client = client;
+    }
+
+    @Override
+    public Optional<IdentityLookupPort.Contact> contactOf(UUID userId) {
+        if (userId == null) {
+            return Optional.empty();
+        }
+        IdentityLookupPort.Contact cached = contacts.get(userId);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+        try {
+            UserContactResponse response =
+                    client.get().uri("/internal/users/{id}", userId).retrieve().body(UserContactResponse.class);
+            if (response == null) {
+                return Optional.empty();
+            }
+            IdentityLookupPort.Contact contact =
+                    new IdentityLookupPort.Contact(response.displayName(), response.email());
+            if (contact.fullName() == null && contact.email() == null) {
+                return Optional.empty();
+            }
+            contacts.put(userId, contact);
+            return Optional.of(contact);
+        } catch (RuntimeException e) {
+            log.warn("Không tra được thông tin người dùng {}: {}", userId, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     @Override
