@@ -142,6 +142,8 @@ sudo install -m 755 deploy/scripts/pull-env.sh /usr/local/bin/nexa-env
 sudo cp deploy/systemd/nexaticket.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo cp deploy/nginx/nexaticket.conf /etc/nginx/sites-available/nexaticket
+# gzip ở mức http, file riêng trong conf.d — xem lý do trong chính file đó. An toàn khi chạy lại.
+sudo install -m 644 deploy/nginx/gzip.conf /etc/nginx/conf.d/nexaticket-gzip.conf
 sudo ln -sf /etc/nginx/sites-available/nexaticket /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
