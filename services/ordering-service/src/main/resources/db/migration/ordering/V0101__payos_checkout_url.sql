@@ -1,0 +1,19 @@
+-- ordering-service: lưu thêm link thanh toán payOS của đơn (ADR-0016).
+--
+-- Từ khi chuyển sang payOS, khách có HAI đường trả tiền và `vietqr_payload` chỉ là một trong hai.
+-- Đường chính là trang thanh toán payOS host: ở đó khách chọn ngân hàng, thấy trạng thái trả tiền
+-- theo thời gian thực, và không phải tự gõ nội dung chuyển khoản — tức là không còn gặp trường hợp
+-- tệ nhất của luồng cũ. Quét QR thành đường phụ cho người muốn tự làm trong app ngân hàng.
+--
+-- Lưu snapshot ở đây chứ không hỏi lại payment-service mỗi lần đọc đơn, đúng lý lẽ đã dùng cho
+-- `vietqr_payload` và cho hoa hồng: link khách đã nhìn thấy KHÔNG được đổi, và mở lại trang đơn hàng
+-- không nên phụ thuộc payment-service còn sống.
+--
+-- Với payOS lý lẽ đó nặng hơn trước: mỗi link có một TÀI KHOẢN ẢO RIÊNG. Sinh lại link không chỉ đổi
+-- hình ảnh trên màn hình mà đổi cả tài khoản nhận tiền, và tiền đã gửi vào tài khoản cũ sẽ không khớp
+-- đơn nào.
+--
+-- NULL được, và sẽ NULL với hai nhóm: đơn tạo từ trước ADR-0016 (chúng chỉ có mã VietQR của tài khoản
+-- ký quỹ cũ), và mọi đơn nếu payment-service cũ hơn ordering-service trong lúc rolling deploy. Frontend
+-- phải chịu được cả hai — nó đã có nhánh ẩn khối thanh toán khi thiếu dữ liệu.
+ALTER TABLE orders ADD COLUMN checkout_url TEXT;

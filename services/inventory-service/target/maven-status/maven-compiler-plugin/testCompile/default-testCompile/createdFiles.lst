@@ -1,0 +1,16 @@
+com/nexaticket/inventory/MaterializeSessionIT.class
+com/nexaticket/inventory/domain/PurchaseLimitsTest.class
+com/nexaticket/inventory/support/InventoryFixture$Session.class
+com/nexaticket/inventory/OversellBackstopIT$AlwaysOpenGateConfig$1.class
+com/nexaticket/inventory/support/InventoryFixture.class
+com/nexaticket/inventory/support/Concurrently.class
+com/nexaticket/inventory/SeatedZoneHoldIT.class
+com/nexaticket/inventory/support/InventoryTestBase.class
+com/nexaticket/inventory/SeatStatusIT.class
+com/nexaticket/inventory/SeatHoldConcurrencyIT.class
+com/nexaticket/inventory/SeatMapIT.class
+com/nexaticket/inventory/SeatReleaseIT.class
+com/nexaticket/inventory/support/Concurrently$Outcome.class
+com/nexaticket/inventory/OversellBackstopIT$AlwaysOpenGateConfig.class
+com/nexaticket/inventory/ArchitectureTest.class
+com/nexaticket/inventory/OversellBackstopIT.class

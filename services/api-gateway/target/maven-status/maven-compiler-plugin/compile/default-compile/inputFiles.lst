@@ -1,0 +1,5 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/main/java/com/nexaticket/gateway/CorrelationIdGatewayFilter.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/main/java/com/nexaticket/gateway/CorsConfig.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/main/java/com/nexaticket/gateway/GatewayApplication.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/main/java/com/nexaticket/gateway/GatewaySecurityConfig.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/main/java/com/nexaticket/gateway/RateLimitConfig.java

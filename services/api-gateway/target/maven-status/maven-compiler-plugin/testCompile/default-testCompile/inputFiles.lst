@@ -1,0 +1,3 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/test/java/com/nexaticket/gateway/GatewayCorsTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/test/java/com/nexaticket/gateway/GatewayRoutingIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/api-gateway/src/test/java/com/nexaticket/gateway/RateLimitKeyResolverTest.java

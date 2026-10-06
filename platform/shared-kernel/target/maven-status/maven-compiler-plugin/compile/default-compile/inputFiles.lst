@@ -1,0 +1,8 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/access/Permission.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/access/Role.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/id/CorrelationContext.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/id/CorrelationId.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/id/TenantId.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/id/UserId.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/money/Money.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/shared-kernel/src/main/java/com/nexaticket/kernel/time/TimeWindow.java

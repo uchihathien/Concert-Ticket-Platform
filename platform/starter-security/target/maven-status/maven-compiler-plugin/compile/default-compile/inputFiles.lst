@@ -1,0 +1,14 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/IdentityServiceProperties.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/InternalApiProperties.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/PermissionGuard.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/SecurityAutoConfiguration.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/annotation/CrossTenantQuery.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/annotation/PublicEndpoint.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/annotation/RequiresPermission.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/HttpMembershipLookup.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/InternalApiFilter.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/MembershipLookup.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/TenantContext.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/TenantFilter.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/TenantPath.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/platform/starter-security/src/main/java/com/nexaticket/platform/security/tenant/TenantScope.java

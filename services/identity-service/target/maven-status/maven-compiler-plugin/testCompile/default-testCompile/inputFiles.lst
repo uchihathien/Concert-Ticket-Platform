@@ -1,0 +1,15 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/AccessControlIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/ArchitectureTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/AuthenticationFlowIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/InternalApiSecretIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/InternalOhsIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/MemberManagementIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/OrganizationRepositoryIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/PermissionGuardWiringIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/SessionRevocationIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/TenantIsolationIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/domain/InvitationTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/domain/OrganizationTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/domain/PermissionMatrixTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/support/MutableJwt.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/identity-service/src/test/java/com/nexaticket/identity/support/PostgresTestBase.java

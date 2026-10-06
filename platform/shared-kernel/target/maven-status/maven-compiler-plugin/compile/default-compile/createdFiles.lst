@@ -1,0 +1,8 @@
+com/nexaticket/kernel/access/Role.class
+com/nexaticket/kernel/access/Permission.class
+com/nexaticket/kernel/money/Money.class
+com/nexaticket/kernel/time/TimeWindow.class
+com/nexaticket/kernel/id/UserId.class
+com/nexaticket/kernel/id/CorrelationId.class
+com/nexaticket/kernel/id/TenantId.class
+com/nexaticket/kernel/id/CorrelationContext.class

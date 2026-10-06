@@ -1,0 +1,12 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/ArchitectureTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/MaterializeSessionIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/OversellBackstopIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/SeatHoldConcurrencyIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/SeatMapIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/SeatReleaseIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/SeatStatusIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/SeatedZoneHoldIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/domain/PurchaseLimitsTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/support/Concurrently.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/support/InventoryFixture.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/inventory-service/src/test/java/com/nexaticket/inventory/support/InventoryTestBase.java

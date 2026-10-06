@@ -1,0 +1,16 @@
+# Test KHÔNG được phụ thuộc vào việc máy có RabbitMQ đang chạy hay không.
+#
+# Với auto-startup mặc định, listener cố khai queue lúc khởi động context. Kết quả:
+#   * Không có broker  → chỉ log lỗi kết nối, context vẫn lên, test xanh.
+#   * CÓ broker nhưng chưa áp topology → khai queue thất bại, context CHẾT, toàn bộ test đỏ.
+#
+# Tức là cùng một commit xanh trên máy này và đỏ trên máy kia, tuỳ người đó có chạy
+# `docker compose up` hay chưa. Tắt auto-startup làm kết quả test chỉ phụ thuộc vào code.
+#
+# Test của consumer gọi thẳng listener với Message dựng tay, nên không mất độ phủ nào —
+# thứ cần kiểm là hợp đồng payload, không phải khả năng nói chuyện AMQP.
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false

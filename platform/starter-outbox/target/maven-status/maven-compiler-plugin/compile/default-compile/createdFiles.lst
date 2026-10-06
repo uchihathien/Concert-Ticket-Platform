@@ -1,0 +1,5 @@
+com/nexaticket/platform/outbox/OutboxAutoConfiguration.class
+com/nexaticket/platform/outbox/OutboxPublisher.class
+com/nexaticket/platform/outbox/OutboxWriter.class
+com/nexaticket/platform/outbox/OutboxPublisher$Row.class
+com/nexaticket/platform/outbox/OutboxPublisher$Pending.class

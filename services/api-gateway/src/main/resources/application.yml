@@ -1,0 +1,222 @@
+spring:
+  main:
+    # BẮT BUỘC khai tường minh là reactive.
+    #
+    # pom cha thêm spring-boot-starter-web cho mọi service; gateway hạ nó xuống scope provided để
+    # "loại", nhưng spring-boot:run VẪN nạp dependency scope provided. Kết quả là cả hạ tầng web
+    # servlet lẫn reactive cùng nằm trên classpath, Boot đoán kiểu ứng dụng là SERVLET, và Spring
+    # Cloud Gateway — vốn chỉ chạy trên WebFlux — làm app chết ngay lúc khởi động:
+    #
+    #   The bean 'conversionServicePostProcessor' ... could not be registered
+    #
+    # Lỗi này nằm sẵn từ đầu và không ai thấy, vì gateway chưa từng được chạy thử: nó biên dịch
+    # được, test được, chỉ không khởi động được.
+    web-application-type: reactive
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+  cloud:
+    gateway:
+      server:
+        webflux:
+          default-filters:
+            # Rate limit: public theo IP, authenticated theo user (services.md §0)
+            #
+            # Đây là SÀN áp cho MỌI route, kể cả route thêm vào ngày mai mà người thêm quên nghĩ
+            # tới hạn mức — cố ý giữ như vậy. Route nào cần chặt hơn thì khai thêm bộ giới hạn
+            # riêng của nó; cả hai cùng chạy và cái chặt hơn là cái quyết định.
+            #
+            # Ngưỡng 50 rps hợp lý cho đường đọc. Hai đường KHÔNG hợp lý với nó, vì cái giá của
+            # một request ở đó khác hẳn — xem `inventory-hold-create` và `ai-chat-turn` bên dưới.
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: ${RATE_LIMIT_RPS:50}
+                redis-rate-limiter.burstCapacity: ${RATE_LIMIT_BURST:100}
+                key-resolver: "#{@principalOrIpKeyResolver}"
+          routes:
+            # THỨ TỰ LÀ MỘT PHẦN CỦA CẤU HÌNH, KHÔNG PHẢI CHUYỆN THẨM MỸ.
+            #
+            # Gateway khớp theo thứ tự khai báo và route ĐẦU TIÊN khớp là route thắng. Nên quy tắc
+            # duy nhất ở đây: mẫu HẸP hơn phải đứng trước mẫu RỘNG hơn bao trùm nó.
+            #
+            # Vi phạm quy tắc này không gây lỗi cấu hình nào — nó chỉ lặng lẽ gửi request sang sai
+            # service. Đã xảy ra thật: identity giữ `/v1/me/**` và đứng trước ticketing, nên
+            # `/v1/me/tickets` và `/v1/me/orders` đều rơi vào identity. Triệu chứng là 500 từ một
+            # service không liên quan, và người ta đi soi ordering-service đang chạy hoàn toàn tốt.
+            #
+            # Năm cặp chồng lấn hiện có, hẹp trước rộng sau:
+            #   /v1/organizations/*/events/**       <  /v1/organizations/**            (catalog trước identity)
+            #   /v1/organizations/*/concert-templates/**, /v1/organizations/*/dashboard  <  cùng mẫu trên
+            #   /v1/me/tickets, /v1/me/orders       <  /v1/me/**                       (ticketing, ordering trước identity)
+            #   /v1/orders/*/tickets                <  /v1/orders/**                   (ticketing trước ordering)
+            #   /v1/sessions/*/checkins             <  /v1/sessions/**                 (ticketing trước inventory)
+            #   /v1/organizations/*/tickets         <  /v1/organizations/**            (ticketing trước identity)
+            #   /v1/organizations/*/uploads/**      <  /v1/organizations/**            (catalog trước identity)
+            #   /v1/platform/organizations/*/balance <  /v1/platform/organizations/**  (ledger trước identity)
+            #   POST /v1/sessions/*/holds           <  /v1/sessions/**                (hold-create trước inventory)
+            #   POST /v1/chat/agent/support         <  /v1/chat/**                    (chat-turn trước ai-chatbox)
+            # Hai cặp cuối chồng nhau cả về đường dẫn lẫn service ĐÍCH — chúng tách ra chỉ để mang
+            # hạn mức khác nhau. Đảo thứ tự thì không có lỗi nào, không có 404 nào: request vẫn tới
+            # đúng service, chỉ là hạn mức chặt biến mất. Đó là kiểu hỏng tệ nhất trong file này,
+            # nên có test ghim lại (`GatewayRoutingIT`).
+            # `/v1/platform/concert-templates/**` KHÔNG chồng với `/v1/platform/organizations/**`
+            # của identity, nên thứ tự giữa hai cái đó không quan trọng. Nhưng nó vẫn phải có mặt:
+            # thiếu route thì khu vực khung concert của Tổng công ty nhận 404 của chính gateway, và
+            # người ta sẽ đi soi catalog-service đang chạy hoàn toàn tốt.
+            - id: catalog
+              uri: ${CATALOG_URL:http://localhost:8091}
+              predicates:
+                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**,/v1/organizations/*/checkin-sessions,/v1/organizations/*/concert-templates/**,/v1/organizations/*/dashboard,/v1/platform/concert-templates/**,/v1/organizations/*/uploads/**
+            - id: ticketing
+              uri: ${TICKETING_URL:http://localhost:8097}
+              predicates:
+                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets,/v1/organizations/*/sessions/*/checkins
+            - id: ordering
+              uri: ${ORDERING_URL:http://localhost:8093}
+              predicates:
+                - Path=/v1/me/orders,/v1/orders/**
+            # Lượt GIÀNH GHẾ. Hẹp hơn `/v1/sessions/**` nên phải đứng TRƯỚC route inventory.
+            #
+            # Đây là điểm tranh chấp thật của một đợt mở bán, và nó KHÔNG phải `/v1/holds/**` —
+            # đường ấy chỉ có DELETE, tức là NHẢ ghế ra. Bóp nó lại là làm khó đúng cái việc trả
+            # ghế về cho người khác mua.
+            #
+            # 5 rps rộng rãi với một người thật: chọn ghế xong bấm một lần, cùng lắm sửa lại vài
+            # lần. Nhưng nó chặt với một con bot rải request — và ở đây bot phải trả giá bằng đúng
+            # thứ nó muốn cướp. Trần `max_tickets_per_customer` của inventory vẫn là chốt cuối;
+            # cái này chỉ để đám bot không đốt hết kết nối database trước khi chạm tới chốt ấy.
+            #
+            # Khoá đếm theo người dùng (đường này bắt buộc đăng nhập), nên một người bấm nhiều
+            # không ảnh hưởng ai khác — khác hẳn khi đếm chung theo IP của một nhà mạng.
+            - id: inventory-hold-create
+              uri: ${INVENTORY_URL:http://localhost:8092}
+              predicates:
+                - Path=/v1/sessions/*/holds
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: ${RATE_LIMIT_HOLD_RPS:5}
+                    redis-rate-limiter.burstCapacity: ${RATE_LIMIT_HOLD_BURST:10}
+                    key-resolver: "#{@principalOrIpKeyResolver}"
+            # Đọc sơ đồ ghế và nhả hold. Cả hai đều nên rộng rãi: sơ đồ có ETag nên phần lớn lượt
+            # gọi trả 304 rỗng, còn nhả ghế thì càng dễ càng tốt.
+            - id: inventory
+              uri: ${INVENTORY_URL:http://localhost:8092}
+              predicates:
+                - Path=/v1/sessions/**,/v1/holds/**
+            # Doanh thu của ban tổ chức. `/v1/admin/**` không chồng với mẫu nào khác, nhưng trước
+            # đây KHÔNG CÓ route nào — nên trang Doanh thu nhận 404 của chính gateway, và không ai
+            # đi tìm ở đúng chỗ.
+            - id: analytics
+              uri: ${ANALYTICS_URL:http://localhost:8099}
+              predicates:
+                - Path=/v1/admin/**
+            # Sổ cái: HẸP hơn `/v1/platform/organizations/**` của identity nên phải đứng TRƯỚC.
+            # Đảo thứ tự thì `/v1/platform/organizations/{id}/balance` rơi vào identity và trả 404
+            # của một service không liên quan.
+            - id: ledger
+              uri: ${LEDGER_URL:http://localhost:8094}
+              predicates:
+                - Path=/v1/platform/trial-balance,/v1/platform/organizations/*/balance
+            # Webhook payOS. Đây là đường DUY NHẤT từ internet vào payment-service, và không có nó
+            # thì mọi khoản tiền phải xác nhận tay bằng lệnh reconcile.
+            #
+            # `GatewaySecurityConfig` đã mở sẵn đường này (payOS không có JWT của ta); lớp xác thực
+            # là chữ ký HMAC-SHA256 kiểm trong chính endpoint đó. Bộ giới hạn tần suất mặc định vẫn
+            # áp — payOS gọi từ vài IP với lưu lượng thấp, nên ngưỡng 50 rps là dư.
+            - id: payment-webhook
+              uri: ${PAYMENT_URL:http://localhost:8095}
+              predicates:
+                - Path=/api/billing/bank/webhook/**
+            # Lượt chat thật — đường DUY NHẤT trong cả hệ mà một request tốn tiền của ta ở bên
+            # ngoài, chứ không chỉ tốn CPU. Hẹp hơn `/v1/chat/**` nên đứng TRƯỚC.
+            #
+            # 1 rps là tốc độ của một người đang gõ. Ai đó viết một vòng lặp gọi đường này sẽ đốt
+            # hạn mức của nhà cung cấp mô hình, và cái mất không phải là tải hệ thống mà là hoá
+            # đơn — một kiểu thiệt hại mà autoscaling không cứu được.
+            #
+            # Cố ý CHỈ bắt đúng đường gọi mô hình. `GET .../messages` là polling để xem lại đoạn
+            # hội thoại và không tốn gì, còn `/v1/support/**` là bàn làm việc của nhân viên hỗ trợ
+            # — bóp hai thứ đó xuống 1 rps là làm hỏng công việc của chính người trực.
+            - id: ai-chat-turn
+              uri: ${AICHATBOX_URL:http://localhost:8101}
+              predicates:
+                - Path=/v1/chat/agent/support
+                - Method=POST
+              filters:
+                - name: RequestRateLimiter
+                  args:
+                    redis-rate-limiter.replenishRate: ${RATE_LIMIT_CHAT_RPS:1}
+                    redis-rate-limiter.burstCapacity: ${RATE_LIMIT_CHAT_BURST:5}
+                    key-resolver: "#{@principalOrIpKeyResolver}"
+            # Phần còn lại của trợ lý AI và toàn bộ bàn hỗ trợ: đọc hội thoại, hàng đợi phiếu,
+            # kho tri thức. Không có lời gọi mô hình nào ở đây, nên dùng ngưỡng chung.
+            - id: ai-chatbox
+              uri: ${AICHATBOX_URL:http://localhost:8101}
+              predicates:
+                - Path=/v1/chat/**,/v1/support/**
+            # Rộng nhất, nên đứng cuối: `/v1/organizations/**` và `/v1/me/**` bao trùm mọi mẫu trên.
+            # `/v1/roles`, `/v1/platform/users/**` và `/v1/platform/audit-logs` KHÔNG khớp mẫu nào
+            # ở trên, nên thiếu chúng ở đây là 404 của chính gateway — và người ta sẽ đi soi
+            # identity-service đang chạy hoàn toàn tốt. Đúng vết xe của route analytics trước đây.
+            - id: identity
+              uri: ${IDENTITY_URL:http://localhost:8090}
+              predicates:
+                - Path=/v1/platform/organizations/**,/v1/platform/users/**,/v1/platform/audit-logs,/v1/organizations/**,/v1/roles,/v1/me,/v1/me/**,/v1/invitations/**
+            # Các service khác thêm vào đây khi tới giai đoạn của chúng (G1+).
+            # /internal/** CỐ Ý không có route: Open Host Service chỉ gọi được trong mạng nội bộ.
+            # Riêng với inventory điều đó là bắt buộc: /internal/reservations đổi trạng thái tồn kho
+            # mà không kiểm chủ sở hữu như đường công khai — để lọt ra internet là mất kiểm soát ghế.
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+management:
+  # Cổng quản trị riêng, KHÔNG publish ra ngoài.
+  #
+  # /actuator/prometheus lộ tên endpoint, số lượng request và độ trễ của từng đường — đủ để vẽ lại
+  # bề mặt API và đoán được lúc nào hệ thống đang tải nặng. Trước đây nó nằm chung cổng ứng dụng và
+  # được `anyRequest().authenticated()` bảo vệ, nên Prometheus không scrape nổi nếu không có JWT —
+  # tức là hoặc không có metric, hoặc phải cấp token cho một scraper.
+  #
+  # Tách cổng giải quyết cả hai: bên trong cụm thì gọi thẳng 9090, còn ingress chỉ mở 8080.
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+  # Trace phân tán — TẮT mặc định.
+  #
+  # Bật bằng TRACING_ENABLED=true, và chỉ bật khi thật sự có collector nghe ở OTEL_ENDPOINT: không
+  # có ai nhận thì exporter vẫn thử gửi mỗi vài giây và lấp đầy log bằng lỗi kết nối, che mất
+  # những dòng đáng đọc.
+  #
+  # `probability` là tỷ lệ MẪU, không phải công tắc. 1.0 ở lưu lượng thật là rất nhiều dữ liệu và
+  # rất nhiều tiền lưu trữ; 0.1 đủ để thấy hình dạng của độ trễ. Lỗi thì không cần lấy mẫu — chúng
+  # đã có log kèm correlationId, và correlationId nay đi xuyên mọi service (CorrelationPropagation).
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${OTEL_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{36} - %msg%n"
