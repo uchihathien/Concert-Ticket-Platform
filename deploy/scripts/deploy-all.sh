@@ -436,9 +436,64 @@ if phase 6 "Chứng chỉ HTTPS và bật hệ thống"; then
   on_server "xin chứng chỉ Let's Encrypt cho 7 tên" \
     "sudo certbot --nginx --redirect --agree-tos --no-eff-email -n -m $CERT_EMAIL$d_args" 600
 
+  # IN RA 22 TÊN ẢNH ĐÃ PHÂN GIẢI, trước khi kéo bất cứ thứ gì.
+  #
+  # 22, đúng bằng số container: `config --images` bỏ qua service nằm sau profile (ollama,
+  # otel-collector), nên danh sách này là chính xác những ảnh mà `up` sẽ cần — không nhiều hơn.
+  #
+  # `config --images` là chỗ DUY NHẤT thấy được kết quả của ba biến REGISTRY, BACKEND_TAG,
+  # FRONTEND_TAG sau khi compose đã thay thế. Thiếu REGISTRY trong .env thì mặc định `nexaticket`
+  # áp dụng và mọi dòng trỏ về Docker Hub — một lỗi mà `compose up` chỉ báo lại thành
+  # "pull access denied", nghe như vấn đề quyền trên GHCR chứ không như sai registry.
+  on_server "đọc 22 tên ảnh đã phân giải"     "cd /srv/nexaticket && docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env config --images | sort" 120
+
+  # KÉO ẢNH THÀNH MỘT BƯỚC RIÊNG, không để `compose up` của systemd tự kéo.
+  #
+  # systemd cũng kéo ảnh thiếu, nhưng lỗi khi đó nằm trong journal của unit, còn SSM chỉ trả về
+  # "Failed" — không tên ảnh, không lý do. Tách ra thì thông điệp thật hiện lên ngay ở đây: ảnh nào,
+  # tag nào, và `denied` (package còn private) hay `manifest unknown` (tag không tồn tại) — hai
+  # nguyên nhân cần hai cách sửa khác nhau.
+  #
+  # --ignore-buildable: rabbitmq không có trên GHCR, ảnh của nó dựng tại chỗ ở ExecStartPre của unit.
+  if ! on_server "keo 21 anh (17 tu GHCR, 4 cong khai) - lan dau 5-10 phut"     "cd /srv/nexaticket && docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env pull --ignore-buildable" 1800 soft; then
+    cat >&2 <<GHCRHINT
+
+  Không kéo được ảnh. Đọc tên ảnh trong lỗi ở trên, rồi đối chiếu:
+
+    denied / pull access denied   -> package còn PRIVATE. Phải mở CẢ 17, không chỉ 13 ảnh backend:
+                                    bốn ảnh web-customer, web-admin, web-scanner, web-platform
+                                    thuộc repo Concert-Ticket-Frontend và mặc định cũng private.
+                                    github.com/uchihathien?tab=packages -> từng package ->
+                                    Package settings -> Change visibility -> Public
+                                    Hoặc nạp token một lần cho máy chủ:
+                                      aws ssm put-parameter --name $PREFIX/GHCR_TOKEN \
+                                        --type SecureString --value '<PAT co read:packages>' --overwrite
+                                    rồi chạy lại với SKIP=1,2,3 để server-setup.sh đăng nhập lại.
+
+    manifest unknown              -> tag không tồn tại. CI đẩy :main và :<sha>, nên .env phải là
+                                    BACKEND_TAG=main và FRONTEND_TAG=main, KHÔNG phải latest.
+                                    Riêng FRONTEND_TAG=main đòi workflow Release của repo
+                                    Concert-Ticket-Frontend đã chạy xanh ít nhất một lần.
+
+GHCRHINT
+    die "Kéo ảnh thất bại — không bật container khi còn thiếu ảnh."
+  fi
+
   # `--wait` trả về khi container HEALTHY. Lần đầu 5–10 phút: Postgres chạy migration của 12 service,
   # Keycloak nhập realm.
-  on_server "bật 22 container (lần đầu 5–10 phút)" "sudo systemctl enable --now nexaticket" 1800
+  # `restart`, KHÔNG `start`: unit là Type=oneshot + RemainAfterExit=yes, nên khi nó đang ở trạng
+  # thái active (exited) từ một lần trước, `start` là lệnh KHÔNG LÀM GÌ và trả về 0 — script khi đó
+  # báo xanh cho một việc chưa xảy ra.
+  on_server "bật 22 container (lần đầu 5–10 phút)"     "sudo systemctl enable nexaticket && sudo systemctl restart nexaticket" 1800
+
+  # KIỂM TRẠNG THÁI THẬT, không tin mã trả về của systemctl.
+  #
+  # Đã xảy ra: bước trên báo ✓ trong khi journal cho thấy unit hỏng và không container nào được tạo.
+  # Một mã trả về 0 chỉ nói "lệnh chạy xong", không nói "hệ thống đang chạy".
+  # KHÔNG dùng dấu nháy kép trong lệnh: `on_server` nhúng nó vào JSON của SSM
+  # (`commands=["sudo -u ubuntu bash -lc '...'"]`), nên một dấu " sẽ đóng chuỗi JSON sớm và AWS CLI
+  # từ chối cả lời gọi. Số nguyên không cần bọc nháy, nên ở đây không mất gì.
+  on_server "đếm container đang chạy"     "cd /srv/nexaticket && n=\$(docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env ps -q | wc -l) && echo \$n container dang chay && test \$n -ge 20" 300
   on_server "kiểm khói" "cd /srv/nexaticket && bash deploy/scripts/smoke.sh" 300
 fi
 

@@ -46,12 +46,18 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
   | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 $APT update -qq
+# `docker-buildx-plugin` KHÔNG phải thêm cho đủ bộ, dù máy chủ chỉ KÉO 21 ảnh chứ không build.
+#
+# Còn ĐÚNG MỘT ảnh phải dựng tại chỗ: rabbitmq, để bật plugin delayed message (ADR-1009). Dockerfile
+# của nó dùng `ADD --chmod=644 <url>`, và `--chmod` là cú pháp CHỈ BuildKit hiểu — builder cũ từ chối
+# thẳng. Thiếu gói này thì ExecStartPre của nexaticket.service hỏng, systemd BỎ QUA ExecStart, và
+# không container nào được tạo — đúng cái hố mà bản trước đã rơi vào theo một đường khác.
 $APT install -y -qq \
-  docker-ce docker-ce-cli containerd.io docker-compose-plugin \
+  docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin \
   nginx git unzip jq
 
 sudo usermod -aG docker ubuntu
-docker --version && docker compose version
+docker --version && docker compose version && docker buildx version
 
 say "AWS CLI v2"
 # Bản trong apt là v1 và không đọc được một số cú pháp dùng ở đây.

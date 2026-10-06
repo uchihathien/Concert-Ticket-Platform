@@ -160,7 +160,14 @@ jobs:
 
           compose="docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env"
 
-          \$compose pull
+          # --ignore-buildable: rabbitmq KHÔNG có mặt trên GHCR — ảnh của nó dựng tại chỗ để bật
+          # plugin delayed message (ADR-1009). Thiếu cờ này thì `pull` chết ở đúng ảnh đó và 21 ảnh
+          # còn lại không được kéo.
+          \$compose pull --ignore-buildable
+          # Dựng rabbitmq từ Dockerfile của commit vừa checkout. `up --no-build` bên dưới KHÔNG tự
+          # làm việc này, và vì một ảnh thiếu làm CẢ `compose up` chết, bỏ dòng này nghĩa là không
+          # container nào được tạo — kể cả 21 ảnh vừa kéo xong.
+          \$compose build rabbitmq
           # --no-build: trên máy chủ không có mã nguồn frontend. Thiếu cờ này thì compose thấy
           # thiếu ảnh là đi build, và chết ở một build context không tồn tại.
           # --wait: trả về khi container HEALTHY, không phải khi đã tạo xong.
