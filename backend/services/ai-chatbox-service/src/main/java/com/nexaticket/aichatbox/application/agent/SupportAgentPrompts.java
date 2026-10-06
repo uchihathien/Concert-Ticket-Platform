@@ -151,9 +151,12 @@ public final class SupportAgentPrompts {
      * được cho tin nhắn lúc 22h đêm.
      */
     public static String assistantUnavailableMessage() {
-        return """
-                Mình đã ghi lại câu hỏi của bạn và chuyển cho nhân viên hỗ trợ. Bạn cứ nhắn tiếp ngay                 tại đây nhé — nhân viên sẽ đọc được toàn bộ nội dung và trả lời bạn.
-                Nếu cần gấp, bạn gọi hotline 1900 1234 (8:00–22:00 hằng ngày).""";
+        // Nối chuỗi tường minh, KHÔNG dùng text block nối dòng bằng dấu gạch chéo ngược: Spotless gộp
+        // hai dòng lại và để nguyên phần thụt lề thành một dãy khoảng trắng GIỮA CÂU, nên khách đọc
+        // được một câu có lỗ hổng ở giữa trong khi mã nguồn nhìn hoàn toàn bình thường.
+        return "Mình đã ghi lại câu hỏi của bạn và chuyển cho nhân viên hỗ trợ. "
+                + "Bạn cứ nhắn tiếp ngay tại đây nhé — nhân viên sẽ đọc được toàn bộ nội dung và trả lời bạn.\n"
+                + "Nếu cần gấp, bạn gọi hotline 1900 1234 (8:00–22:00 hằng ngày).";
     }
 
     /**
