@@ -83,3 +83,9 @@ logging:
 nexaticket:
   identity:
     base-url: ${IDENTITY_URL:http://localhost:8090}
+  ticketing:
+    # OrderingHttpAdapter đọc property này. Trước đây nó chỉ có mặc định dev trong @Value và KHÔNG nối
+    # với biến môi trường nào — production không có cách nào đổi, và ticketing gọi ordering ở
+    # localhost:8093 trong container: vé không bao giờ được phát sau khi khách đã trả tiền. Một quy
+    # ước cho mọi service: URL của service khác đến từ biến <TÊN>_URL, prod.yml cấp đủ mười biến.
+    ordering-url: ${ORDERING_URL:http://localhost:8093}

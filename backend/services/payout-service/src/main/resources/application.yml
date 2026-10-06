@@ -83,3 +83,9 @@ logging:
 nexaticket:
   identity:
     base-url: ${IDENTITY_URL:http://localhost:8090}
+  payout:
+    services:
+      # PayoutClients đọc hai property này. Cùng lý do với ticketing: @Value chỉ có mặc định dev,
+      # không nối biến môi trường, production gọi localhost. Quy ước: <TÊN>_URL từ prod.yml.
+      ledger-url: ${LEDGER_URL:http://localhost:8094}
+      identity-url: ${IDENTITY_URL:http://localhost:8090}

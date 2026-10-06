@@ -49,10 +49,24 @@ x-service-env: &service-env
   # mà không cần build lại ảnh; application.yml cũng được sửa để lần build sau không còn phụ thuộc
   # vào tên biến này. Service không dùng Redis thì bỏ qua biến, vô hại.
   SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?can REDIS_PASSWORD}
+  # ĐỦ MƯỜI địa chỉ, cho mọi service, dù service đó có gọi hay không. Bản trước chỉ cấp bốn
+  # (identity, catalog, inventory, analytics) — đủ cho catalog, là service duy nhất smoke test đi
+  # qua. ordering thiếu PAYMENT_URL nên gọi payment ở localhost:8095 — `Connection refused`, và
+  # PlaceOrderHandler dịch nó thành 503 "Payment unavailable, please retry" cho khách, đúng ở bước
+  # thanh toán. Mỗi service có một mặc định dev riêng cho từng URL, nên một biến thiếu không hỏng
+  # lúc khởi động, không hỏng ở healthcheck, chỉ hỏng ở đúng lời gọi đầu tiên cần nó. Cấp dư rẻ
+  # hơn nhiều so với cấp thiếu.
   IDENTITY_URL: http://identity-service:8080
   CATALOG_URL: http://catalog-service:8080
   INVENTORY_URL: http://inventory-service:8080
+  ORDERING_URL: http://ordering-service:8080
+  PAYMENT_URL: http://payment-service:8080
+  LEDGER_URL: http://ledger-service:8080
+  PAYOUT_URL: http://payout-service:8080
+  TICKETING_URL: http://ticketing-service:8080
+  NOTIFICATION_URL: http://notification-service:8080
   ANALYTICS_URL: http://analytics-service:8080
+  AICHATBOX_URL: http://ai-chatbox-service:8080
   # Dữ liệu mẫu TẮT ở mọi service. ProductionHardening cũng chặn, nhưng khai ở đây để người đọc
   # compose không phải đi tra mặc định trong application.yml là gì.
   CATALOG_DEMO_DATA: "false"
@@ -163,6 +177,9 @@ services:
       # Khoa nay ky va kiem chu ky webhook. Sai khoa = moi khoan tien phai xac nhan tay.
       PAYOS_CHECKSUM_KEY: ${PAYOS_CHECKSUM_KEY:?can PAYOS_CHECKSUM_KEY}
       PAYOS_WEBHOOK_URL: ${PUBLIC_API_BASE_URL:?}/api/billing/bank/webhook
+      # Trang khách mà payOS đưa người mua về sau khi trả/huỷ. Mặc định dev là localhost:3000 —
+      # ở production là một tab trình duyệt trắng ngay sau khi tiền đã đi.
+      WEB_BASE_URL: ${WEB_CUSTOMER_URL:?can WEB_CUSTOMER_URL}
       PAYMENT_SANDBOX: "false"
 
   ledger-service:
