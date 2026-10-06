@@ -31,6 +31,16 @@ x-service-env: &service-env
   RABBITMQ_USER: ${RABBITMQ_USER:?can RABBITMQ_USER}
   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?can RABBITMQ_PASSWORD}
   REDIS_HOST: redis
+  # Địa chỉ identity-service cho TenantFilter của starter-security — thuộc tính
+  # `nexaticket.identity.base-url`, mặc định dev `http://localhost:8090`. IDENTITY_URL ở dưới KHÔNG
+  # tới được nó: chỉ catalog-service khai `base-url: ${IDENTITY_URL:...}` trong application.yml,
+  # mười service kia không khai, nên trong container chúng gọi localhost:8090 — một địa chỉ không có
+  # gì — và HttpMembershipLookup nuốt lỗi I/O thành "ẩn danh". Triệu chứng: cùng một token, đọc sơ đồ
+  # ghế thì 200 (không cần danh tính), giữ ghế thì 401 "Authentication required"; catalog công khai
+  # xanh nên smoke test không bắt được. Tên biến theo relaxed binding của Spring Boot, cùng cách với
+  # NEXATICKET_INTERNAL_SHAREDSECRET ở trên; application.yml của từng service cũng được sửa để lần
+  # build sau không còn phụ thuộc tên biến này.
+  NEXATICKET_IDENTITY_BASEURL: http://identity-service:8080
   # Redis prod chạy với `--requirepass`, nhưng application.yml của api-gateway và inventory-service chỉ
   # khai host/port — không có chỗ nào nhận mật khẩu. Hậu quả không phải "không kết nối được": kết nối
   # vẫn mở, và MỖI lệnh trả NOAUTH. Gateway log `Error calling rate limiter lua` rồi CHO QUA (rate
@@ -326,6 +336,9 @@ services:
       NEXATICKET_INTERNAL_SHAREDSECRET: ${INTERNAL_SHARED_SECRET:?}
       OIDC_ISSUER: ${OIDC_ISSUER:?}
       REDIS_HOST: redis
+      # Khối env này KHÔNG dùng anchor x-service-env, nên mật khẩu Redis phải cấp riêng — thiếu nó
+      # thì rate limiter log `Error calling rate limiter lua` 40 lần mỗi phút rồi cho qua.
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?can REDIS_PASSWORD}
       # Liệt kê tường minh bốn origin. `*` cộng với `allowCredentials` bị trình duyệt từ chối
       # thẳng, nên "mở hết cho xong" ở đây còn hỏng nhanh hơn là nguy hiểm — nhưng vẫn không làm.
       NEXATICKET_GATEWAY_ALLOWEDORIGINS: ${WEB_CUSTOMER_URL:?},${WEB_ADMIN_URL:?},${WEB_SCANNER_URL:?},${WEB_PLATFORM_URL:?}
