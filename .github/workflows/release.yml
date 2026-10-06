@@ -166,7 +166,9 @@ jobs:
           # --wait: trả về khi container HEALTHY, không phải khi đã tạo xong.
           \$compose up -d --no-build --wait --remove-orphans
 
-          ./deploy/scripts/smoke.sh
+          # Gọi qua `bash`, không dựa vào bit thực thi: git trên Windows không ghi lại chmod +x,
+          # nên file có thể về máy chủ ở mode 644 và `./script` thất bại với exit 126.
+          bash deploy/scripts/smoke.sh
           EOF
 
       # `if: always()` là BẮT BUỘC, không phải cho gọn: deploy hỏng giữa chừng mà không đóng thì
