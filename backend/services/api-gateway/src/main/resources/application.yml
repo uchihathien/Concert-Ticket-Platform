@@ -18,6 +18,8 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      # Rỗng ở local (Redis dev không đặt mật khẩu); production đặt qua REDIS_PASSWORD.
+      password: ${REDIS_PASSWORD:}
   security:
     oauth2:
       resourceserver:
@@ -220,3 +222,11 @@ management:
 logging:
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{36} - %msg%n"
+
+# TenantFilter của starter-security hỏi identity-service xem người gọi là ai và thuộc tổ chức nào.
+# KHÔNG có dòng này thì mặc định dev http://localhost:8090 thắng dù IDENTITY_URL đã đặt — trong
+# container đó là một địa chỉ không có gì, lỗi I/O bị nuốt thành "ẩn danh", và mọi endpoint cần
+# danh tính trả 401 trong khi service vẫn healthy. Cùng mẫu với catalog-service.
+nexaticket:
+  identity:
+    base-url: ${IDENTITY_URL:http://localhost:8090}
