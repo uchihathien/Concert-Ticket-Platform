@@ -439,7 +439,7 @@ if phase 6 "Chứng chỉ HTTPS và bật hệ thống"; then
   # `--wait` trả về khi container HEALTHY. Lần đầu 5–10 phút: Postgres chạy migration của 12 service,
   # Keycloak nhập realm.
   on_server "bật 22 container (lần đầu 5–10 phút)" "sudo systemctl enable --now nexaticket" 1800
-  on_server "kiểm khói" "cd /srv/nexaticket && ./deploy/scripts/smoke.sh" 300
+  on_server "kiểm khói" "cd /srv/nexaticket && bash deploy/scripts/smoke.sh" 300
 fi
 
 # ===========================================================================
