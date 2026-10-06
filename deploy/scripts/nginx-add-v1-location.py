@@ -1,4 +1,4 @@
-r"""Chèn `location /v1/` vào bốn vhost web TLS của file nginx ĐANG CHẠY trên máy chủ.
+r"""Áp hai chỉnh sửa nginx vào file ĐANG CHẠY trên máy chủ: `/v1/` cùng gốc, và cache ảnh.
 
     sudo python3 deploy/scripts/nginx-add-v1-location.py
     sudo nginx -t && sudo systemctl reload nginx
@@ -20,12 +20,20 @@ KHÔNG DÙNG REGEX. Script này đi qua JSON của SSM rồi qua heredoc của s
 escape nữa, và bản trước đã chết im lặng vì `\s` thành một backslash literal — khớp 0 block, in ra
 "không chèn gì", trong khi mọi thứ khác báo thành công. Đếm ngoặc bằng tay thì không có lớp nào.
 
-IDEMPOTENT: block đã có `location /v1/` thì bỏ qua. Tự sao lưu trước khi ghi.
-"""
-import sys, time, shutil
+CACHE ẢNH. SeaweedFS chỉ trả ETag, không trả Cache-Control, nên trình duyệt hỏi lại gần như mỗi
+lần. Đo trên production: trang danh sách 32 poster là 4,8 MB và tải lại nguyên vẹn mỗi lượt xem —
+đó là thứ người dùng cảm thấy là "ảnh load chậm". 30 ngày an toàn vì đổi ảnh bìa nghĩa là vật thể
+MỚI với tên mới; URL cũ không bao giờ trỏ sang nội dung khác.
 
-P = '/etc/nginx/sites-enabled/nexaticket'
+IDEMPOTENT: block đã có thì bỏ qua. Tự sao lưu trước khi ghi.
+"""
+import os, time, shutil
+
+# NGINX_CONF cho phép chạy thử trên một bản sao trước khi đụng vào máy chủ. Mặc định là file thật.
+P = os.environ.get('NGINX_CONF', '/etc/nginx/sites-enabled/nexaticket')
 HOSTS = ['concertth.site', 'to-chuc.concertth.site', 'soat-ve.concertth.site', 'quan-tri.concertth.site']
+MEDIA_HOST = 'media.concertth.site'
+CACHE_LINE = '        add_header Cache-Control "public, max-age=2592000" always;'
 SNIP = """
     # API cung goc: bundle Next goi /v1/... bang duong tuong doi (NEXT_PUBLIC_API_BASE_URL rong luc build).
     location /v1/ {
@@ -102,9 +110,23 @@ for a, b in reversed(blocks):
     src = src[:a] + blk[:end + 1] + '\n' + SNIP + blk[end + 1:] + src[b:]
     changed.append(name)
 
+# --- cache anh tren vhost media ---
+for a, b in reversed(server_blocks(src)):
+    blk = src[a:b]
+    if 'ssl_certificate' not in blk or 'server_name ' + MEDIA_HOST + ';' not in blk:
+        continue
+    if 'Cache-Control' in blk:
+        continue
+    k = blk.find('location / {')
+    if k < 0:
+        continue
+    nl = blk.find('\n', blk.find('{', k))
+    src = src[:a] + blk[:nl + 1] + CACHE_LINE + '\n' + blk[nl + 1:] + src[b:]
+    changed.append(MEDIA_HOST + ' (cache anh)')
+
 if changed:
     shutil.copy(P, P + '.bak.' + str(int(time.time())))
     open(P, 'w', encoding='utf-8').write(src)
-    print('  DA CHEN /v1/ vao: ' + ', '.join(reversed(changed)))
+    print('  DA SUA: ' + ', '.join(reversed(changed)))
 else:
     print('  khong chen gi (da co san, hoac khong block nao vua dieu kien)')

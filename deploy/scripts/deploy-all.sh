@@ -447,9 +447,13 @@ if phase 6 "Chứng chỉ HTTPS và bật hệ thống"; then
   # certbot đã ghi khối TLS thẳng vào file, và chép đè là xoá chứng chỉ của cả bảy tên miền. Script
   # dưới đây chèn vào file đang chạy, idempotent, tự sao lưu.
   #
+  # Cùng script cũng thêm Cache-Control cho vhost media: SeaweedFS chỉ trả ETag, nên trang danh sách
+  # 32 poster là 4,8 MB và trình duyệt tải lại nguyên vẹn mỗi lượt xem — đó là thứ cảm thấy như
+  # "ảnh load chậm".
+  #
   # gzip: nginx.conf của Ubuntu có `gzip on` nhưng gzip_types chỉ gồm text/html, nên sơ đồ 16.796 ghế
   # đi nguyên 5,3 MB và SDK bỏ cuộc ở hạn 15 giây của chính nó.
-  on_server "nginx: /v1/ cùng gốc và nén JSON"     "sudo python3 /srv/nexaticket/deploy/scripts/nginx-add-v1-location.py && sudo install -m 644 /srv/nexaticket/deploy/nginx/gzip.conf /etc/nginx/conf.d/nexaticket-gzip.conf && sudo nginx -t && sudo systemctl reload nginx && echo nginx da nhan cau hinh moi" 300
+  on_server "nginx: /v1/ cùng gốc, cache ảnh, nén JSON"     "sudo python3 /srv/nexaticket/deploy/scripts/nginx-add-v1-location.py && sudo install -m 644 /srv/nexaticket/deploy/nginx/gzip.conf /etc/nginx/conf.d/nexaticket-gzip.conf && sudo nginx -t && sudo systemctl reload nginx && echo nginx da nhan cau hinh moi" 300
 
   # IN RA 22 TÊN ẢNH ĐÃ PHÂN GIẢI, trước khi kéo bất cứ thứ gì.
   #
