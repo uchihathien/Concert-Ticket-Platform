@@ -283,6 +283,12 @@ services:
       # không qua /internal/** — xem OrderingHttpAdapter.
       ORDERING_URL: http://ordering-service:8080
       AI_PROVIDER: ${AI_PROVIDER:-local}
+      # TÁCH khỏi AI_PROVIDER. Mặc định đi theo nó, nên không khai thì hành vi không đổi.
+      # Có khoá Anthropic nhưng KHÔNG có khoá Voyage: đặt AI_PROVIDER=anthropic và
+      # EMBEDDING_PROVIDER=local — Claude trả lời, bge-m3 lo phần nhúng. Cần bật profile ai-local
+      # để container ollama chạy, nhưng chỉ nạp mô hình nhúng (~1,2 GB) chứ không nạp mô hình 7B.
+      # EMBEDDING_PROVIDER=none thì tắt hẳn RAG: trợ lý vẫn tra được đơn, mất tri thức nền.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-qwen2.5:7b-instruct}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-bge-m3}
