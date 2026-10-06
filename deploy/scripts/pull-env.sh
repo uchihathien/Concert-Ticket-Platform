@@ -31,8 +31,21 @@ trap 'rm -f "$tmp"' EXIT
 #
 # Danh sách tên rút THẲNG từ prod.yml — mọi biến compose tham chiếu tới, cả bắt buộc (`${X:?}`) lẫn
 # có mặc định (`${X:-...}`). Không giữ một bản sao sẽ lệch khi ai đó thêm biến mới.
-compose="$(cd "$(dirname "$0")/../compose" && pwd)/prod.yml"
-[ -f "$compose" ] || { echo "Không thấy $compose" >&2; exit 1; }
+# prod.yml nằm CẠNH file .env, nên suy từ $OUT — KHÔNG từ $0.
+#
+# Script này được cài vào /usr/local/bin/nexa-env, nên `dirname $0` là /usr/local/bin và
+# `../compose` thành /usr/local/compose — không tồn tại:
+#
+#     /usr/local/bin/nexa-env: line 34: cd: /usr/local/bin/../compose: No such file or directory
+#
+# Bản trước bọc phép kiểm trong `if [ -f ... ]` nên nó BỎ QUA IM LẶNG: phép kiểm biến thiếu chưa
+# từng chạy một lần nào kể từ khi script được cài vào /usr/local/bin.
+COMPOSE_FILE="${COMPOSE_FILE:-$(dirname "$OUT")/prod.yml}"
+[ -f "$COMPOSE_FILE" ] || {
+  echo "Không thấy $COMPOSE_FILE — cần nó để biết danh sách biến bắt buộc." >&2
+  echo "Đặt COMPOSE_FILE=/duong/dan/prod.yml nếu nó nằm chỗ khác." >&2
+  exit 1
+}
 
 by_path() {
   aws ssm get-parameters-by-path --path "$PREFIX/" --with-decryption --recursive \
@@ -42,7 +55,7 @@ by_path() {
 by_name() {
   # Mọi tên biến prod.yml nhắc tới, bỏ dòng comment (dòng 8 có ví dụ `${X:?...}` trong lời giải thích).
   local names batch full
-  names=$(grep -v '^[[:space:]]*#' "$compose" \
+  names=$(grep -v '^[[:space:]]*#' "$COMPOSE_FILE" \
           | grep -oE '[$][{][A-Z_][A-Z_0-9]*' | tr -d '${' | sort -u)
   # Lô 10 là trần của API; chia nhỏ hơn chỉ tốn thêm lời gọi.
   # `--query` chỉ in tham số CÓ THẬT; tên không tồn tại nằm ở InvalidParameters và bị bỏ qua — đó là
@@ -81,12 +94,11 @@ n=$(grep -c '=' "$tmp" || true)
 # Dem thi khong noi duoc thieu cai gi: 47 bien co the du neu dung bien, va thieu neu sai bien.
 # Danh sach bat buoc lay THANG tu prod.yml (cac tham chieu dang ${X:?}) nen khong bao giu mot
 # ban sao se lech khi ai do them bien moi vao compose.
-compose="$(dirname "$0")/../compose/prod.yml"
 missing=""
-if [ -f "$compose" ]; then
+if [ -f "$COMPOSE_FILE" ]; then
   # Bo dong comment truoc khi rut: dong 8 cua prod.yml co vi du `${X:?...}` trong loi giai thich,
   # va no se thanh mot "bien bat buoc" ten X khong he ton tai.
-  for v in $(grep -v '^[[:space:]]*#' "$compose" | grep -oE '[$][{][A-Z_]+:[?]' | tr -d '${:?' | sort -u); do
+  for v in $(grep -v '^[[:space:]]*#' "$COMPOSE_FILE" | grep -oE '[$][{][A-Z_]+:[?]' | tr -d '${:?' | sort -u); do
     grep -q "^$v=" "$tmp" || missing="$missing $v"
   done
 fi
