@@ -3,7 +3,6 @@ package com.nexaticket.aichatbox.infrastructure.embedding;
 
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
 import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
-import com.nexaticket.aichatbox.infrastructure.llm.LlmProvider;
 import jakarta.annotation.PostConstruct;
 import java.time.Duration;
 import java.util.List;
@@ -26,7 +25,7 @@ import org.springframework.web.client.RestClient;
  * thứ chạy trơn tru, truy vấn vẫn trả kết quả, và kết quả vô nghĩa vì vector cũ và mới không nằm
  * trong cùng một không gian. Đổi mô hình ⇒ nhúng lại toàn bộ kho tri thức.
  */
-@ConditionalOnProperty(name = LlmProvider.PROPERTY, havingValue = "anthropic")
+@ConditionalOnProperty(name = EmbeddingProvider.PROPERTY, havingValue = "anthropic")
 @Component
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.embedding")
 public class VoyageEmbeddingAdapter implements EmbeddingPort {
