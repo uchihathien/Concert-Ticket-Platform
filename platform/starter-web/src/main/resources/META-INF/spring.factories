@@ -1,0 +1,8 @@
+# ProductionHardening phải chạy TRƯỚC bean đầu tiên, nên nó đăng ký ở đây chứ không ở
+# AutoConfiguration.imports.
+#
+# Là bean thì thứ tự tạo không đảm bảo: Flyway mở kết nối database trước và service chết vì
+# "Connection refused" — người triển khai nhận stack trace về database và không bao giờ thấy câu
+# "bí mật /internal đang trống".
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.nexaticket.platform.web.ProductionHardening
