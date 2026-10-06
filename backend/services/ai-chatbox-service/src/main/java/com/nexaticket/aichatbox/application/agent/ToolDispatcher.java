@@ -209,7 +209,9 @@ public class ToolDispatcher {
                 out.put("orders", List.of());
                 out.put("hint", "Khách chưa có đơn nào. Nếu họ nói đã mua thì hỏi xem có dùng tài khoản khác không.");
             } else {
-                out.put("orders", orders.stream().map(ToolDispatcher::describeBrief).toList());
+                out.put(
+                        "orders",
+                        orders.stream().map(ToolDispatcher::describeBrief).toList());
             }
         } catch (RemoteCallException e) {
             log.warn("Không tra được danh sách đơn: {}", e.getMessage());
@@ -266,18 +268,22 @@ public class ToolDispatcher {
                     out.put("orderNumber", started.order().orderNumber());
                     out.put("orderId", started.order().orderId());
                     out.put("totalVnd", started.order().totalVnd());
-                    out.put("holdExpiresVietnamTime", VN_TIME.format(started.hold().expiresAt()));
+                    out.put(
+                            "holdExpiresVietnamTime",
+                            VN_TIME.format(started.hold().expiresAt()));
                     if (started.order().paymentExpiresAt() != null) {
-                        out.put("paymentExpiresVietnamTime", VN_TIME.format(started.order().paymentExpiresAt()));
+                        out.put(
+                                "paymentExpiresVietnamTime",
+                                VN_TIME.format(started.order().paymentExpiresAt()));
                     }
                     out.put("checkoutUrl", started.order().checkoutUrl());
                     out.put(
                             "nextStep",
                             "Báo khách số đơn, tổng tiền và hạn thanh toán, rồi đưa đúng checkoutUrl ở trên "
                                     + "để họ thanh toán. ĐỪNG tự viết đường dẫn khác.");
-                    yield new DispatchResult(
-                            ToolOutcome.ok(call.callId(), write(out)),
-                            List.of(new EventRef(started.event().slug(), started.event().title())));
+                    // Không kèm EventRef: khách vừa đặt xong, và "xem chỗ và mua vé" gắn vào lúc này
+                    // là mời họ mua lần nữa. Đường đi tiếp duy nhất là checkoutUrl.
+                    yield DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
                 }
             };
         } catch (RemoteCallException e) {

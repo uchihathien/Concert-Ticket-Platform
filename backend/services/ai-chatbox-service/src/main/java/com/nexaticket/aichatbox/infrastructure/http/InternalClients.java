@@ -24,6 +24,7 @@ public class InternalClients {
     private String orderingUrl = "http://localhost:8093";
     private String catalogUrl = "http://localhost:8091";
     private String identityUrl = "http://localhost:8090";
+    private String inventoryUrl = "http://localhost:8092";
     private Duration timeout = Duration.ofSeconds(3);
 
     @Bean
@@ -63,6 +64,20 @@ public class InternalClients {
                 .build();
     }
 
+    /**
+     * Client giữ chỗ.
+     *
+     * <p>Cùng hạn 3 giây, và ở đây hạn ấy còn có một ý nghĩa nữa: giữ chỗ là lệnh GHI, và một lệnh
+     * ghi treo quá lâu trong lúc khách chờ sẽ được khách bấm lại — Idempotency-Key là lưới đỡ cho
+     * chính tình huống đó, nhưng không có lý do gì để kéo họ tới lưới ấy.
+     */
+    @Bean
+    public RestClient inventoryClient(RestClient.Builder builder) {
+        return builder.baseUrl(inventoryUrl)
+                .requestFactory(PooledHttpFactory.create(timeout, timeout))
+                .build();
+    }
+
     public void setOrderingUrl(String orderingUrl) {
         this.orderingUrl = orderingUrl;
     }
@@ -73,6 +88,10 @@ public class InternalClients {
 
     public void setCatalogUrl(String catalogUrl) {
         this.catalogUrl = catalogUrl;
+    }
+
+    public void setInventoryUrl(String inventoryUrl) {
+        this.inventoryUrl = inventoryUrl;
     }
 
     public void setTimeout(Duration timeout) {

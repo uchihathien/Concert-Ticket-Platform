@@ -3,11 +3,13 @@ package com.nexaticket.aichatbox.infrastructure.http;
 
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
+import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -134,6 +136,50 @@ public class CatalogHttpAdapter implements CatalogClientPort {
     }
 
     /**
+     * Loại khu, đọc từ sơ đồ công khai {@code GET /v1/events/{slug}/floor-plan}.
+     *
+     * <p>Sơ đồ công khai không kèm danh sách ghế (catalog cố ý bỏ để nhẹ), nhưng có {@code kind}
+     * của từng khu — đúng thứ cần. {@code kind} là tên enum của catalog ({@code SEATED} /
+     * {@code STANDING}); tên lạ thì coi như không biết, và tool giữ chỗ sẽ mời khách sang trang web.
+     */
+    @Override
+    public Optional<ZoneAdmission> findZoneAdmission(String slug, String zoneCode) {
+        try {
+            FloorPlanResponse plan = client.get()
+                    .uri("/v1/events/{slug}/floor-plan", slug)
+                    .exchange((request, response) -> {
+                        HttpStatusCode status = response.getStatusCode();
+                        if (status.value() == 404) {
+                            return null;
+                        }
+                        if (!status.is2xxSuccessful()) {
+                            throw new RemoteCallException(SERVICE, "Catalog trả " + status, null);
+                        }
+                        return response.bodyTo(FloorPlanResponse.class);
+                    });
+            if (plan == null || plan.zones() == null) {
+                return Optional.empty();
+            }
+            return plan.zones().stream()
+                    .filter(zone -> zone.zoneCode() != null && zone.zoneCode().equalsIgnoreCase(zoneCode))
+                    .findFirst()
+                    .flatMap(zone -> {
+                        if ("SEATED".equalsIgnoreCase(zone.kind())) {
+                            return Optional.of(ZoneAdmission.SEATED);
+                        }
+                        if ("STANDING".equalsIgnoreCase(zone.kind())) {
+                            return Optional.of(ZoneAdmission.STANDING);
+                        }
+                        return Optional.empty();
+                    });
+        } catch (RemoteCallException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new RemoteCallException(SERVICE, "Không gọi được catalog-service", e);
+        }
+    }
+
+    /**
      * Tham số rỗng thì <b>không gửi</b>, chứ không gửi chuỗi rỗng.
      *
      * <p>{@code query=} (rỗng) và không có {@code query} là hai chuyện khác nhau với bộ lọc của
@@ -192,9 +238,9 @@ public class CatalogHttpAdapter implements CatalogClientPort {
             List<SessionResponse> sessions) {
 
         private record SessionResponse(
-                Instant startsAt, Instant endsAt, Instant salesCloseAt, List<TierResponse> tiers) {}
+                UUID id, Instant startsAt, Instant endsAt, Instant salesCloseAt, List<TierResponse> tiers) {}
 
-        private record TierResponse(String name, long priceVnd, String zoneName) {}
+        private record TierResponse(String name, long priceVnd, String zoneCode, String zoneName) {}
 
         EventDetail toDomain() {
             return new EventDetail(
@@ -210,6 +256,7 @@ public class CatalogHttpAdapter implements CatalogClientPort {
                             ? List.of()
                             : sessions.stream()
                                     .map(s -> new EventDetail.Session(
+                                            s.id(),
                                             s.startsAt(),
                                             s.endsAt(),
                                             s.salesCloseAt(),
@@ -217,9 +264,14 @@ public class CatalogHttpAdapter implements CatalogClientPort {
                                                     ? List.of()
                                                     : s.tiers().stream()
                                                             .map(t -> new EventDetail.Tier(
-                                                                    t.name(), t.priceVnd(), t.zoneName()))
+                                                                    t.name(), t.priceVnd(), t.zoneCode(), t.zoneName()))
                                                             .toList()))
                                     .toList());
         }
     }
+
+    /** Chỉ hai trường của mỗi khu — phần còn lại của sơ đồ (toạ độ, đa giác bao) là của màn hình. */
+    private record FloorPlanResponse(List<ZoneResponse> zones) {}
+
+    private record ZoneResponse(String zoneCode, String kind) {}
 }

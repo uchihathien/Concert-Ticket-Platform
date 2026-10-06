@@ -66,7 +66,8 @@ public enum IncidentKind {
         if (raw == null || raw.isBlank()) {
             return Optional.empty();
         }
-        String normalized = raw.strip().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        String normalized =
+                raw.strip().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
         for (IncidentKind kind : values()) {
             if (kind.name().equals(normalized)) {
                 return Optional.of(kind);

@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.infrastructure.persistence;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
+import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -22,7 +23,7 @@ public class JdbcHandoffRepository implements HandoffRepository {
 
     private static final String COLUMNS =
             """
-            id, session_id, user_id, status, trigger_kind, reason, last_question,
+            id, session_id, user_id, status, trigger_kind, intent, reason, details, last_question,
             assigned_agent_id, requested_at, assigned_at, resolved_at
             """;
 
@@ -48,8 +49,10 @@ public class JdbcHandoffRepository implements HandoffRepository {
         int inserted = db.sql(
                         """
                         insert into chat_handoffs
-                            (id, session_id, user_id, status, trigger_kind, reason, last_question, requested_at)
-                        values (:id, :sessionId, :userId, :status, :trigger, :reason, :lastQuestion, :requestedAt)
+                            (id, session_id, user_id, status, trigger_kind, intent, reason, details,
+                             last_question, requested_at)
+                        values (:id, :sessionId, :userId, :status, :trigger, :intent, :reason, :details,
+                                :lastQuestion, :requestedAt)
                         on conflict do nothing
                         """)
                 .param("id", candidate.id())
@@ -57,7 +60,9 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 .param("userId", candidate.userId())
                 .param("status", candidate.status().name())
                 .param("trigger", candidate.trigger().name())
+                .param("intent", candidate.intent().name())
                 .param("reason", candidate.reason())
+                .param("details", candidate.details())
                 .param("lastQuestion", candidate.lastQuestion())
                 .param("requestedAt", Timestamp.from(candidate.requestedAt()))
                 .update();
@@ -94,7 +99,13 @@ public class JdbcHandoffRepository implements HandoffRepository {
      */
     @Override
     public List<Handoff> search(
-            UUID mine, Set<HandoffStatus> statuses, String query, boolean newestFirst, int limit, int offset) {
+            UUID mine,
+            Set<HandoffStatus> statuses,
+            SupportIntent intent,
+            String query,
+            boolean newestFirst,
+            int limit,
+            int offset) {
         StringBuilder sql = new StringBuilder("select ").append(COLUMNS).append(" from chat_handoffs where 1 = 1");
 
         // Danh sách tham số rời cho mỗi trạng thái, KHÔNG phải một tham số dạng mảng: JdbcClient gắn
@@ -107,6 +118,9 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 sql.append(i++ == 0 ? ":s" : ", :s").append(i - 1);
             }
             sql.append(')');
+        }
+        if (intent != null) {
+            sql.append(" and intent = :intent");
         }
 
         boolean hasQuery = query != null && !query.isBlank();
@@ -132,6 +146,9 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 statement = statement.param("s" + i++, status.name());
             }
         }
+        if (intent != null) {
+            statement = statement.param("intent", intent.name());
+        }
         if (hasQuery) {
             statement = statement.param("q", "%" + query.strip() + "%");
         }
@@ -142,16 +159,21 @@ public class JdbcHandoffRepository implements HandoffRepository {
     }
 
     @Override
-    public List<Handoff> queue(UUID mine, int limit, int offset) {
+    public List<Handoff> queue(UUID mine, SupportIntent intent, int limit, int offset) {
         String scope = mine == null ? "" : " and assigned_agent_id = :mine";
+        String byIntent = intent == null ? "" : " and intent = :intent";
         var query = db.sql("select " + COLUMNS
                         + " from chat_handoffs where status <> 'RESOLVED'"
                         + scope
+                        + byIntent
                         + " order by requested_at limit :limit offset :offset")
                 .param("limit", limit)
                 .param("offset", offset);
         if (mine != null) {
             query = query.param("mine", mine);
+        }
+        if (intent != null) {
+            query = query.param("intent", intent.name());
         }
         return query.query(JdbcHandoffRepository::map).list();
     }
@@ -226,7 +248,9 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 rs.getObject("user_id", UUID.class),
                 HandoffStatus.valueOf(rs.getString("status")),
                 HandoffTrigger.valueOf(rs.getString("trigger_kind")),
+                SupportIntent.valueOf(rs.getString("intent")),
                 rs.getString("reason"),
+                rs.getString("details"),
                 rs.getString("last_question"),
                 rs.getObject("assigned_agent_id", UUID.class),
                 rs.getTimestamp("requested_at").toInstant(),

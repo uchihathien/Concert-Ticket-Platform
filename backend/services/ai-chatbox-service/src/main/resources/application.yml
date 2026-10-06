@@ -148,6 +148,11 @@ nexaticket:
       # Đây là nguồn duy nhất cho giá vé và suất diễn: chép chúng vào kho tri thức thì mỗi lần ban
       # tổ chức đổi giá, trợ lý vẫn đọc số cũ mà không có gì báo rằng nó đang nói sai.
       catalog-url: ${CATALOG_URL:http://localhost:8091}
+      # Giữ chỗ — đường CÔNG KHAI, mang token của khách như ordering. Xem InventoryClientPort.
+      inventory-url: ${INVENTORY_URL:http://localhost:8092}
+      # Hồ sơ của chính khách qua GET /v1/me, token của khách. Tên người trực đi đường nội bộ
+      # cùng host này — xem IdentityLookupPort và CustomerProfilePort.
+      identity-url: ${IDENTITY_URL:http://localhost:8090}
       # Ngắn hơn hạn của mô hình: lời gọi này nằm bên trong một lượt chat mà khách đang chờ.
       timeout: ${AICHATBOX_REMOTE_TIMEOUT:3s}
 

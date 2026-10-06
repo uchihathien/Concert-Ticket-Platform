@@ -195,7 +195,14 @@ public class HandoffUseCase {
     public Handoff escalateWithTurn(
             UUID sessionId, UUID userId, HandoffTrigger trigger, String reason, String userQuery, String reply) {
         return escalateWithTurn(
-                sessionId, userId, trigger, SupportIntentClassifier.classify(userQuery), reason, null, userQuery, reply);
+                sessionId,
+                userId,
+                trigger,
+                SupportIntentClassifier.classify(userQuery),
+                reason,
+                null,
+                userQuery,
+                reply);
     }
 
     /** Bản có nhãn và dữ liệu kèm — đường của các tool mở phiếu theo mục đích cụ thể. */

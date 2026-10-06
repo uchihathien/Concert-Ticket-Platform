@@ -11,6 +11,7 @@ import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffViews;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
+import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import com.nexaticket.aichatbox.support.AiChatboxTestBase;
@@ -164,9 +165,11 @@ class HandoffFlowIT extends AiChatboxTestBase {
         UUID handoffId = openHandoff();
         UUID nguoiTruc = UUID.randomUUID();
 
-        HandoffViews.HandoffRow first = handoffs.claim(handoffId, nguoiTruc);
+        HandoffViews.HandoffRow first =
+                handoffs.claim(handoffId, nguoiTruc, 200).handoff();
         // F5, hoặc bấm hai lần. 409 ở đây làm màn hình gỡ phiếu khỏi tay người đang trả lời nó.
-        HandoffViews.HandoffRow again = handoffs.claim(handoffId, nguoiTruc);
+        HandoffViews.HandoffRow again =
+                handoffs.claim(handoffId, nguoiTruc, 200).handoff();
 
         assertThat(first.status()).isEqualTo("ASSIGNED");
         assertThat(again.assignedAgentId()).isEqualTo(nguoiTruc);
@@ -175,9 +178,9 @@ class HandoffFlowIT extends AiChatboxTestBase {
     @Test
     void nguoi_khac_nhan_truoc_thi_409() {
         UUID handoffId = openHandoff();
-        handoffs.claim(handoffId, UUID.randomUUID());
+        handoffs.claim(handoffId, UUID.randomUUID(), 200);
 
-        assertThatThrownBy(() -> handoffs.claim(handoffId, UUID.randomUUID()))
+        assertThatThrownBy(() -> handoffs.claim(handoffId, UUID.randomUUID(), 200))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("vừa được người khác nhận");
     }
@@ -195,7 +198,7 @@ class HandoffFlowIT extends AiChatboxTestBase {
     void phieu_da_dong_thi_khong_tra_loi_duoc_nua() {
         UUID handoffId = openHandoff();
         UUID nguoiTruc = UUID.randomUUID();
-        handoffs.claim(handoffId, nguoiTruc);
+        handoffs.claim(handoffId, nguoiTruc, 200);
         handoffs.resolve(handoffId, nguoiTruc);
 
         // Từ lượt kế tiếp trợ lý AI đã trả lời trở lại. Thêm một câu của người trực vào lúc này là
@@ -209,7 +212,7 @@ class HandoffFlowIT extends AiChatboxTestBase {
     void dong_phieu_hai_lan_khong_doi_moc_thoi_gian() {
         UUID handoffId = openHandoff();
         UUID nguoiTruc = UUID.randomUUID();
-        handoffs.claim(handoffId, nguoiTruc);
+        handoffs.claim(handoffId, nguoiTruc, 200);
 
         handoffs.resolve(handoffId, nguoiTruc);
         var sauLanDau = repository.findById(handoffId).orElseThrow().resolvedAt();
@@ -225,7 +228,7 @@ class HandoffFlowIT extends AiChatboxTestBase {
         agent.executeAgentProcess(sessionId, userId, "cho tôi gặp nhân viên");
         UUID handoffId = handoffs.openFor(sessionId).orElseThrow().id();
         UUID nguoiTruc = UUID.randomUUID();
-        handoffs.claim(handoffId, nguoiTruc);
+        handoffs.claim(handoffId, nguoiTruc, 200);
 
         handoffs.reply(handoffId, nguoiTruc, "Chào bạn, mình xem đơn giúp bạn ngay.");
 
@@ -243,7 +246,7 @@ class HandoffFlowIT extends AiChatboxTestBase {
         agent.executeAgentProcess(sessionId, userId, "cho tôi gặp nhân viên");
         UUID handoffId = handoffs.openFor(sessionId).orElseThrow().id();
         UUID nguoiTruc = UUID.randomUUID();
-        handoffs.claim(handoffId, nguoiTruc);
+        handoffs.claim(handoffId, nguoiTruc, 200);
         handoffs.resolve(handoffId, nguoiTruc);
         llm.willAnswer("Vé của bạn đã phát hành rồi nhé.");
 
@@ -258,7 +261,7 @@ class HandoffFlowIT extends AiChatboxTestBase {
         UUID som = openHandoff();
         UUID muon = openHandoff();
 
-        var queue = handoffs.queue(null, 50, 0).stream()
+        var queue = handoffs.queue(null, null, 50, 0).stream()
                 .map(HandoffViews.HandoffRow::id)
                 .toList();
 
@@ -286,7 +289,7 @@ class HandoffFlowIT extends AiChatboxTestBase {
     @Test
     void khong_tu_dong_phieu_da_co_nguoi_nhan() {
         UUID handoffId = openHandoff();
-        handoffs.claim(handoffId, UUID.randomUUID());
+        handoffs.claim(handoffId, UUID.randomUUID(), 200);
         jdbc.sql("update chat_handoffs set requested_at = now() - interval '48 hours' where id = :id")
                 .param("id", handoffId)
                 .update();
@@ -320,5 +323,76 @@ class HandoffFlowIT extends AiChatboxTestBase {
         UUID userId = UUID.randomUUID();
         agent.executeAgentProcess(sessionId, userId, "cho tôi gặp nhân viên");
         return handoffs.openFor(sessionId).orElseThrow().id();
+    }
+
+    // --- Ý định của phiếu ---------------------------------------------------
+
+    @Test
+    void phieu_mang_y_dinh_doc_tu_cau_khach_hoi() {
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+
+        agent.executeAgentProcess(sessionId, userId, "cho tôi gặp nhân viên, tôi muốn hoàn tiền vé đã mua");
+
+        Handoff opened = handoffs.openFor(sessionId).orElseThrow();
+        assertThat(opened.intent()).isEqualTo(SupportIntent.REFUND);
+        // Cột mới đi qua database thật: ghi REFUND, đọc lại REFUND — không phải GENERAL mặc định.
+        assertThat(repository.findById(opened.id()).orElseThrow().intent()).isEqualTo(SupportIntent.REFUND);
+    }
+
+    @Test
+    void nut_gap_nhan_vien_lay_y_dinh_tu_cau_cuoi_khach_go() {
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        history.append(sessionId, userId, ChatRole.USER, "đã thanh toán rồi mà chưa nhận được vé");
+
+        HandoffViews.HandoffRow row = handoffs.requestByCustomer(sessionId, userId);
+
+        assertThat(row.intent()).isEqualTo("INCIDENT");
+    }
+
+    @Test
+    void hang_doi_loc_duoc_theo_y_dinh() {
+        UUID hoanVe = sessionAsking("tôi muốn hoàn vé, cho tôi gặp nhân viên");
+        UUID suCo = sessionAsking("chưa nhận được vé, cho tôi gặp nhân viên");
+
+        var refunds = handoffs.queue(null, "REFUND", 50, 0).stream()
+                .map(HandoffViews.HandoffRow::sessionId)
+                .toList();
+
+        assertThat(refunds).contains(hoanVe).doesNotContain(suCo);
+        // Tên ý định lạ thì KHÔNG lọc — một ô chọn gửi sai giá trị không được làm trống hàng đợi.
+        assertThat(handoffs.queue(null, "KHONG_CO", 50, 0))
+                .extracting(HandoffViews.HandoffRow::sessionId)
+                .contains(hoanVe, suCo);
+    }
+
+    // --- Nhận phiếu kèm hội thoại -------------------------------------------
+
+    @Test
+    void nhan_phieu_thi_nhan_ve_ca_hoi_thoai_ba_vai() {
+        UUID sessionId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        llm.willAnswer("Vé của bạn đã phát hành rồi nhé.");
+        agent.executeAgentProcess(sessionId, userId, "vé của mình sao rồi");
+        agent.executeAgentProcess(sessionId, userId, "cho tôi gặp nhân viên");
+        UUID handoffId = handoffs.openFor(sessionId).orElseThrow().id();
+        UUID nguoiTruc = UUID.randomUUID();
+
+        HandoffViews.HandoffThread thread = handoffs.claim(handoffId, nguoiTruc, 200);
+
+        assertThat(thread.handoff().status()).isEqualTo("ASSIGNED");
+        assertThat(thread.handoff().assignedAgentId()).isEqualTo(nguoiTruc);
+        // Toàn bộ dòng thời gian, cũ trước mới sau, không phải chỉ lượt chuyển tiếp.
+        assertThat(thread.messages())
+                .extracting(HandoffViews.MessageRow::role)
+                .containsExactly("USER", "ASSISTANT", "USER", "ASSISTANT");
+        assertThat(thread.messages().get(0).content()).isEqualTo("vé của mình sao rồi");
+    }
+
+    private UUID sessionAsking(String message) {
+        UUID sessionId = UUID.randomUUID();
+        agent.executeAgentProcess(sessionId, UUID.randomUUID(), message);
+        return sessionId;
     }
 }
