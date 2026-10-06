@@ -1,4 +1,4 @@
-"""Chèn `location /v1/` vào bốn vhost web TLS của file nginx ĐANG CHẠY trên máy chủ.
+r"""Chèn `location /v1/` vào bốn vhost web TLS của file nginx ĐANG CHẠY trên máy chủ.
 
     sudo python3 deploy/scripts/nginx-add-v1-location.py
     sudo nginx -t && sudo systemctl reload nginx
