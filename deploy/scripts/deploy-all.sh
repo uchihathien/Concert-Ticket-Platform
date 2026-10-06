@@ -79,24 +79,49 @@ if phase 2 "Bí mật"; then
 
     Bỏ trống rồi Enter = giữ giá trị đang có (nếu đã nạp trước đó).
 ASK
-    ask() {   # $1=tên  $2=kiểu(sec|str)  $3=mô tả  $4=mặc định
+    # $1=tên  $2=kiểu(sec|str)  $3=mô tả  $4=mặc định  $5=luật kiểm (host|email|rỗng)
+    #
+    # Kiểm ĐỊNH DẠNG, không chỉ "có nhập hay chưa". Đã xảy ra thật: người dùng gõ địa chỉ email vào
+    # ô SMTP_HOST. Giá trị được nhận, script báo ✓, và lỗi chỉ lộ ra nhiều bước sau — khi Keycloak
+    # không gửi được thư tới một hostname không tồn tại. Lúc đó không ai nối hiện tượng ấy với một
+    # câu trả lời đã gõ từ mười phút trước.
+    ask() {
       local val
-      if [ "$2" = sec ]; then
-        printf '\n  %s\n  %s: ' "$3" "$1"; read -rs val; echo
-      else
-        printf '\n  %s\n  %s [%s]: ' "$3" "$1" "${4:-}"; read -r val
-        [ -n "$val" ] || val="${4:-}"
-      fi
-      if [ -z "$val" ]; then info "bỏ qua $1"; return 0; fi
+      while :; do
+        if [ "$2" = sec ]; then
+          printf '\n  %s\n  %s: ' "$3" "$1"; read -rs val; echo
+        else
+          printf '\n  %s\n  %s [%s]: ' "$3" "$1" "${4:-}"; read -r val
+          [ -n "$val" ] || val="${4:-}"
+        fi
+        if [ -z "$val" ]; then info "bỏ qua $1"; return 0; fi
+        case "${5:-}" in
+          host)
+            # Tên máy chủ: KHÔNG chứa @, và phải có ít nhất một dấu chấm.
+            case "$val" in
+              *@*) echo "    [sai] '$val' la dia chi email, khong phai ten may chu. Gmail: smtp.gmail.com" >&2
+                   continue ;;
+              *.*) ;;
+              *)   echo "    [sai] '$val' khong giong ten may chu (thieu dau cham)." >&2
+                   continue ;;
+            esac ;;
+          email)
+            case "$val" in
+              *@*.*) ;;
+              *) echo "    [sai] '$val' khong giong dia chi email." >&2; continue ;;
+            esac ;;
+        esac
+        break
+      done
       local t=String; [ "$2" = sec ] && t=SecureString
       aws ssm put-parameter --name "$PREFIX/$1" --type "$t" --value "$val" --overwrite >/dev/null
       ok "$1"
     }
 
-    ask SUPER_ADMIN_EMAILS str "Email được cấp SUPER_ADMIN ở lần đăng nhập đầu" ""
-    ask SMTP_HOST          str "Máy chủ SMTP" "smtp.gmail.com"
-    ask SMTP_USER          str "Tài khoản Gmail gửi thư" ""
-    ask SMTP_FROM          str "Địa chỉ hiện ở ô Người gửi" ""
+    ask SUPER_ADMIN_EMAILS str "Email được cấp SUPER_ADMIN ở lần đăng nhập đầu" "" email
+    ask SMTP_HOST          str "Máy chủ SMTP — KHÔNG phải email của bạn" "smtp.gmail.com" host
+    ask SMTP_USER          str "Tài khoản Gmail gửi thư" "" email
+    ask SMTP_FROM          str "Địa chỉ hiện ở ô Người gửi" "" email
     ask SMTP_PASSWORD      sec "Gmail App Password (không hiện khi gõ)"
     ask PAYOS_CLIENT_ID    sec "payOS Client ID"
     ask PAYOS_API_KEY      sec "payOS API Key"
