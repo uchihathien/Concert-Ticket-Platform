@@ -80,6 +80,19 @@ if [ -z "$raw" ]; then
     sed 's/^/    /' "$err" >&2
   fi
   raw=$(by_name)
+  # In lỗi của ĐƯỜNG HAI nếu nó cũng không ra gì.
+  #
+  # `|| true` trong by_name giữ cho vòng lặp đi hết các lô, nhưng nó cũng nuốt luôn thông điệp lỗi —
+  # nên khi cả hai đường đều bị chặn, thứ người dùng thấy chỉ là một danh sách "thiếu 46 biến", không
+  # có manh mối nào về việc AWS đã từ chối cái gì. Đó là chẩn đoán tệ hơn cả không có.
+  if [ -z "$raw" ] || [ "$(printf '%s
+' "$raw" | wc -l)" -lt 10 ]; then
+    echo "  Đọc theo tên cũng không lấy được gì. AWS trả về:" >&2
+    sed 's/^/    /' "$err" >&2
+    echo >&2
+    echo "  Nếu đây cũng là Service Control Policy: instance KHÔNG đọc được Parameter Store, và .env" >&2
+    echo "  phải được chuyển từ CloudShell sang bằng cách khác. Dán lỗi này vào phiên làm việc." >&2
+  fi
 fi
 
 printf '%s\n' "$raw" \
