@@ -27,17 +27,17 @@ jobs:
           cache: maven
 
       - name: Lint (Spotless)
-        run: ./mvnw -B -ntp spotless:check
+        run: sh ./mvnw -B -ntp spotless:check
 
       # Unit test + ArchUnit. ArchUnit là thứ chặn monorepo thoái hoá thành monolith,
       # nên nó chạy ở mọi PR chứ không phải nightly.
       - name: Unit test + ArchUnit
-        run: ./mvnw -B -ntp verify -DskipITs
+        run: sh ./mvnw -B -ntp verify -DskipITs
 
       # Tách job để thấy ngay cái nào hỏng: logic hay hạ tầng.
       # Runner của GitHub có sẵn Docker nên Testcontainers chạy được.
       - name: Integration test (Testcontainers)
-        run: ./mvnw -B -ntp verify -Dsurefire.skip=true
+        run: sh ./mvnw -B -ntp verify -Dsurefire.skip=true
 
   secret-scan:
     runs-on: ubuntu-latest

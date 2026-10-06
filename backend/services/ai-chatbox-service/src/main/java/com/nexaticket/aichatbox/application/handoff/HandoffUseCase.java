@@ -7,6 +7,8 @@ import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
+import com.nexaticket.aichatbox.domain.model.IncidentKind;
+import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import com.nexaticket.aichatbox.domain.port.IdentityLookupPort;
@@ -15,6 +17,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -39,6 +42,13 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>Câu hỏi khiến khách phải nhờ người vẫn được ghi vào hội thoại và chụp lại vào
  * {@code lastQuestion}. Không làm vậy thì người trực nhận một phiếu không có nội dung và phải hỏi
  * lại "anh/chị cần gì ạ" — đúng câu mà khách vừa gõ xong.
+ *
+ * <h2>Mỗi phiếu có một ý định</h2>
+ *
+ * <p>Phiếu do tool mở ({@code requestTicketRefund}, {@code reportIncident}) mang sẵn nhãn vì hành
+ * động đã nói rõ khách cần gì. Phiếu còn lại — khách bấm nút, gõ "cho tôi gặp người", trợ lý bỏ
+ * cuộc — được gắn nhãn bằng {@link SupportIntentClassifier} từ câu hỏi đang treo. Hai đường, một
+ * cột, để hàng đợi lọc được theo một tiêu chí duy nhất.
  */
 @Service
 public class HandoffUseCase {
@@ -97,14 +107,39 @@ public class HandoffUseCase {
      * im ngay; hội thoại của họ vào hàng đợi bàn hỗ trợ; và {@code chat_handoffs.user_id} ghi tên
      * người gọi chứ không phải chủ phiên. Hai đường đọc ({@code recentTurns}, {@code transcript})
      * đã kiểm từ đầu — đường ghi này thì chưa.
+     *
+     * <p>Ý định lấy từ câu cuối khách đã gõ, nếu có: bấm nút ngay sau khi hỏi "hoàn vé thế nào" là
+     * một phiếu hoàn vé, và người trực chuyên mảng ấy nên thấy nó.
      */
     @Transactional
     public HandoffViews.HandoffRow requestByCustomer(UUID sessionId, UUID userId) {
         requireOwnedSession(sessionId, userId);
 
-        Handoff opened =
-                escalate(sessionId, userId, HandoffTrigger.CUSTOMER_REQUEST, "Khách bấm nút gặp nhân viên", null);
+        String lastUserMessage = history.transcript(sessionId, userId, 20).stream()
+                .filter(message -> message.role() == ChatRole.USER)
+                .reduce((first, second) -> second)
+                .map(message -> message.content())
+                .orElse(null);
+        Handoff opened = escalate(
+                sessionId,
+                userId,
+                HandoffTrigger.CUSTOMER_REQUEST,
+                SupportIntentClassifier.classify(lastUserMessage),
+                "Khách bấm nút gặp nhân viên",
+                null,
+                lastUserMessage);
         return rowOf(opened);
+    }
+
+    /**
+     * Mở phiếu, gắn nhãn ý định từ câu hỏi.
+     *
+     * <p>Giữ chữ ký cũ cho hai đường không mang sẵn nhãn — khách gõ "cho tôi gặp người" và trợ lý
+     * hết vòng. Đường có nhãn đi qua bản đầy đủ bên dưới.
+     */
+    @Transactional
+    public Handoff escalate(UUID sessionId, UUID userId, HandoffTrigger trigger, String reason, String question) {
+        return escalate(sessionId, userId, trigger, SupportIntentClassifier.classify(question), reason, null, question);
     }
 
     /**
@@ -117,20 +152,29 @@ public class HandoffUseCase {
      * {@code chat_sessions}, và dòng đó chỉ ra đời khi có tin nhắn đầu tiên. Người gọi từ ngoài
      * phải bảo đảm điều đó — đường của khách bằng {@link #requireOwnedSession}, đường của trợ lý
      * bằng {@link #escalateWithTurn}, vốn ghi lượt chat trước khi mở phiếu.
+     *
+     * @param details JSON có cấu trúc cho người trực, hoặc {@code null}
      */
     @Transactional
-    public Handoff escalate(UUID sessionId, UUID userId, HandoffTrigger trigger, String reason, String question) {
+    public Handoff escalate(
+            UUID sessionId,
+            UUID userId,
+            HandoffTrigger trigger,
+            SupportIntent intent,
+            String reason,
+            String details,
+            String question) {
         Instant now = clock.instant();
-        Handoff opened =
-                handoffs.openOrExisting(Handoff.request(sessionId, userId, trigger, reason, preview(question), now));
+        Handoff opened = handoffs.openOrExisting(
+                Handoff.request(sessionId, userId, trigger, intent, reason, details, preview(question), now));
 
         // Ghi ở mức INFO chứ không DEBUG: tỷ lệ chuyển tiếp là chỉ số sức khoẻ của trợ lý, và nó
         // phải đọc được từ log của môi trường chạy thật chứ không chỉ lúc bật gỡ lỗi.
-        log.info("Phiên {} chuyển sang người thật ({}): {}", sessionId, trigger, reason);
+        log.info("Phiên {} chuyển sang người thật ({}, {}): {}", sessionId, trigger, opened.intent(), reason);
         // Đếm phiếu MỞ, không đếm lần gọi: openOrExisting là idempotent, và một khách bấm nút ba
         // lần không phải ba lần trợ lý thất bại.
         if (opened.requestedAt().equals(now)) {
-            metrics.recordHandoff(trigger.name());
+            metrics.recordHandoff(trigger.name(), opened.intent().name());
         }
         return opened;
     }
@@ -150,9 +194,31 @@ public class HandoffUseCase {
     @Transactional
     public Handoff escalateWithTurn(
             UUID sessionId, UUID userId, HandoffTrigger trigger, String reason, String userQuery, String reply) {
+        return escalateWithTurn(
+                sessionId,
+                userId,
+                trigger,
+                SupportIntentClassifier.classify(userQuery),
+                reason,
+                null,
+                userQuery,
+                reply);
+    }
+
+    /** Bản có nhãn và dữ liệu kèm — đường của các tool mở phiếu theo mục đích cụ thể. */
+    @Transactional
+    public Handoff escalateWithTurn(
+            UUID sessionId,
+            UUID userId,
+            HandoffTrigger trigger,
+            SupportIntent intent,
+            String reason,
+            String details,
+            String userQuery,
+            String reply) {
 
         history.appendTurn(sessionId, userId, userQuery, ChatRole.ASSISTANT, reply);
-        return escalate(sessionId, userId, trigger, reason, userQuery);
+        return escalate(sessionId, userId, trigger, intent, reason, details, userQuery);
     }
 
     private void requireOwnedSession(UUID sessionId, UUID userId) {
@@ -166,17 +232,22 @@ public class HandoffUseCase {
     // --- Đường của người trực --------------------------------------------
 
     /**
-     * Nhận phiếu.
+     * Nhận phiếu — và nhận về <b>cả hội thoại</b>.
+     *
+     * <p>Trả về thread chứ không trả về một dòng: người trực vừa bấm Nhận là người sắp phải trả
+     * lời, và thứ họ cần ngay là toàn bộ những gì khách (USER), trợ lý (ASSISTANT) và người trực
+     * trước đó (AGENT) đã nói. Trả về dòng rồi bắt gọi thêm một request là một vòng khứ hồi nữa
+     * đứng giữa "nhận" và "đọc".
      *
      * <p>Người khác nhận trước thì trả 409, không trả phiếu. Đây là câu trả lời <b>đúng</b> chứ
      * không phải lỗi: màn hình cần biết để gỡ phiếu ấy khỏi danh sách và mở phiếu khác, chứ không
      * phải hiện một cuộc hội thoại mà người trực không được trả lời.
      */
     @Transactional
-    public HandoffViews.HandoffRow claim(UUID handoffId, UUID agentId) {
+    public HandoffViews.HandoffThread claim(UUID handoffId, UUID agentId, int transcriptLimit) {
         Optional<Handoff> claimed = handoffs.claim(handoffId, agentId, clock.instant());
         if (claimed.isPresent()) {
-            return rowOf(claimed.get());
+            return threadOf(claimed.get(), transcriptLimit);
         }
 
         // Không nhận được KHÔNG đồng nghĩa với "người khác nhận trước". Ba tình huống khác nhau, và
@@ -190,7 +261,7 @@ public class HandoffUseCase {
             // Chính mình đang giữ phiếu. F5 hoặc bấm hai lần là chuyện xảy ra hàng ngày, và trả 409
             // cho nó nghĩa là màn hình gỡ phiếu khỏi danh sách rồi hiện "người khác đã nhận" về
             // một phiếu mà người dùng đang trả lời. Nhận phiếu là idempotent với chính người nhận.
-            return rowOf(current);
+            return threadOf(current, transcriptLimit);
         }
         throw new ApiException(AiChatboxErrorCode.HANDOFF_ALREADY_TAKEN, "Phiếu này vừa được người khác nhận");
     }
@@ -243,10 +314,12 @@ public class HandoffUseCase {
      * Hàng đợi của người trực, đã ở hình dạng hiển thị.
      *
      * @param mine {@code null} lấy cả hàng đợi; khác {@code null} chỉ lấy phiếu của người ấy
+     * @param intent tên ý định (chuỗi, vì bên gọi là tầng interfaces); {@code null} hoặc không
+     *     hiểu được thì không lọc
      */
     @Transactional(readOnly = true)
-    public List<HandoffViews.HandoffRow> queue(UUID mine, int limit, int offset) {
-        return withAgentNames(handoffs.queue(mine, limit, offset));
+    public List<HandoffViews.HandoffRow> queue(UUID mine, String intent, int limit, int offset) {
+        return withAgentNames(handoffs.queue(mine, intentFilter(intent), limit, offset));
     }
 
     /**
@@ -256,11 +329,13 @@ public class HandoffUseCase {
      *     {@code null} cho mọi trạng thái. Nhận CHUỖI vì bên gọi là tầng interfaces, nơi không được
      *     chạm vào {@code HandoffStatus} — và vì "phiếu chưa xong gồm những trạng thái nào" là quyết
      *     định nghiệp vụ, thuộc về đây chứ không thuộc về một ô chọn trên giao diện.
+     * @param intent tên ý định, cùng quy ước
      * @param query tìm trong lý do chuyển và câu hỏi cuối của khách
      */
     @Transactional(readOnly = true)
-    public List<HandoffViews.HandoffRow> search(UUID mine, String status, String query, int limit, int offset) {
-        return search(mine, statusFilter(status), query, limit, offset);
+    public List<HandoffViews.HandoffRow> search(
+            UUID mine, String status, String intent, String query, int limit, int offset) {
+        return search(mine, statusFilter(status), intentFilter(intent), query, limit, offset);
     }
 
     /**
@@ -274,7 +349,7 @@ public class HandoffUseCase {
         if (status == null || status.isBlank()) {
             return Set.of();
         }
-        return switch (status.trim().toUpperCase(java.util.Locale.ROOT)) {
+        return switch (status.trim().toUpperCase(Locale.ROOT)) {
             case "OPEN" -> Set.of(HandoffStatus.WAITING, HandoffStatus.ASSIGNED);
             case "WAITING" -> Set.of(HandoffStatus.WAITING);
             case "ASSIGNED" -> Set.of(HandoffStatus.ASSIGNED);
@@ -283,21 +358,26 @@ public class HandoffUseCase {
         };
     }
 
-    @Transactional(readOnly = true)
-    public List<HandoffViews.HandoffRow> search(
-            UUID mine, Set<HandoffStatus> statuses, String query, int limit, int offset) {
-        // Mới nhất trước, ngược với hàng đợi. Hàng đợi là danh sách việc phải làm nên phiếu chờ lâu
-        // nhất đứng đầu; bảng tra cứu là để xem việc vừa xảy ra.
-        return withAgentNames(handoffs.search(mine, statuses, query, true, limit, offset));
+    /** Cùng triết lý với {@link #statusFilter}: tên lạ nghĩa là không lọc, không phải lỗi. */
+    private static SupportIntent intentFilter(String intent) {
+        if (intent == null || intent.isBlank()) {
+            return null;
+        }
+        try {
+            return SupportIntent.valueOf(intent.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
-    /**
-     * Gắn tên người trực vào từng dòng, tra MỘT LẦN cho mỗi người.
-     *
-     * <p>Một hàng đợi 50 phiếu thường do vài người cầm, nên gộp theo id biến 50 lời gọi HTTP thành
-     * hai hoặc ba. Không gộp thì mỗi lần mở màn hình là một cơn mưa request sang identity-service,
-     * và người trực chờ chính cơn mưa ấy.
-     */
+    @Transactional(readOnly = true)
+    public List<HandoffViews.HandoffRow> search(
+            UUID mine, Set<HandoffStatus> statuses, SupportIntent intent, String query, int limit, int offset) {
+        // Mới nhất trước, ngược với hàng đợi. Hàng đợi là danh sách việc phải làm nên phiếu chờ lâu
+        // nhất đứng đầu; bảng tra cứu là để xem việc vừa xảy ra.
+        return withAgentNames(handoffs.search(mine, statuses, intent, query, true, limit, offset));
+    }
+
     /**
      * Một phiếu, kèm tên người đang cầm nó.
      *
@@ -312,6 +392,13 @@ public class HandoffUseCase {
         return HandoffViews.HandoffRow.of(handoff, clock.instant(), agentName);
     }
 
+    /**
+     * Gắn tên người trực vào từng dòng, tra MỘT LẦN cho mỗi người.
+     *
+     * <p>Một hàng đợi 50 phiếu thường do vài người cầm, nên gộp theo id biến 50 lời gọi HTTP thành
+     * hai hoặc ba. Không gộp thì mỗi lần mở màn hình là một cơn mưa request sang identity-service,
+     * và người trực chờ chính cơn mưa ấy.
+     */
     private List<HandoffViews.HandoffRow> withAgentNames(List<Handoff> rows) {
         Instant now = clock.instant();
         Map<UUID, String> names = new HashMap<>();
@@ -331,12 +418,36 @@ public class HandoffUseCase {
     /** Phiếu kèm cả hội thoại — một lời gọi cho cả màn hình của người trực. */
     @Transactional(readOnly = true)
     public HandoffViews.HandoffThread thread(UUID handoffId, int transcriptLimit) {
-        Handoff handoff = require(handoffId);
+        return threadOf(require(handoffId), transcriptLimit);
+    }
+
+    private HandoffViews.HandoffThread threadOf(Handoff handoff, int transcriptLimit) {
         return new HandoffViews.HandoffThread(
                 rowOf(handoff),
                 history.transcriptForSupport(handoff.sessionId(), transcriptLimit).stream()
                         .map(HandoffViews.MessageRow::of)
-                        .toList());
+                        .toList(),
+                checklistFor(handoff));
+    }
+
+    /**
+     * Danh sách việc theo khung mẫu — chỉ với phiếu sự cố.
+     *
+     * <p>Loại sự cố nằm trong {@code details} (JSON do {@code SupportCaseUseCase} dựng). Đọc bằng
+     * một phép tìm chuỗi đơn giản thay vì parse JSON: {@code details} là dữ liệu hiển thị, không
+     * có schema, và nếu nó không đúng dạng thì câu trả lời đúng là "không có checklist" chứ không
+     * phải 500 cho cả màn hình.
+     */
+    private static List<String> checklistFor(Handoff handoff) {
+        if (handoff.intent() != SupportIntent.INCIDENT || handoff.details() == null) {
+            return List.of();
+        }
+        for (IncidentKind kind : IncidentKind.values()) {
+            if (handoff.details().contains("\"" + kind.name() + "\"")) {
+                return IncidentTemplates.forKind(kind).checklist();
+            }
+        }
+        return List.of();
     }
 
     /** Hội thoại của chính khách, kèm phiếu đang mở nếu có. */

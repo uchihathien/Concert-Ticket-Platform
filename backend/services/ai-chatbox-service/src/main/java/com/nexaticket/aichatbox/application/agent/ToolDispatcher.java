@@ -3,6 +3,8 @@ package com.nexaticket.aichatbox.application.agent;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
+import com.nexaticket.aichatbox.domain.model.CustomerProfile;
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.EventRef;
@@ -12,6 +14,7 @@ import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ToolOutcome;
 import com.nexaticket.aichatbox.domain.port.CallerCredentialsPort;
 import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
+import com.nexaticket.aichatbox.domain.port.CustomerProfilePort;
 import com.nexaticket.aichatbox.domain.port.OrderNotFoundException;
 import com.nexaticket.aichatbox.domain.port.OrderingClientPort;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
@@ -46,11 +49,17 @@ import org.springframework.stereotype.Component;
  * <p>Ngoại lệ <b>không</b> được ném ra khỏi lớp này. Một tool hỏng không làm hỏng cả lượt chat —
  * mô hình cần biết là hỏng để nói cho khách, và mọi lời gọi trong một lượt đều phải có kết quả trả
  * về, nếu không request kế tiếp sai định dạng.
+ *
+ * <p>Tool điều khiển ({@link SupportAgentTools#CONTROL_TOOLS}) <b>không</b> đi qua đây — xem
+ * {@code CustomerSupportAgentUseCase}.
  */
 @Component
 public class ToolDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(ToolDispatcher.class);
+
+    /** Số đơn gần nhất đưa cho mô hình. Khách hỏi "đơn của tôi" thì gần như luôn là một trong số này. */
+    private static final int RECENT_ORDERS = 5;
 
     /**
      * Giờ trả cho mô hình là giờ Việt Nam, đã định dạng sẵn.
@@ -66,6 +75,8 @@ public class ToolDispatcher {
     private final CatalogClientPort catalog;
     private final VectorStorePort knowledge;
     private final CallerCredentialsPort credentials;
+    private final CustomerProfilePort profiles;
+    private final TicketBookingUseCase booking;
     private final ObjectMapper json;
     private final AgentMetrics metrics;
 
@@ -74,12 +85,16 @@ public class ToolDispatcher {
             CatalogClientPort catalog,
             VectorStorePort knowledge,
             CallerCredentialsPort credentials,
+            CustomerProfilePort profiles,
+            TicketBookingUseCase booking,
             ObjectMapper json,
             AgentMetrics metrics) {
         this.ordering = ordering;
         this.catalog = catalog;
         this.knowledge = knowledge;
         this.credentials = credentials;
+        this.profiles = profiles;
+        this.booking = booking;
         this.json = json;
         this.metrics = metrics;
     }
@@ -112,6 +127,8 @@ public class ToolDispatcher {
                 case SupportAgentTools.GET_EVENT_RULES -> getEventRules(call);
                 case SupportAgentTools.FIND_EVENTS -> findEvents(call);
                 case SupportAgentTools.GET_EVENT_DETAILS -> getEventDetails(call);
+                case SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY -> getCustomerProfileAndHistory(call);
+                case SupportAgentTools.INITIATE_TICKET_BOOKING -> initiateTicketBooking(call);
                     // Mô hình gọi một tool không tồn tại. Hiếm, nhưng xảy ra — và im lặng ở đây
                     // biến nó thành một request sai định dạng ở vòng sau.
                 default -> DispatchResult.of(
@@ -138,7 +155,7 @@ public class ToolDispatcher {
                             "reason",
                             "MÃ ĐƠN KHÔNG HỢP LỆ",
                             "hint",
-                            "Hãy hỏi khách mã đơn hàng dạng UUID."))));
+                            "Gọi getCustomerProfileAndHistory để lấy orderId của các đơn gần nhất."))));
         }
         try {
             OrderSummary order = ordering.fetchOrder(orderId, credentials.currentAccessToken());
@@ -153,6 +170,128 @@ public class ToolDispatcher {
                     call.callId(),
                     "Hệ thống đơn hàng tạm thời không phản hồi. ĐỪNG nói là không tìm thấy đơn — "
                             + "hãy mời khách thử lại sau ít phút."));
+        }
+    }
+
+    /**
+     * Hồ sơ và đơn gần nhất của chính khách.
+     *
+     * <p>Hai lời gọi, hai service, và chúng hỏng độc lập: identity sập thì vẫn trả đơn kèm cờ nói
+     * rõ là chưa lấy được tên, và ngược lại. Khách hỏi "đơn của tôi đâu" không cần biết tên mình để
+     * nhận câu trả lời.
+     *
+     * <p><b>Email và số điện thoại được che bớt</b> trước khi vào prompt. Khách đang đọc dữ liệu
+     * của chính mình, nhưng dữ liệu ấy đi qua nhà cung cấp mô hình và nằm lại trong hội thoại đã
+     * lưu; "th***@gmail.com" đủ để khách nhận ra tài khoản mà không chép trọn một địa chỉ vào hai
+     * nơi không cần nó.
+     */
+    private DispatchResult getCustomerProfileAndHistory(ToolInvocation call) {
+        String token = credentials.currentAccessToken();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("found", true);
+
+        try {
+            CustomerProfile profile = profiles.currentProfile(token);
+            Map<String, Object> customer = new LinkedHashMap<>();
+            customer.put("fullName", profile.fullName());
+            customer.put("emailMasked", maskEmail(profile.email()));
+            customer.put("phoneMasked", maskPhone(profile.phone()));
+            out.put("customer", customer);
+        } catch (RemoteCallException e) {
+            log.warn("Không tra được hồ sơ khách: {}", e.getMessage());
+            out.put("customer", Map.of("error", "CHƯA LẤY ĐƯỢC HỒ SƠ — đừng gọi tên khách, cứ trả lời về đơn"));
+        }
+
+        try {
+            List<OrderSummary> orders = ordering.listMyOrders(token, RECENT_ORDERS);
+            out.put("orderCount", orders.size());
+            if (orders.isEmpty()) {
+                out.put("orders", List.of());
+                out.put("hint", "Khách chưa có đơn nào. Nếu họ nói đã mua thì hỏi xem có dùng tài khoản khác không.");
+            } else {
+                out.put(
+                        "orders",
+                        orders.stream().map(ToolDispatcher::describeBrief).toList());
+            }
+        } catch (RemoteCallException e) {
+            log.warn("Không tra được danh sách đơn: {}", e.getMessage());
+            return DispatchResult.of(ToolOutcome.error(
+                    call.callId(),
+                    "Hệ thống đơn hàng tạm thời không phản hồi. ĐỪNG nói là khách không có đơn — "
+                            + "hãy mời khách thử lại sau ít phút."));
+        }
+        return DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
+    }
+
+    /**
+     * Đặt vé hộ khách.
+     *
+     * <p>Mọi kết cục "không đặt được vì nghiệp vụ" (hết chỗ, vượt hạn mức, tham số sai) là kết quả
+     * <i>thành công</i> với {@code booked: false} và một lý do — mô hình đọc rồi nói lại. Chỉ khi
+     * một service không phản hồi mới là lỗi, và lúc đó câu đúng là "thử lại sau" chứ không phải
+     * "hết vé".
+     */
+    private DispatchResult initiateTicketBooking(ToolInvocation call) {
+        String slug = call.stringArg("slug");
+        UUID sessionId = parseUuid(call.stringArg("sessionId"));
+        String zoneCode = call.stringArg("zoneCode");
+        Integer quantity = call.intArg("quantity");
+
+        if (slug == null || slug.isBlank() || sessionId == null || zoneCode == null || zoneCode.isBlank()) {
+            return DispatchResult.of(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of(
+                            "booked",
+                            false,
+                            "reason",
+                            "THIẾU THAM SỐ",
+                            "hint",
+                            "Cần slug, sessionId (UUID) và zoneCode — lấy từ getEventDetails."))));
+        }
+        if (quantity == null) {
+            return DispatchResult.of(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of("booked", false, "reason", "THIẾU SỐ LƯỢNG", "hint", "Hỏi khách muốn mấy vé."))));
+        }
+
+        try {
+            TicketBookingUseCase.BookingOutcome outcome =
+                    booking.initiate(slug.trim(), sessionId, zoneCode.trim(), quantity, call.callId());
+            return switch (outcome) {
+                case TicketBookingUseCase.BookingOutcome.Rejected rejected -> DispatchResult.of(
+                        ToolOutcome.ok(call.callId(), write(Map.of("booked", false, "reason", rejected.reason()))));
+                case TicketBookingUseCase.BookingOutcome.Started started -> {
+                    Map<String, Object> out = new LinkedHashMap<>();
+                    out.put("booked", true);
+                    out.put("eventTitle", started.event().title());
+                    out.put("quantity", started.hold().quantity());
+                    out.put("orderNumber", started.order().orderNumber());
+                    out.put("orderId", started.order().orderId());
+                    out.put("totalVnd", started.order().totalVnd());
+                    out.put(
+                            "holdExpiresVietnamTime",
+                            VN_TIME.format(started.hold().expiresAt()));
+                    if (started.order().paymentExpiresAt() != null) {
+                        out.put(
+                                "paymentExpiresVietnamTime",
+                                VN_TIME.format(started.order().paymentExpiresAt()));
+                    }
+                    out.put("checkoutUrl", started.order().checkoutUrl());
+                    out.put(
+                            "nextStep",
+                            "Báo khách số đơn, tổng tiền và hạn thanh toán, rồi đưa đúng checkoutUrl ở trên "
+                                    + "để họ thanh toán. ĐỪNG tự viết đường dẫn khác.");
+                    // Không kèm EventRef: khách vừa đặt xong, và "xem chỗ và mua vé" gắn vào lúc này
+                    // là mời họ mua lần nữa. Đường đi tiếp duy nhất là checkoutUrl.
+                    yield DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
+                }
+            };
+        } catch (RemoteCallException e) {
+            log.warn("Không đặt được vé ({} / {}): {}", slug, zoneCode, e.getMessage());
+            return DispatchResult.of(ToolOutcome.error(
+                    call.callId(),
+                    "Hệ thống đặt vé tạm thời không phản hồi. ĐỪNG nói là hết vé — hãy mời khách thử lại "
+                            + "sau ít phút hoặc đặt trên trang sự kiện."));
         }
     }
 
@@ -242,12 +381,30 @@ public class ToolDispatcher {
                     ToolOutcome.ok(call.callId(), write(Map.of("found", false, "reason", "MÃ SỰ KIỆN KHÔNG HỢP LỆ"))));
         }
         Optional<EventRules> rules = knowledge.findRules(eventId);
-        return DispatchResult.of(rules.map(r -> ToolOutcome.ok(
-                        call.callId(),
-                        write(Map.of("found", true, "eventTitle", r.eventTitle(), "rules", r.content()))))
+        return DispatchResult.of(rules.map(r -> {
+                    Map<String, Object> out = new LinkedHashMap<>();
+                    out.put("found", true);
+                    out.put("eventTitle", r.eventTitle());
+                    out.put("rules", r.content());
+                    // Chính sách hoàn vé nói bằng câu, không bằng cờ: mô hình đọc "không nhận hoàn
+                    // vé" đúng hơn đọc `refundAllowed: false` rồi tự diễn giải.
+                    out.put("refundPolicy", describeRefund(r));
+                    return ToolOutcome.ok(call.callId(), write(out));
+                })
                 .orElseGet(() -> ToolOutcome.ok(
                         call.callId(),
                         write(Map.of("found", false, "reason", "CHƯA CÓ QUY ĐỊNH ĐƯỢC CÔNG BỐ CHO SỰ KIỆN NÀY")))));
+    }
+
+    private static String describeRefund(EventRules rules) {
+        var policy = rules.refundPolicy();
+        if (!policy.allowed()) {
+            return "Sự kiện KHÔNG nhận hoàn vé.";
+        }
+        return policy.windowHours() == 0
+                ? "Nhận yêu cầu hoàn vé; nhân viên xem xét từng trường hợp."
+                : "Nhận yêu cầu hoàn vé trong " + policy.windowHours()
+                        + " giờ kể từ lúc thanh toán; nhân viên xem xét từng trường hợp.";
     }
 
     /** Một dòng trong kết quả tìm kiếm. Giá kèm đơn vị trong TÊN khoá, để mô hình không tự đoán. */
@@ -284,10 +441,14 @@ public class ToolDispatcher {
      *
      * <p>Kèm {@code customerUrl} vì đó là thứ hữu ích nhất mà mô hình có thể đưa cho khách: một
      * đường dẫn bấm được để tự chọn chỗ. Không kèm thì mô hình tự dựng đường dẫn, và nó dựng sai.
+     *
+     * <p>Kèm {@code sessionId} và {@code zoneCode} vì đó là hai thứ {@code initiateTicketBooking}
+     * cần — và là cách duy nhất để chúng vào prompt từ nguồn thật thay vì từ trí tưởng tượng.
      */
     private static Map<String, Object> describe(EventDetail event) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("found", true);
+        out.put("slug", event.slug());
         out.put("title", event.title());
         if (event.summary() != null) {
             out.put("summary", event.summary());
@@ -305,6 +466,7 @@ public class ToolDispatcher {
                 event.sessions().stream()
                         .map(session -> {
                             Map<String, Object> s = new LinkedHashMap<>();
+                            s.put("sessionId", session.id());
                             if (session.startsAt() != null) {
                                 s.put("startsVietnamTime", VN_TIME.format(session.startsAt()));
                             }
@@ -314,7 +476,13 @@ public class ToolDispatcher {
                             s.put(
                                     "tiers",
                                     session.tiers().stream()
-                                            .map(tier -> Map.of("name", tier.name(), "priceVnd", tier.priceVnd()))
+                                            .map(tier -> {
+                                                Map<String, Object> t = new LinkedHashMap<>();
+                                                t.put("name", tier.name());
+                                                t.put("priceVnd", tier.priceVnd());
+                                                t.put("zoneCode", tier.zoneCode());
+                                                return t;
+                                            })
                                             .toList());
                             return s;
                         })
@@ -332,14 +500,15 @@ public class ToolDispatcher {
     private static Map<String, Object> describe(OrderSummary order) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("found", true);
+        out.put("orderId", order.orderId());
         out.put("orderNumber", order.orderNumber());
         out.put("status", order.status());
         out.put("totalVnd", order.totalVnd());
         if (order.paymentExpiresAt() != null) {
-            out.put("paymentExpiresAt", String.valueOf(order.paymentExpiresAt()));
+            out.put("paymentExpiresVietnamTime", VN_TIME.format(order.paymentExpiresAt()));
         }
         if (order.paidAt() != null) {
-            out.put("paidAt", String.valueOf(order.paidAt()));
+            out.put("paidVietnamTime", VN_TIME.format(order.paidAt()));
         }
         out.put(
                 "items",
@@ -347,6 +516,48 @@ public class ToolDispatcher {
                         .map(i -> Map.of("description", i.description(), "unitPriceVnd", i.unitPriceVnd()))
                         .toList());
         return out;
+    }
+
+    /** Một dòng trong lịch sử đơn — đủ để khách chọn, không đủ để chiếm cả prompt. */
+    private static Map<String, Object> describeBrief(OrderSummary order) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("orderId", order.orderId());
+        out.put("orderNumber", order.orderNumber());
+        out.put("status", order.status());
+        out.put("totalVnd", order.totalVnd());
+        out.put("ticketCount", order.items().size());
+        if (order.paidAt() != null) {
+            out.put("paidVietnamTime", VN_TIME.format(order.paidAt()));
+        } else if (order.paymentExpiresAt() != null) {
+            out.put("paymentExpiresVietnamTime", VN_TIME.format(order.paymentExpiresAt()));
+        }
+        return out;
+    }
+
+    /** "thien.lu@gmail.com" → "th***@gmail.com". Null hoặc không có @ thì trả về null. */
+    static String maskEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        int at = email.indexOf('@');
+        if (at <= 0) {
+            return null;
+        }
+        String local = email.substring(0, at);
+        String kept = local.substring(0, Math.min(2, local.length()));
+        return kept + "***" + email.substring(at);
+    }
+
+    /** "0912345678" → "09*****678". Giữ đầu và đuôi vì đó là phần khách nhớ. */
+    static String maskPhone(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return null;
+        }
+        String digits = phone.replaceAll("[^0-9+]", "");
+        if (digits.length() < 6) {
+            return "***";
+        }
+        return digits.substring(0, 2) + "*".repeat(digits.length() - 5) + digits.substring(digits.length() - 3);
     }
 
     private static UUID parseUuid(String raw) {

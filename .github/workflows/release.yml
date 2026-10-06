@@ -95,7 +95,44 @@ jobs:
     # Environment `production` là chỗ khai người duyệt. Không có nó thì mọi commit vào main đi
     # thẳng ra người dùng thật — với một hệ thống giữ tiền hộ người khác thì đó là quá nhanh.
     environment: production
+    # id-token: write cho OIDC — không lưu access key AWS trong secret.
+    permissions:
+      contents: read
+      id-token: write
+    # Secret phải đi qua `env` ở cấp job để các bước dưới kiểm được "đã khai chưa".
+    #
+    # Context `secrets` KHÔNG dùng được trong `if` ở cấp step — GitHub chỉ cho phép
+    # github/needs/strategy/matrix/job/runner/env/vars/steps/inputs ở đó. Viết
+    # `if: ${{ secrets.X != '' }}` làm cả workflow chết ngay lúc xác thực, với 0 job và không một
+    # dòng log nào: lỗi không nằm ở bước nào cả nên không có chỗ để đọc. `env` thì được phép.
+    env:
+      AWS_SG_ID: ${{ secrets.AWS_SG_ID }}
     steps:
+      # Mở cổng 22 cho ĐÚNG runner này, rồi đóng lại ở bước cuối.
+      #
+      # Cách khác là mở 22 cho 0.0.0.0/0 vì dải IP của GitHub Actions quá rộng và đổi liên tục.
+      # Mở như vậy thì trong vài giờ sẽ có hàng nghìn lượt dò; mở đúng một /32 trong vài chục giây
+      # thì không.
+      #
+      # Cả ba bước này TỰ BỎ QUA nếu chưa khai secret AWS_SG_ID — để bạn chạy được pipeline trước,
+      # rồi siết sau, mà không phải sửa file này.
+      - name: Lấy credential AWS (OIDC)
+        if: ${{ env.AWS_SG_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Mở cổng 22 cho runner
+        if: ${{ env.AWS_SG_ID != '' }}
+        run: |
+          RUNNER_IP=$(curl -s --max-time 10 https://checkip.amazonaws.com)
+          echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
+          aws ec2 authorize-security-group-ingress \
+            --group-id "$AWS_SG_ID" \
+            --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
+          echo "Đã mở 22 ← $RUNNER_IP/32"
+
       - name: Khoá SSH
         run: |
           install -d -m 700 ~/.ssh
@@ -123,11 +160,35 @@ jobs:
 
           compose="docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env"
 
-          \$compose pull
+          # --ignore-buildable: rabbitmq KHÔNG có mặt trên GHCR — ảnh của nó dựng tại chỗ để bật
+          # plugin delayed message (ADR-1009). Thiếu cờ này thì `pull` chết ở đúng ảnh đó và 21 ảnh
+          # còn lại không được kéo.
+          \$compose pull --ignore-buildable
+          # Dựng rabbitmq từ Dockerfile của commit vừa checkout. `up --no-build` bên dưới KHÔNG tự
+          # làm việc này, và vì một ảnh thiếu làm CẢ `compose up` chết, bỏ dòng này nghĩa là không
+          # container nào được tạo — kể cả 21 ảnh vừa kéo xong.
+          \$compose build rabbitmq
+          # Hạ tầng trước, rồi topology, rồi mới tới 19 service. `depends_on: service_healthy`
+          # chỉ bảo đảm broker đã CHẠY, không bảo đảm nó có exchange và queue — mà năm service
+          # có @RabbitListener sẽ crash-loop nếu queue chưa tồn tại.
+          \$compose up -d --no-build --wait rabbitmq postgres redis
+          bash deploy/scripts/apply-topology.sh
           # --no-build: trên máy chủ không có mã nguồn frontend. Thiếu cờ này thì compose thấy
           # thiếu ảnh là đi build, và chết ở một build context không tồn tại.
           # --wait: trả về khi container HEALTHY, không phải khi đã tạo xong.
           \$compose up -d --no-build --wait --remove-orphans
 
-          ./deploy/scripts/smoke.sh
+          # Gọi qua `bash`, không dựa vào bit thực thi: git trên Windows không ghi lại chmod +x,
+          # nên file có thể về máy chủ ở mode 644 và `./script` thất bại với exit 126.
+          bash deploy/scripts/smoke.sh
           EOF
+
+      # `if: always()` là BẮT BUỘC, không phải cho gọn: deploy hỏng giữa chừng mà không đóng thì
+      # rule nằm lại vĩnh viễn, và sau vài lần Security Group đầy những /32 không ai nhớ của ai.
+      - name: Đóng cổng 22
+        if: ${{ always() && env.AWS_SG_ID != '' && env.RUNNER_IP != '' }}
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$AWS_SG_ID" \
+            --protocol tcp --port 22 --cidr "$RUNNER_IP/32" || true
+          echo "Đã đóng 22 ← $RUNNER_IP/32"

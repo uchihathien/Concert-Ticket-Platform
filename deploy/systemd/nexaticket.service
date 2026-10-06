@@ -1,0 +1,83 @@
+# Bật lại cả hệ sau khi máy chủ khởi động.
+#
+#   sudo cp deploy/systemd/nexaticket.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable nexaticket
+#
+# `restart: unless-stopped` của Docker lo từng container; unit này lo việc `compose up` lại sau
+# reboot VÀ sinh lại .env — nhờ vậy đổi bí mật trong Parameter Store là có hiệu lực ở lần bật tiếp,
+# không phải sửa file trên máy chủ.
+[Unit]
+Description=NexaTicket (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/nexaticket
+
+# KHÔNG khai EnvironmentFile.
+#
+# compose tự đọc `--env-file`, nên systemd không cần biết 55 bí mật đó. Khai ở đây chỉ thêm hai điều
+# xấu: systemd phải tự phân tích file (nó không phải shell, và một giá trị có ký tự lạ làm unit
+# không khởi động nổi), và mọi bí mật hiện ra trong `systemctl show nexaticket`.
+
+# PHẢI có .env, nhưng việc làm mới nó thì KHÔNG được chặn khởi động.
+#
+# Bản trước đặt `ExecStartPre=/usr/local/bin/nexa-env` không có dấu `-`. `nexa-env` đọc Parameter
+# Store từ máy chủ, và khi Service Control Policy của tổ chức chặn lời gọi đó, ExecStartPre thất bại
+# -> systemd BỎ QUA LUÔN ExecStart -> không một container nào được tạo. `systemctl` báo unit hỏng,
+# nhưng triệu chứng người dùng thấy là 502 ở mọi tên miền, và `docker compose ps` trống trơn —
+# không có gì chỉ về nguyên nhân.
+#
+# Dấu `-` ở đầu nghĩa là "chạy, hỏng cũng kệ". .env đã được đẩy sang bằng push-env.sh, nên việc làm
+# mới chỉ là tiện thêm, không phải điều kiện.
+ExecStartPre=/usr/bin/test -s /srv/nexaticket/deploy/compose/.env
+ExecStartPre=-/usr/local/bin/nexa-env
+
+# Build rabbitmq TẠI CHỖ. Đây là service DUY NHẤT trong prod.yml được dựng trên máy chủ.
+#
+# Ảnh của nó tự dựng để bật plugin delayed message (cần cho retry backoff — ADR-1009) và KHÔNG được
+# đẩy lên GHCR, nên `--no-build` ở ExecStart không có đường nào lấy được nó:
+#
+#     service:rabbitmq:1 Error response from daemon: No such image: nexaticket-prod-rabbitmq:latest
+#
+# Một ảnh thiếu làm CẢ `compose up` chết, nên 21 container còn lại cũng không được tạo — triệu chứng
+# là `docker ps` trống trơn và 502 ở mọi tên miền. Hai mươi mốt ảnh kia đã kéo xong trước đó; thứ chặn
+# tất cả là ảnh nhỏ nhất.
+#
+# Dòng này phải nằm TRƯỚC ExecStart, và KHÔNG có dấu `-`: khác với `nexa-env` ở trên (có .env đẩy
+# bằng push-env.sh làm đường dự phòng), ở đây không có nguồn thứ hai nào cho ảnh. Build hỏng mà vẫn
+# đi tiếp thì ExecStart chết sau đó với một thông điệp nói về ảnh thiếu, không nói về build hỏng.
+#
+# Build có cache nên mỗi lần khởi động chỉ mất vài giây.
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env build rabbitmq
+# ÁP TOPOLOGY RABBITMQ TRƯỚC KHI 19 SERVICE KHỞI ĐỘNG.
+#
+# `depends_on: rabbitmq: service_healthy` chỉ bảo đảm BROKER đã chạy, không bảo đảm nó có exchange và
+# queue nào. Topology là nguồn chân lý ở deploy/rabbitmq/topology.yaml và phải được áp bằng một bước
+# deploy (plan/README.md §4) — `dev-up.sh` và `e2e.yml` đều gọi, đường production thì trước đây không.
+#
+# Hậu quả đã xảy ra thật: broker lên trắng, và đúng năm service có `@RabbitListener` — analytics,
+# inventory, ledger, notification, ticketing — chết lúc khai queue rồi crash-loop, trong khi bảy
+# service không chạm RabbitMQ vẫn healthy. `up --wait` đỏ ở một cái tên ngẫu nhiên trong năm cái đó,
+# nên triệu chứng trông như lỗi của service chứ không như thiếu một bước deploy.
+#
+# Hai dòng, theo thứ tự này: dựng hạ tầng và CHỜ nó healthy, rồi áp topology. Sau đó ExecStart bật
+# phần còn lại, lúc queue đã có mặt — nên không service nào phải crash-loop để chờ.
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --no-build --wait rabbitmq postgres redis
+ExecStartPre=/usr/bin/bash /srv/nexaticket/deploy/scripts/apply-topology.sh
+# --no-build: máy chủ KHÔNG có mã nguồn frontend (repo riêng). Thiếu cờ này thì compose thấy thiếu
+# ảnh là đi build, và chết ở một build context không tồn tại.
+# --wait: trả về khi container HEALTHY, không phải khi vừa tạo xong.
+ExecStart=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --no-build --wait --remove-orphans
+ExecStop=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env down
+
+# 22 container khởi động theo chuỗi healthcheck; riêng Keycloak đã ~60s, Postgres chạy migration
+# của 12 service. Mặc định 90s của systemd sẽ giết giữa chừng và để lại cụm nửa vời.
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -311,7 +311,7 @@ services:
       context: ../..
       dockerfile: backend/Dockerfile
       args: {SERVICE: api-gateway}
-    ports: ["${GATEWAY_PORT:-8080}:8080"]
+    ports: ["127.0.0.1:${GATEWAY_PORT:-8080}:8080"]
     mem_limit: ${SERVICE_MEMORY:-768m}
     environment:
       SPRING_PROFILES_ACTIVE: prod
@@ -364,7 +364,12 @@ services:
       args:
         APP: web-customer
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3000:3000"]
+    # Bind vào 127.0.0.1, KHÔNG phải 0.0.0.0.
+    #
+    # Nginx chạy trên host nên vẫn tới được; internet thì không, kể cả khi Security Group bị khai
+    # sai. Trước đây lớp bảo vệ duy nhất là SG — gõ lệch một rule là bốn app và Keycloak phơi
+    # thẳng ra ngoài, không qua TLS.
+    ports: ["127.0.0.1:3000:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_CUSTOMER_URL:?}
@@ -388,7 +393,7 @@ services:
       args:
         APP: web-admin
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3001:3000"]
+    ports: ["127.0.0.1:3001:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_ADMIN_URL:?}
@@ -412,7 +417,7 @@ services:
       args:
         APP: web-scanner
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3002:3000"]
+    ports: ["127.0.0.1:3002:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_SCANNER_URL:?}
@@ -436,7 +441,7 @@ services:
       args:
         APP: web-platform
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3003:3000"]
+    ports: ["127.0.0.1:3003:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_PLATFORM_URL:?}
@@ -510,6 +515,29 @@ services:
 
   rabbitmq:
     # Image tự dựng để bật plugin delayed message — cần cho retry backoff (ADR-1009).
+    #
+    # `image:` PHẢI khai tường minh, DÙ ảnh này không bao giờ được kéo từ registry.
+    #
+    # Một service chỉ có `build:` được compose đặt tên ảnh theo TÊN PROJECT: `name: nexaticket-prod`
+    # ở đầu file, cộng tên service, thành `nexaticket-prod-rabbitmq:latest`. Cái tên đó không xuất
+    # hiện ở bất kỳ đâu trong repo, nên khi `up --no-build` không tìm thấy nó, thông điệp
+    #
+    #     Error response from daemon: No such image: nexaticket-prod-rabbitmq:latest
+    #
+    # không chỉ về dòng `build:` này — người đọc đi tìm một image tên như vậy trên GHCR.
+    #
+    # Và vì MỘT ảnh thiếu làm CẢ `compose up` chết, triệu chứng không phải "thiếu RabbitMQ" mà là
+    # KHÔNG container nào được tạo: 21 ảnh kia đã kéo xong vẫn vô ích, `docker ps` trống trơn, mọi
+    # tên miền trả 502. Thứ chặn cả hệ là ảnh nhỏ nhất.
+    #
+    # Tên tường minh ở đây nói thẳng hai điều: ảnh dựng TẠI CHỖ trên máy chủ (ExecStartPre của
+    # nexaticket.service), và nó KHÔNG thuộc registry — nên `compose pull` phải bỏ qua nó bằng
+    # `--ignore-buildable`.
+    #
+    # KHÔNG dùng ${BACKEND_TAG}: tag đó đổi theo từng commit backend, và nó sẽ recreate broker ở
+    # mỗi lần deploy dù Dockerfile của RabbitMQ không đổi một dòng — mất kết nối của mọi consumer
+    # để đổi sang một ảnh giống y hệt.
+    image: nexaticket/rabbitmq-delayed:${RABBITMQ_TAG:-local}
     build: {context: ../rabbitmq}
     restart: unless-stopped
     environment:
@@ -536,7 +564,7 @@ services:
     # Keycloak PHẢI với tới được từ trình duyệt: vòng đăng nhập là một chuỗi chuyển hướng của
     # chính trình duyệt, không phải lời gọi server-to-server. Ingress đầu vào TLS trỏ
     # `KEYCLOAK_HOSTNAME` về cổng này.
-    ports: ["${KEYCLOAK_PORT:-8081}:8080"]
+    ports: ["127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
@@ -628,6 +656,12 @@ Connection: close
   # MEDIA_ENDPOINT + MEDIA_PUBLIC_URL sang đó. Adapter đã là AWS SDK v2 nên không phải sửa code.
   # ---------------------------------------------------------------------------
   objectstore:
+    # Publish ra loopback để Nginx proxy `media.<domain>` vào đây.
+    #
+    # Trước đây container này không publish cổng nào, nên MEDIA_PUBLIC_URL trỏ vào một địa chỉ
+    # trình duyệt không với tới được: upload ảnh bìa sinh presigned URL rồi hỏng ở bước tải lên.
+    # KHÔNG bind 0.0.0.0 — đây là một endpoint S3 không có TLS, Nginx mới là chỗ kết thúc TLS.
+    ports: ["127.0.0.1:9000:9000"]
     image: chrislusf/seaweedfs:4.47
     restart: unless-stopped
     environment:

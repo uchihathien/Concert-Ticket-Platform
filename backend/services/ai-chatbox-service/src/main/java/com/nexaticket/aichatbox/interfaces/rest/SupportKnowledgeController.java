@@ -5,6 +5,8 @@ import com.nexaticket.aichatbox.application.handoff.SupportDeskAccess;
 import com.nexaticket.aichatbox.application.knowledge.KnowledgeBaseUseCase;
 import com.nexaticket.aichatbox.application.knowledge.KnowledgeViews;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.util.List;
@@ -59,9 +61,17 @@ public class SupportKnowledgeController {
     public record ChunkRequest(
             UUID eventId, @NotBlank @Size(max = 200) String title, @NotBlank @Size(max = 8000) String content) {}
 
+    /**
+     * @param refundAllowed sự kiện có nhận yêu cầu hoàn vé không; mặc định (thiếu trường) là không
+     * @param refundWindowHours số giờ kể từ lúc thanh toán còn được xin hoàn; 0 là không giới hạn.
+     *     Trần 24×365: một năm là đủ cho mọi chính sách thật, và một số lớn hơn thế gần như chắc
+     *     chắn là nhập nhầm đơn vị.
+     */
     public record RulesRequest(
             @NotBlank @Size(max = 200) String eventTitle,
             @NotBlank @Size(max = 20000) String content,
+            boolean refundAllowed,
+            @Min(0) @Max(24 * 365) int refundWindowHours,
             boolean published) {}
 
     @PostMapping("/chunks")
@@ -110,7 +120,15 @@ public class SupportKnowledgeController {
     @PutMapping("/rules/{eventId}")
     public KnowledgeViews.RulesRow upsertRules(@PathVariable UUID eventId, @Valid @RequestBody RulesRequest request) {
         access.requireSupportAgent();
-        return knowledge.upsertRules(eventId, request.eventTitle(), request.content(), request.published());
+        // Truyền hai giá trị thô, không dựng RefundPolicy ở đây: đó là kiểu của domain, và tầng
+        // interfaces không được chạm vào domain (ArchitectureRules.hexagonalLayers).
+        return knowledge.upsertRules(
+                eventId,
+                request.eventTitle(),
+                request.content(),
+                request.refundAllowed(),
+                request.refundWindowHours(),
+                request.published());
     }
 
     /** Kèm cả bản nháp — khác đường của tool {@code getEventRules}, vốn chỉ thấy bản đã công bố. */

@@ -52,11 +52,14 @@ public class SupportDeskController {
      *
      * @param mine chỉ lấy phiếu của chính mình. Hai câu hỏi khác nhau trên cùng màn hình: "còn ai
      *     đang chờ" và "tôi đang cầm những cuộc nào".
+     * @param intent chỉ lấy phiếu thuộc một ý định (REFUND, INCIDENT, …) — để người trực chuyên
+     *     một mảng chỉ nhìn việc của mình. Giữ NGUYÊN thứ tự hàng đợi: lọc không đổi cách xếp.
      */
     @GetMapping
     public List<HandoffViews.HandoffRow> queue(
             @RequestParam(defaultValue = "false") boolean mine,
             @RequestParam(required = false) String status,
+            @RequestParam(required = false) @Size(max = 40) String intent,
             @RequestParam(required = false) @Size(max = 200) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
@@ -70,13 +73,13 @@ public class SupportDeskController {
         // Màn hình chính của người trực gọi đúng đường này, và đổi mặc định của nó là đổi thứ tự xử
         // lý phiếu của cả bàn hỗ trợ.
         if (!hasText(status) && !hasText(q)) {
-            return handoffs.queue(scope, limit, offset);
+            return handoffs.queue(scope, intent, limit, offset);
         }
         // Truyền `status` dạng CHUỖI, không dịch ở đây: HandoffStatus là kiểu của domain, và tầng
         // interfaces không được chạm vào domain (ArchitectureRules.hexagonalLayers). Phép dịch nằm ở
         // HandoffUseCase, nơi nó cũng thuộc về hơn — "phiếu chưa xong gồm những trạng thái nào" là
         // một quyết định nghiệp vụ, không phải một chi tiết của HTTP.
-        return handoffs.search(scope, status, q, limit, offset);
+        return handoffs.search(scope, status, intent, q, limit, offset);
     }
 
     private static boolean hasText(String value) {
@@ -90,11 +93,17 @@ public class SupportDeskController {
         return handoffs.thread(handoffId, TRANSCRIPT_LIMIT);
     }
 
-    /** Nhận phiếu. Người khác nhận trước thì 409 — xem {@code HandoffUseCase.claim}. */
+    /**
+     * Nhận phiếu — trả về <b>cả hội thoại</b> (USER, ASSISTANT, AGENT) kèm phiếu và checklist.
+     *
+     * <p>Người khác nhận trước thì 409 — xem {@code HandoffUseCase.claim}. Trả thread chứ không
+     * trả một dòng: người vừa nhận là người sắp trả lời, và màn hình của họ cần mở ra với toàn bộ
+     * nội dung ngay, không qua thêm một request.
+     */
     @PostMapping("/{handoffId}/claim")
-    public HandoffViews.HandoffRow claim(@PathVariable UUID handoffId) {
+    public HandoffViews.HandoffThread claim(@PathVariable UUID handoffId) {
         UUID agentId = access.requireSupportAgent();
-        return handoffs.claim(handoffId, agentId);
+        return handoffs.claim(handoffId, agentId, TRANSCRIPT_LIMIT);
     }
 
     /**

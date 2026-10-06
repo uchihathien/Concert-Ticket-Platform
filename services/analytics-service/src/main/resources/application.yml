@@ -1,0 +1,77 @@
+spring:
+  application:
+    name: analytics-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/analytics_db}
+    username: ${DB_USER:analytics}
+    password: ${DB_PASSWORD:analytics}
+    hikari:
+      # Mười một service dùng CHUNG một cụm PostgreSQL ở MVP (ADR-1002 — database riêng, cụm
+      # chung). Với pool 30 thì tổng nhu cầu là 330 kết nối, còn cụm mặc định cho 100: hệ thống
+      # KHÔNG BAO GIỜ chạy đủ được. Thực tế bốn service đã chiếm 99/100, toàn bộ nhàn rỗi, và
+      # service thứ năm chết lúc khởi động với "remaining connection slots are reserved".
+      #
+      # 10 là con số hợp lý cho một service Spring: pool lớn không làm nhanh hơn, nó chỉ dịch chỗ
+      # xếp hàng từ ứng dụng sang database. Service nào thật sự cần nhiều hơn thì nâng bằng
+      # DB_POOL_SIZE, và đó là một quyết định có chủ đích chứ không phải mặc định.
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      pool-name: analytics-pool
+  flyway:
+    enabled: true
+    locations: classpath:db/migration/platform,classpath:db/migration/analytics
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:nexaticket}
+    password: ${RABBITMQ_PASSWORD:nexaticket}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+
+server:
+  port: ${PORT:8099}
+  shutdown: graceful
+
+management:
+  # Cổng quản trị riêng, KHÔNG publish ra ngoài.
+  #
+  # /actuator/prometheus lộ tên endpoint, số lượng request và độ trễ của từng đường — đủ để vẽ lại
+  # bề mặt API và đoán được lúc nào hệ thống đang tải nặng. Trước đây nó nằm chung cổng ứng dụng và
+  # được `anyRequest().authenticated()` bảo vệ, nên Prometheus không scrape nổi nếu không có JWT —
+  # tức là hoặc không có metric, hoặc phải cấp token cho một scraper.
+  #
+  # Tách cổng giải quyết cả hai: bên trong cụm thì gọi thẳng 9090, còn ingress chỉ mở 8080.
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+  # Trace phân tán — TẮT mặc định.
+  #
+  # Bật bằng TRACING_ENABLED=true, và chỉ bật khi thật sự có collector nghe ở OTEL_ENDPOINT: không
+  # có ai nhận thì exporter vẫn thử gửi mỗi vài giây và lấp đầy log bằng lỗi kết nối, che mất
+  # những dòng đáng đọc.
+  #
+  # `probability` là tỷ lệ MẪU, không phải công tắc. 1.0 ở lưu lượng thật là rất nhiều dữ liệu và
+  # rất nhiều tiền lưu trữ; 0.1 đủ để thấy hình dạng của độ trễ. Lỗi thì không cần lấy mẫu — chúng
+  # đã có log kèm correlationId, và correlationId nay đi xuyên mọi service (CorrelationPropagation).
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${OTEL_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{36} - %msg%n"

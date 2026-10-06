@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.domain.port;
 
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
+import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import java.util.List;
 import java.util.Optional;
 
@@ -47,4 +48,16 @@ public interface CatalogClientPort {
      * @throws RemoteCallException catalog-service quá hạn hoặc trả 5xx
      */
     Optional<EventDetail> findEventBySlug(String slug);
+
+    /**
+     * Khu này bán vé ngồi hay vé đứng — đọc từ sơ đồ công khai của sự kiện.
+     *
+     * <p>Cần cho việc giữ chỗ: inventory nhận hai danh sách khác nhau cho hai loại và không tự tra
+     * hộ. Chi tiết sự kiện không mang loại khu (nó là chi tiết của sơ đồ, không phải của hạng vé),
+     * nên phải hỏi thêm một lần — vài mili-giây trên read model, rẻ hơn một lần giữ chỗ trượt.
+     *
+     * @return rỗng khi sự kiện không có hoặc sơ đồ không có khu ấy
+     * @throws RemoteCallException catalog-service quá hạn hoặc trả 5xx
+     */
+    Optional<ZoneAdmission> findZoneAdmission(String slug, String zoneCode);
 }

@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.infrastructure.persistence;
 import com.nexaticket.aichatbox.domain.model.EventRules;
 import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
 import com.nexaticket.aichatbox.domain.model.KnowledgeEntry;
+import com.nexaticket.aichatbox.domain.model.RefundPolicy;
 import com.nexaticket.aichatbox.domain.model.RulesEntry;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import java.util.List;
@@ -66,13 +67,16 @@ public class PgVectorStoreAdapter implements VectorStorePort {
     public Optional<EventRules> findRules(UUID eventId) {
         return db.sql(
                         """
-                        select event_id, event_title, content
+                        select event_id, event_title, content, refund_allowed, refund_window_hours
                         from event_rules
                         where event_id = :eventId and published
                         """)
                 .param("eventId", eventId)
                 .query((rs, rowNum) -> new EventRules(
-                        rs.getObject("event_id", UUID.class), rs.getString("event_title"), rs.getString("content")))
+                        rs.getObject("event_id", UUID.class),
+                        rs.getString("event_title"),
+                        rs.getString("content"),
+                        new RefundPolicy(rs.getBoolean("refund_allowed"), rs.getInt("refund_window_hours"))))
                 .optional();
     }
 
@@ -134,20 +138,26 @@ public class PgVectorStoreAdapter implements VectorStorePort {
      * mãi mãi.
      */
     @Override
-    public void upsertRules(UUID eventId, String eventTitle, String content, boolean published) {
+    public void upsertRules(
+            UUID eventId, String eventTitle, String content, RefundPolicy refundPolicy, boolean published) {
         db.sql(
                         """
-                        insert into event_rules (event_id, event_title, content, published)
-                        values (:eventId, :title, :content, :published)
+                        insert into event_rules
+                            (event_id, event_title, content, refund_allowed, refund_window_hours, published)
+                        values (:eventId, :title, :content, :refundAllowed, :refundWindowHours, :published)
                         on conflict (event_id) do update
-                           set event_title = excluded.event_title,
-                               content     = excluded.content,
-                               published   = excluded.published,
-                               updated_at  = now()
+                           set event_title         = excluded.event_title,
+                               content             = excluded.content,
+                               refund_allowed      = excluded.refund_allowed,
+                               refund_window_hours = excluded.refund_window_hours,
+                               published           = excluded.published,
+                               updated_at          = now()
                         """)
                 .param("eventId", eventId)
                 .param("title", eventTitle)
                 .param("content", content)
+                .param("refundAllowed", refundPolicy.allowed())
+                .param("refundWindowHours", refundPolicy.windowHours())
                 .param("published", published)
                 .update();
     }
@@ -156,7 +166,8 @@ public class PgVectorStoreAdapter implements VectorStorePort {
     public Optional<RulesEntry> findRulesForCurator(UUID eventId) {
         return db.sql(
                         """
-                        select event_id, event_title, content, published, updated_at
+                        select event_id, event_title, content, refund_allowed, refund_window_hours,
+                               published, updated_at
                         from event_rules
                         where event_id = :eventId
                         """)
@@ -165,6 +176,7 @@ public class PgVectorStoreAdapter implements VectorStorePort {
                         rs.getObject("event_id", UUID.class),
                         rs.getString("event_title"),
                         rs.getString("content"),
+                        new RefundPolicy(rs.getBoolean("refund_allowed"), rs.getInt("refund_window_hours")),
                         rs.getBoolean("published"),
                         rs.getTimestamp("updated_at").toInstant()))
                 .optional();
