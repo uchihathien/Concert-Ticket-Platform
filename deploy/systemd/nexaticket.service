@@ -1,0 +1,34 @@
+# Bật lại cả hệ sau khi máy chủ khởi động.
+#
+#   sudo cp deploy/systemd/nexaticket.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable nexaticket
+#
+# `restart: unless-stopped` của Docker lo từng container; unit này lo việc `compose up` lại sau
+# reboot VÀ sinh lại .env — nhờ vậy đổi bí mật trong Parameter Store là có hiệu lực ở lần bật tiếp,
+# không phải sửa file trên máy chủ.
+[Unit]
+Description=NexaTicket (docker compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/nexaticket
+EnvironmentFile=/srv/nexaticket/deploy/compose/.env
+
+ExecStartPre=/usr/local/bin/nexa-env
+# --no-build: máy chủ KHÔNG có mã nguồn frontend (repo riêng). Thiếu cờ này thì compose thấy thiếu
+# ảnh là đi build, và chết ở một build context không tồn tại.
+# --wait: trả về khi container HEALTHY, không phải khi vừa tạo xong.
+ExecStart=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --no-build --wait --remove-orphans
+ExecStop=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env down
+
+# 22 container khởi động theo chuỗi healthcheck; riêng Keycloak đã ~60s, Postgres chạy migration
+# của 12 service. Mặc định 90s của systemd sẽ giết giữa chừng và để lại cụm nửa vời.
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
