@@ -109,7 +109,28 @@ if ! aws iam get-instance-profile --instance-profile-name "$NAME-ec2" --output t
   aws iam add-role-to-instance-profile --instance-profile-name "$NAME-ec2" --role-name "$NAME-ec2"
   echo "Da gan role vao instance profile"
 fi
-echo "Quyền: SSM session + đọc /$NAME/* ở Parameter Store"
+# Quyền đọc MỘT object trên bucket chuyển tiếp .env.
+#
+# Cần vì Service Control Policy của Organization chặn instance đọc Parameter Store — cả
+# `GetParametersByPath` lẫn `GetParameters`. Đã kiểm bằng lời gọi thật từ chính instance:
+#
+#     AccessDeniedException ... assumed-role/nexaticket-ec2/i-...
+#     is not authorized to perform: ssm:GetParameters ... explicit deny in a service control policy
+#
+# CloudShell thì đọc được, nên .env được sinh ở đó rồi chuyển qua S3. Chọn S3 thay vì nhúng nội dung
+# vào lệnh SSM: tham số của `send-command` nằm trong CloudTrail và lịch sử Command, nghĩa là 55 bí
+# mật sẽ nằm vĩnh viễn trong log của tài khoản.
+#
+# Phạm vi hẹp nhất: đúng một object, và instance chỉ ĐỌC — không ghi, không liệt kê bucket.
+aws iam put-role-policy --role-name "$NAME-ec2" --policy-name env-bucket-read \
+  --policy-document "{
+    \"Version\":\"2012-10-17\",
+    \"Statement\":[{
+      \"Effect\":\"Allow\",
+      \"Action\":\"s3:GetObject\",
+      \"Resource\":\"arn:aws:s3:::$NAME-env-$ACCOUNT/env\"
+    }]}" >/dev/null
+echo "Quyền: SSM session + đọc /$NAME/* ở Parameter Store + đọc s3://$NAME-env-$ACCOUNT/env"
 
 # --- Khoá SSH ----------------------------------------------------------------
 say "Khoá SSH"
