@@ -211,8 +211,18 @@ on_server() {
   aws ssm get-command-invocation --command-id "$cid" --instance-id "$INST" \
     --query StandardOutputContent --output text | sed 's/^/      /'
   if [ "$st" != Success ]; then
+    # stderr của SSM bị cắt ở 24.000 ký tự, và phần bị cắt là phần ĐẦU — tức là dòng lỗi thật
+    # thường nằm trong chỗ bị mất. In ra những gì có, rồi chỉ đường lấy log đầy đủ trên máy chủ.
+    echo "  --- stderr (SSM cắt ở 24.000 ký tự) ---" >&2
     aws ssm get-command-invocation --command-id "$cid" --instance-id "$INST" \
       --query StandardErrorContent --output text | sed 's/^/      /' >&2
+    cat >&2 <<HINT
+  --- lấy log đầy đủ ---
+    aws ssm get-command-invocation --command-id $cid --instance-id $INST \
+      --query StandardErrorContent --output text
+  --- hoặc vào thẳng máy chủ xem (không cần khoá, không cần cổng 22) ---
+    aws ssm start-session --target $INST
+HINT
     die "$desc — thất bại ($st)."
   fi
   ok "$desc"

@@ -10,9 +10,21 @@ set -euo pipefail
 
 say() { printf '\n=== %s\n' "$*"; }
 
+# `DPkg::Lock::Timeout` chặn lỗi hay gặp nhất khi cài một máy vừa boot.
+#
+# Instance mới đang chạy `unattended-upgrades` và `apt-daily`, cả hai giữ lock của dpkg. Gọi
+# apt-get ngay thì nhận:
+#
+#     E: Could not get lock /var/lib/dpkg/lock-frontend (11: Resource temporarily unavailable)
+#
+# Lỗi đó không liên quan gì tới mã nguồn, và chỉ xảy ra ở lần chạy đầu trên máy mới — nên chạy lại
+# sau vài phút là qua, và người ta dễ kết luận sai rằng script "chạy không ổn định". Chờ tối đa 10
+# phút thay vì thất bại.
+APT="sudo DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600"
+
 say "Cập nhật hệ thống"
-sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+$APT update -qq
+$APT upgrade -y -qq
 
 say "Docker (repo chính thức)"
 # Bản `docker.io` trong Ubuntu thường cũ và KHÔNG có compose v2 — mà prod.yml dùng cú pháp v2
@@ -24,8 +36,8 @@ sudo chmod a+r /etc/apt/keyrings/docker.gpg
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
 https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
   | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update -qq
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+$APT update -qq
+$APT install -y -qq \
   docker-ce docker-ce-cli containerd.io docker-compose-plugin \
   nginx git unzip jq
 
@@ -78,6 +90,9 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
 
 say "Certbot"
+# snapd cũng chưa sẵn sàng ngay sau khi boot: `snap install` khi đó trả
+# "error: cannot communicate with server". `snap wait` chờ đúng việc đó.
+sudo snap wait system seed.loaded 2>/dev/null || true
 sudo snap install --classic certbot >/dev/null
 sudo ln -sf /snap/bin/certbot /usr/bin/certbot
 
