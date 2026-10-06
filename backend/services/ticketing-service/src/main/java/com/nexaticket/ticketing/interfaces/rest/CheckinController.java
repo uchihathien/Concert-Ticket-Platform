@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.ticketing.interfaces.rest;
 
+import com.nexaticket.kernel.access.Permission;
+import com.nexaticket.platform.security.annotation.RequiresPermission;
 import com.nexaticket.platform.security.tenant.TenantContext;
 import com.nexaticket.ticketing.application.command.CheckInHandler;
 import jakarta.validation.Valid;
@@ -37,16 +39,14 @@ public class CheckinController {
     public record ScanResponse(String result, String seatCode, String seatLabel, String ticketTypeName, String note) {}
 
     @PostMapping
+    @RequiresPermission(Permission.CHECKIN_SCAN)
     public ScanResponse scan(@PathVariable UUID eventSessionId, @Valid @RequestBody ScanRequest request) {
-        var scope = TenantContext.requireAuthenticated();
+        var tenant = TenantContext.requireActiveTenant();
+        var scope = TenantContext.requirePermission(Permission.CHECKIN_SCAN, tenant);
         // Tổ chức lấy từ token đăng nhập của nhân viên, KHÔNG từ request: nếu để client gửi,
         // ai cũng soát được vé của tổ chức khác bằng cách đổi một trường JSON.
         var result = checkIn.handle(new CheckInHandler.Command(
-                request.qrToken(),
-                eventSessionId,
-                scope.userId().value(),
-                TenantContext.requireActiveTenant().value(),
-                request.deviceId()));
+                request.qrToken(), eventSessionId, scope.userId().value(), tenant.value(), request.deviceId()));
 
         return new ScanResponse(
                 result.result(), result.seatCode(), result.seatLabel(), result.ticketTypeName(), result.note());

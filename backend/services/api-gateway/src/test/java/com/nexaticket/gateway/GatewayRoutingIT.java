@@ -143,6 +143,12 @@ class GatewayRoutingIT {
         assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/uploads/poster")
                         .getId())
                 .isEqualTo("catalog");
+        assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/checkin-sessions")
+                        .getId())
+                .isEqualTo("catalog");
+        assertThat(match(HttpMethod.POST, "/v1/organizations/0f8c/sessions/1f8c/checkins")
+                        .getId())
+                .isEqualTo("ticketing");
         assertThat(match(HttpMethod.GET, "/v1/admin/revenue").getId()).isEqualTo("analytics");
     }
 

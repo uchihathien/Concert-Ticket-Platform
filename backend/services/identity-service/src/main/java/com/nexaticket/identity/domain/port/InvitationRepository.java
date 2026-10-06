@@ -12,6 +12,9 @@ public interface InvitationRepository {
 
     List<Invitation> findPending(TenantId organizationId);
 
+    /** Unaccepted invitations addressed to the authenticated user's email. */
+    List<Invitation> findPendingForEmail(String email);
+
     Optional<Invitation> findById(java.util.UUID id);
 
     void save(Invitation invitation);
