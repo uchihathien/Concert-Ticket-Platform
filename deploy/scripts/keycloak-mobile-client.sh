@@ -2,7 +2,10 @@
 # Tạo/cập nhật một client Keycloak cho app di động, trên realm ĐANG CHẠY. CHẠY TRÊN MÁY CHỦ.
 #
 #   bash deploy/scripts/keycloak-mobile-client.sh mobile-scanner "exp://192.168.1.60:8083/--/auth"
-#   bash deploy/scripts/keycloak-mobile-client.sh mobile-customer          # chỉ scheme, không thêm URI
+#   bash deploy/scripts/keycloak-mobile-client.sh mobile-scanner "exp://*"   # mọi IP LAN, mọi tunnel
+#   bash deploy/scripts/keycloak-mobile-client.sh mobile-customer            # chỉ scheme, không thêm URI
+#
+# Nhận NHIỀU URI, cách nhau bằng dấu cách.
 #
 # VÌ SAO CẦN SCRIPT CHỨ KHÔNG SỬA FILE REALM. `--import-realm` CHỈ chạy khi realm chưa tồn tại, nên
 # sửa nexaticket-realm.prod.json sau lần dựng đầu không đổi được gì trên máy đang chạy — cùng lớp vấn
@@ -20,7 +23,8 @@
 set -euo pipefail
 
 CLIENT_ID="${1:?Thiếu clientId, ví dụ: mobile-scanner}"
-EXTRA_URI="${2:-}"
+shift || true
+EXTRA_URIS=("$@")
 KC="${KC:-nexaticket-prod-keycloak-1}"
 REALM="${REALM:-nexaticket}"
 
@@ -40,7 +44,9 @@ id="$(kc get clients -r "$REALM" -q "clientId=$CLIENT_ID" --fields id --format c
 if [ -z "$id" ]; then
   echo "==> Tạo client $CLIENT_ID"
   uris="\"$base\""
-  [ -n "$EXTRA_URI" ] && uris="$uris,\"$EXTRA_URI\""
+  for u in ${EXTRA_URIS+"${EXTRA_URIS[@]}"}; do
+    [ -n "$u" ] && uris="$uris,\"$u\""
+  done
   id="$(kc create clients -r "$REALM" -i \
         -s "clientId=$CLIENT_ID" \
         -s enabled=true \
@@ -59,11 +65,12 @@ fi
 # "thêm một phần tử", và ghi đè bằng một mảng chỉ chứa URI mới sẽ xoá mất những URI đang dùng.
 current="$(kc get "clients/$id" -r "$REALM" --fields redirectUris --format json 2>/dev/null \
             | tr -d ' \n' | sed 's/.*\[//; s/\].*//; s/"//g')"
-want="$base"
-[ -n "$EXTRA_URI" ] && want="$want,$EXTRA_URI"
+wanted=("$base")
+for u in ${EXTRA_URIS+"${EXTRA_URIS[@]}"}; do
+  [ -n "$u" ] && wanted+=("$u")
+done
 
 missing=""
-IFS=',' read -r -a wanted <<< "$want"
 for u in "${wanted[@]}"; do
   [ -n "$u" ] || continue
   case ",$current," in *",$u,"*) ;; *) missing="${missing:+$missing,}$u" ;; esac
