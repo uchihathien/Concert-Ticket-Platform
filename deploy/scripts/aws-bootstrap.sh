@@ -89,9 +89,22 @@ aws iam put-role-policy --role-name "$NAME-ec2" --policy-name ssm-read \
       \"Condition\":{\"StringEquals\":{\"kms:ViaService\":\"ssm.$REGION.amazonaws.com\"}}
     }]}" >/dev/null
 
-aws iam create-instance-profile --instance-profile-name "$NAME-ec2" >/dev/null 2>&1 || true
-aws iam add-role-to-instance-profile --instance-profile-name "$NAME-ec2" \
-  --role-name "$NAME-ec2" >/dev/null 2>&1 || true
+# Instance profile la thu EC2 nhan; role chi la thu nam TRONG no. Hai doi tuong khac nhau, o day
+# dat cung ten cho de nho.
+#
+# KHONG dung `|| true` de bo qua loi. Ban truoc lam vay, nen khi `create-instance-profile` that bai
+# thi khong ai thay — loi chi lo ra may chuc dong sau, o `run-instances`, duoi dang
+# "Invalid IAM Instance Profile name", va trong nhu loi cua EC2 chu khong phai cua IAM.
+if ! aws iam get-instance-profile --instance-profile-name "$NAME-ec2" >/dev/null 2>&1; then
+  aws iam create-instance-profile --instance-profile-name "$NAME-ec2" >/dev/null
+  echo "Da tao instance profile $NAME-ec2"
+fi
+
+if ! aws iam get-instance-profile --instance-profile-name "$NAME-ec2" --output text \
+      --query 'InstanceProfile.Roles[].RoleName' | grep -qw "$NAME-ec2"; then
+  aws iam add-role-to-instance-profile --instance-profile-name "$NAME-ec2" --role-name "$NAME-ec2"
+  echo "Da gan role vao instance profile"
+fi
 echo "Quyền: SSM session + đọc /$NAME/* ở Parameter Store"
 
 # --- Khoá SSH ----------------------------------------------------------------
@@ -120,19 +133,37 @@ if [ "$INST" = "None" ]; then
 
   # amd64 CỐ Ý, không phải arm64: release.yml build ảnh trên ubuntu-latest mà không khai
   # `platforms`, nên ảnh là amd64. Chạy chúng trên Graviton phải giả lập qua QEMU — chậm gấp nhiều lần.
-  INST=$(aws ec2 run-instances \
-    --image-id "$AMI" \
-    --instance-type "$INSTANCE_TYPE" \
-    --key-name "$NAME" \
-    --security-group-ids "$SG" \
-    --subnet-id "$SUBNET" \
-    --iam-instance-profile "Name=$NAME-ec2" \
-    --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{
-        \"VolumeSize\":$VOLUME_SIZE,\"VolumeType\":\"gp3\",
-        \"DeleteOnTermination\":true,\"Encrypted\":true}}]" \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$NAME}]" \
-    --metadata-options 'HttpTokens=required' \
-    --query 'Instances[0].InstanceId' --output text)
+  # IAM la EVENTUALLY CONSISTENT: instance profile vua tao chua chac EC2 da thay. Goi ngay thi
+  # nhan "Invalid IAM Instance Profile name" — mot loi nghe nhu khai sai ten, nhung that ra chi la
+  # goi qua som. Da xay ra that o lan chay dau tien.
+  #
+  # Thu lai thay vi sleep co dinh: cho du lau thi lang phi thoi gian cua moi lan chay sau, cho
+  # qua ngan thi van hong — va khong ai biet con so dung la bao nhieu.
+  launch() {
+    aws ec2 run-instances \
+      --image-id "$AMI" \
+      --instance-type "$INSTANCE_TYPE" \
+      --key-name "$NAME" \
+      --security-group-ids "$SG" \
+      --subnet-id "$SUBNET" \
+      --iam-instance-profile "Name=$NAME-ec2" \
+      --block-device-mappings "[{\"DeviceName\":\"/dev/sda1\",\"Ebs\":{
+          \"VolumeSize\":$VOLUME_SIZE,\"VolumeType\":\"gp3\",
+          \"DeleteOnTermination\":true,\"Encrypted\":true}}]" \
+      --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$NAME}]" \
+      --metadata-options 'HttpTokens=required' \
+      --query 'Instances[0].InstanceId' --output text
+  }
+
+  for attempt in $(seq 1 12); do
+    if INST=$(launch 2>/tmp/run-err); then break; fi
+    if ! grep -q "Invalid IAM Instance Profile" /tmp/run-err; then
+      cat /tmp/run-err >&2; exit 1       # loi khac: dung ngay, dung thu lai mu quang
+    fi
+    echo "  IAM chua lan truyen, thu lai ($attempt/12)..."
+    sleep 5
+  done
+  [ -n "${INST:-}" ] && [ "$INST" != "None" ] || { echo "Khong tao duoc instance sau 60s." >&2; exit 1; }
   echo "Đã tạo $INST — chờ running..."
   aws ec2 wait instance-running --instance-ids "$INST"
 else
