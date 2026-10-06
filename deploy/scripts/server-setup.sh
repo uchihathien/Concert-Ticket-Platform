@@ -104,6 +104,33 @@ else
 fi
 cd /srv/nexaticket && echo "  commit: $(git log --oneline -1)"
 
+# --- Đăng nhập registry ------------------------------------------------------
+# Mười ba ảnh backend trên ghcr.io là PRIVATE. GitHub để package ở chế độ private theo mặc định, kể
+# cả khi repo là public — một mặc định hay gây bất ngờ, vì mọi thứ khác của repo đều mở.
+#
+# Không đăng nhập thì `compose pull` thất bại với "pull access denied ... repository does not exist",
+# một thông điệp gợi ý sai: repository CÓ tồn tại, chỉ là không cho xem.
+#
+# Token lấy từ Parameter Store nếu có. Không có thì bỏ qua — các ảnh public vẫn kéo được, và thông
+# điệp bên dưới nói rõ phải làm gì.
+say "Đăng nhập ghcr.io"
+GHCR_TOKEN=$(aws ssm get-parameter --name /nexaticket/GHCR_TOKEN --with-decryption                --query Parameter.Value --output text 2>/dev/null || true)
+if [ -n "${GHCR_TOKEN:-}" ] && [ "$GHCR_TOKEN" != None ]; then
+  GHCR_USER=$(aws ssm get-parameter --name /nexaticket/GHCR_USER                 --query Parameter.Value --output text 2>/dev/null || echo uchihathien)
+  echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
+  # Chép cho cả `ubuntu`: compose chạy dưới user đó ở các lệnh thủ công.
+  sudo install -d -o ubuntu -g ubuntu /home/ubuntu/.docker
+  sudo cp /root/.docker/config.json /home/ubuntu/.docker/config.json
+  sudo chown ubuntu:ubuntu /home/ubuntu/.docker/config.json
+  echo "  đã đăng nhập bằng $GHCR_USER"
+else
+  echo "  BỎ QUA: chưa có /nexaticket/GHCR_TOKEN."
+  echo "  Mười ba ảnh backend là private, nên compose pull sẽ thất bại. Chọn một:"
+  echo "    a) Đặt 13 package thành Public: github.com/uchihathien?tab=packages"
+  echo "    b) Nạp token:  aws ssm put-parameter --name /nexaticket/GHCR_TOKEN \\"
+  echo "         --type SecureString --value '<PAT co scope read:packages>' --overwrite"
+fi
+
 say "Nginx, systemd, script sinh .env"
 sudo install -m 755 deploy/scripts/pull-env.sh /usr/local/bin/nexa-env
 sudo cp deploy/systemd/nexaticket.service /etc/systemd/system/
