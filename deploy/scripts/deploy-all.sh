@@ -118,6 +118,10 @@ if phase 3 "Kiểm đủ biến bắt buộc"; then
     die "Thiếu $(echo $missing | wc -w) biến bắt buộc. Chạy lại và nhập ở giai đoạn 2."
   fi
   ok "$(echo "$req" | wc -l) biến bắt buộc đã có đủ"
+
+  # Tạo ngân sách Ở ĐÂY, không ở bootstrap: email đến từ SUPER_ADMIN_EMAILS, mà biến đó chỉ vừa
+  # được nạp ở giai đoạn 2. Gọi trong bootstrap thì lần chạy đầu luôn bỏ qua và không ai nhận ra.
+  bash "$HERE/budget-alert.sh" 2>&1 | sed 's/^/  /' || true
 fi
 
 # ===========================================================================
