@@ -39,6 +39,7 @@ spring:
 
 nexaticket:
   identity:
+    base-url: ${IDENTITY_URL:http://localhost:8090}
     # Email duoc cap quyen SUPER_ADMIN o lan dang nhap dau tien.
     #
     # Khong co danh sach nay thi he thong khong khoi dong duoc tu trang thai rong:
@@ -148,3 +149,4 @@ logging:
     console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{36} - %msg%n"
   level:
     com.nexaticket: ${LOG_LEVEL:INFO}
+
