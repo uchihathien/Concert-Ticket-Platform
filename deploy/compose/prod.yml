@@ -311,7 +311,7 @@ services:
       context: ../..
       dockerfile: backend/Dockerfile
       args: {SERVICE: api-gateway}
-    ports: ["${GATEWAY_PORT:-8080}:8080"]
+    ports: ["127.0.0.1:${GATEWAY_PORT:-8080}:8080"]
     mem_limit: ${SERVICE_MEMORY:-768m}
     environment:
       SPRING_PROFILES_ACTIVE: prod
@@ -364,7 +364,12 @@ services:
       args:
         APP: web-customer
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3000:3000"]
+    # Bind vào 127.0.0.1, KHÔNG phải 0.0.0.0.
+    #
+    # Nginx chạy trên host nên vẫn tới được; internet thì không, kể cả khi Security Group bị khai
+    # sai. Trước đây lớp bảo vệ duy nhất là SG — gõ lệch một rule là bốn app và Keycloak phơi
+    # thẳng ra ngoài, không qua TLS.
+    ports: ["127.0.0.1:3000:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_CUSTOMER_URL:?}
@@ -388,7 +393,7 @@ services:
       args:
         APP: web-admin
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3001:3000"]
+    ports: ["127.0.0.1:3001:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_ADMIN_URL:?}
@@ -412,7 +417,7 @@ services:
       args:
         APP: web-scanner
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3002:3000"]
+    ports: ["127.0.0.1:3002:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_SCANNER_URL:?}
@@ -436,7 +441,7 @@ services:
       args:
         APP: web-platform
         NEXT_PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:?can PUBLIC_API_BASE_URL}
-    ports: ["3003:3000"]
+    ports: ["127.0.0.1:3003:3000"]
     mem_limit: ${APP_MEMORY:-512m}
     environment:
       AUTH_URL: ${WEB_PLATFORM_URL:?}
@@ -536,7 +541,7 @@ services:
     # Keycloak PHẢI với tới được từ trình duyệt: vòng đăng nhập là một chuỗi chuyển hướng của
     # chính trình duyệt, không phải lời gọi server-to-server. Ingress đầu vào TLS trỏ
     # `KEYCLOAK_HOSTNAME` về cổng này.
-    ports: ["${KEYCLOAK_PORT:-8081}:8080"]
+    ports: ["127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
@@ -628,6 +633,12 @@ Connection: close
   # MEDIA_ENDPOINT + MEDIA_PUBLIC_URL sang đó. Adapter đã là AWS SDK v2 nên không phải sửa code.
   # ---------------------------------------------------------------------------
   objectstore:
+    # Publish ra loopback để Nginx proxy `media.<domain>` vào đây.
+    #
+    # Trước đây container này không publish cổng nào, nên MEDIA_PUBLIC_URL trỏ vào một địa chỉ
+    # trình duyệt không với tới được: upload ảnh bìa sinh presigned URL rồi hỏng ở bước tải lên.
+    # KHÔNG bind 0.0.0.0 — đây là một endpoint S3 không có TLS, Nginx mới là chỗ kết thúc TLS.
+    ports: ["127.0.0.1:9000:9000"]
     image: chrislusf/seaweedfs:4.47
     restart: unless-stopped
     environment:
