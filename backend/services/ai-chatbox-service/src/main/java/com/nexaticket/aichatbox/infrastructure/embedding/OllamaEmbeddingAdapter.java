@@ -4,7 +4,6 @@ package com.nexaticket.aichatbox.infrastructure.embedding;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
 import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
-import com.nexaticket.aichatbox.infrastructure.llm.LlmProvider;
 import com.nexaticket.aichatbox.infrastructure.llm.OllamaProperties;
 import java.time.Duration;
 import java.util.Map;
@@ -33,7 +32,7 @@ import org.springframework.web.client.RestClient;
  * đây gọi cùng một chỗ, và điều đó đúng chứ không phải chưa làm xong.
  */
 @Component
-@ConditionalOnProperty(name = LlmProvider.PROPERTY, havingValue = "local", matchIfMissing = true)
+@ConditionalOnProperty(name = EmbeddingProvider.PROPERTY, havingValue = "local", matchIfMissing = true)
 public class OllamaEmbeddingAdapter implements EmbeddingPort {
 
     private final RestClient client;

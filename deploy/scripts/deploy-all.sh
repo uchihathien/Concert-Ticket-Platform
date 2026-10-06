@@ -436,6 +436,25 @@ if phase 6 "Chứng chỉ HTTPS và bật hệ thống"; then
   on_server "xin chứng chỉ Let's Encrypt cho 7 tên" \
     "sudo certbot --nginx --redirect --agree-tos --no-eff-email -n -m $CERT_EMAIL$d_args" 600
 
+  # NGINX: /v1/ cùng gốc + nén JSON. PHẢI chạy SAU certbot, vì certbot vừa ghi lại khối server.
+  #
+  # Bundle của bốn app Next gọi API bằng đường TƯƠNG ĐỐI khi `PUBLIC_API_BASE_URL` của repo frontend
+  # chưa khai (resolveApiBaseUrl gọi đó là chế độ cùng gốc). Không có `location /v1/` thì mọi lời gọi
+  # rơi vào chính Next: 404 HTML, rồi bị đẩy sang /login?returnUrl=/v1/... — trang chọn ghế chỉ hiện
+  # "Có lỗi xảy ra" và tab Network chỉ cho thấy một 200 của trang login.
+  #
+  # deploy/nginx/nexaticket.conf ĐÃ có khối đó, nhưng nó chỉ tới được máy mới: trên máy đang chạy,
+  # certbot đã ghi khối TLS thẳng vào file, và chép đè là xoá chứng chỉ của cả bảy tên miền. Script
+  # dưới đây chèn vào file đang chạy, idempotent, tự sao lưu.
+  #
+  # Cùng script cũng thêm Cache-Control cho vhost media: SeaweedFS chỉ trả ETag, nên trang danh sách
+  # 32 poster là 4,8 MB và trình duyệt tải lại nguyên vẹn mỗi lượt xem — đó là thứ cảm thấy như
+  # "ảnh load chậm".
+  #
+  # gzip: nginx.conf của Ubuntu có `gzip on` nhưng gzip_types chỉ gồm text/html, nên sơ đồ 16.796 ghế
+  # đi nguyên 5,3 MB và SDK bỏ cuộc ở hạn 15 giây của chính nó.
+  on_server "nginx: /v1/ cùng gốc, cache ảnh, nén JSON"     "sudo python3 /srv/nexaticket/deploy/scripts/nginx-add-v1-location.py && sudo install -m 644 /srv/nexaticket/deploy/nginx/gzip.conf /etc/nginx/conf.d/nexaticket-gzip.conf && sudo nginx -t && sudo systemctl reload nginx && echo nginx da nhan cau hinh moi" 300
+
   # IN RA 22 TÊN ẢNH ĐÃ PHÂN GIẢI, trước khi kéo bất cứ thứ gì.
   #
   # 22, đúng bằng số container: `config --images` bỏ qua service nằm sau profile (ollama,
@@ -495,6 +514,16 @@ GHCRHINT
   # từ chối cả lời gọi. Số nguyên không cần bọc nháy, nên ở đây không mất gì.
   on_server "đếm container đang chạy"     "cd /srv/nexaticket && n=\$(docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env ps -q | wc -l) && echo \$n container dang chay && test \$n -ge 20" 300
   on_server "kiểm khói" "cd /srv/nexaticket && bash deploy/scripts/smoke.sh" 300
+
+  # SAU smoke test, vì nó cần Keycloak đã healthy và SMTP đã đúng — và vì một hệ thống xanh mà không
+  # ai đăng nhập được thì chưa phải là đã deploy xong.
+  #
+  # Realm production KHÔNG có tài khoản nào và không có đường tự tạo: realm dev cài sẵn
+  # superadmin/organizer/... với mật khẩu trùng tên, bỏ đi là đúng, nhưng SUPER_ADMIN_EMAILS chỉ CẤP
+  # VAI TRÒ lúc email đó đăng nhập lần đầu — nó không tạo tài khoản Keycloak. Script tạo user, Keycloak
+  # gửi email đặt mật khẩu; mật khẩu không đi qua bất kỳ đâu ngoài trình duyệt của người nhận.
+  # Idempotent: lần chạy lại chỉ báo "đã có".
+  on_server "tài khoản SUPER_ADMIN trên Keycloak" "cd /srv/nexaticket && bash deploy/scripts/bootstrap-keycloak.sh" 300
 fi
 
 # ===========================================================================
