@@ -16,9 +16,25 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/srv/nexaticket
-EnvironmentFile=/srv/nexaticket/deploy/compose/.env
 
-ExecStartPre=/usr/local/bin/nexa-env
+# KHÔNG khai EnvironmentFile.
+#
+# compose tự đọc `--env-file`, nên systemd không cần biết 55 bí mật đó. Khai ở đây chỉ thêm hai điều
+# xấu: systemd phải tự phân tích file (nó không phải shell, và một giá trị có ký tự lạ làm unit
+# không khởi động nổi), và mọi bí mật hiện ra trong `systemctl show nexaticket`.
+
+# PHẢI có .env, nhưng việc làm mới nó thì KHÔNG được chặn khởi động.
+#
+# Bản trước đặt `ExecStartPre=/usr/local/bin/nexa-env` không có dấu `-`. `nexa-env` đọc Parameter
+# Store từ máy chủ, và khi Service Control Policy của tổ chức chặn lời gọi đó, ExecStartPre thất bại
+# -> systemd BỎ QUA LUÔN ExecStart -> không một container nào được tạo. `systemctl` báo unit hỏng,
+# nhưng triệu chứng người dùng thấy là 502 ở mọi tên miền, và `docker compose ps` trống trơn —
+# không có gì chỉ về nguyên nhân.
+#
+# Dấu `-` ở đầu nghĩa là "chạy, hỏng cũng kệ". .env đã được đẩy sang bằng push-env.sh, nên việc làm
+# mới chỉ là tiện thêm, không phải điều kiện.
+ExecStartPre=/usr/bin/test -s /srv/nexaticket/deploy/compose/.env
+ExecStartPre=-/usr/local/bin/nexa-env
 # --no-build: máy chủ KHÔNG có mã nguồn frontend (repo riêng). Thiếu cờ này thì compose thấy thiếu
 # ảnh là đi build, và chết ở một build context không tồn tại.
 # --wait: trả về khi container HEALTHY, không phải khi vừa tạo xong.
