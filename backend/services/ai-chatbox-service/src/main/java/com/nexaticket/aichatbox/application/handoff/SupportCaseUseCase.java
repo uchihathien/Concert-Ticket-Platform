@@ -175,7 +175,8 @@ public class SupportCaseUseCase {
         String orderNumber = null;
         if (orderId != null) {
             try {
-                orderNumber = ordering.fetchOrder(orderId, credentials.currentAccessToken()).orderNumber();
+                orderNumber = ordering.fetchOrder(orderId, credentials.currentAccessToken())
+                        .orderNumber();
             } catch (RuntimeException e) {
                 log.warn("Không tra được đơn {} khi mở phiếu sự cố: {}", orderId, e.getMessage());
             }
@@ -193,7 +194,8 @@ public class SupportCaseUseCase {
                 userId,
                 HandoffTrigger.CUSTOMER_REQUEST,
                 SupportIntent.INCIDENT,
-                IncidentTemplates.composeReason(kind, orderNumber != null ? orderNumber : shortId(orderId), description),
+                IncidentTemplates.composeReason(
+                        kind, orderNumber != null ? orderNumber : shortId(orderId), description),
                 write(details),
                 userQuery,
                 SupportAgentPrompts.incidentOpenedMessage(kind, orderNumber));
@@ -207,7 +209,8 @@ public class SupportCaseUseCase {
 
     /** "1.800.000đ" — cách khách đọc số tiền, không phải "1800000". */
     private static String formatVnd(long amount) {
-        return String.format(java.util.Locale.forLanguageTag("vi-VN"), "%,dđ", amount).replace(',', '.');
+        return String.format(java.util.Locale.forLanguageTag("vi-VN"), "%,dđ", amount)
+                .replace(',', '.');
     }
 
     /** Tám ký tự đầu của UUID — đủ để người trực nhận ra, không chiếm cả dòng. */

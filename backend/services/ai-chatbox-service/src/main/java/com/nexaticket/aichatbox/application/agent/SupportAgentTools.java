@@ -120,7 +120,8 @@ public final class SupportAgentTools {
                             ToolSpec.Param.requiredString(
                                     "sessionId", "Mã suất diễn dạng UUID, lấy từ trường sessionId của getEventDetails"),
                             ToolSpec.Param.requiredString(
-                                    "zoneCode", "Mã khu của hạng vé khách chọn, lấy từ trường zoneCode của getEventDetails"),
+                                    "zoneCode",
+                                    "Mã khu của hạng vé khách chọn, lấy từ trường zoneCode của getEventDetails"),
                             new ToolSpec.Param("quantity", "integer", "Số vé, từ 1 đến 6", true))),
             new ToolSpec(
                     REQUEST_TICKET_REFUND,
@@ -152,8 +153,7 @@ public final class SupportAgentTools {
                             ToolSpec.Param.requiredString(
                                     "description",
                                     "Mô tả sự cố bằng lời của khách, một tới hai câu: chuyện gì xảy ra, lúc nào"),
-                            ToolSpec.Param.optionalString(
-                                    "orderId", "Mã đơn hàng dạng UUID liên quan, nếu có"))),
+                            ToolSpec.Param.optionalString("orderId", "Mã đơn hàng dạng UUID liên quan, nếu có"))),
             new ToolSpec(
                     ESCALATE_TO_HUMAN,
                     """

@@ -104,8 +104,7 @@ public class TicketBookingUseCase {
                     "Không có sự kiện nào mang slug này. Gọi findEvents để lấy slug đúng, đừng tự dựng.");
         }
         EventDetail event = found.get();
-        boolean sessionBelongs =
-                event.sessions().stream().anyMatch(session -> eventSessionId.equals(session.id()));
+        boolean sessionBelongs = event.sessions().stream().anyMatch(session -> eventSessionId.equals(session.id()));
         if (!sessionBelongs) {
             return new BookingOutcome.Rejected("Suất diễn này không thuộc sự kiện " + event.title()
                     + ". Lấy lại sessionId từ getEventDetails của đúng sự kiện.");

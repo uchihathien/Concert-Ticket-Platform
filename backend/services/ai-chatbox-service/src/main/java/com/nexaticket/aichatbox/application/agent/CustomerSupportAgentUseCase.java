@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.aichatbox.application.agent;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
+import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.EventRef;
 import com.nexaticket.aichatbox.domain.model.Exchange;
+import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
+import com.nexaticket.aichatbox.domain.model.IncidentKind;
 import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ToolOutcome;
@@ -14,6 +19,7 @@ import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
 import com.nexaticket.aichatbox.domain.port.LlmProviderPort;
 import com.nexaticket.aichatbox.domain.port.LlmUnavailableException;
+import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import com.nexaticket.aichatbox.domain.port.SessionNotOwnedException;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import com.nexaticket.platform.web.error.ApiException;
@@ -22,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -46,6 +53,14 @@ import org.springframework.stereotype.Service;
  *   <li><b>Điểm dừng.</b> {@code maxToolIterations} là chốt chặn cứng. Mỗi vòng là một lần gọi API
  *       có tính tiền, và một mô hình gọi tool lòng vòng sẽ chạy tới khi hết hạn mức.
  * </ol>
+ *
+ * <h2>Tool điều khiển được xử lý ở đây, không ở dispatcher</h2>
+ *
+ * <p>{@code escalateToHuman}, {@code requestTicketRefund}, {@code reportIncident} đổi trạng thái
+ * của chính cuộc hội thoại — chúng cần phiên và người dùng, hai thứ dispatcher cố ý không biết. Và
+ * khi một trong chúng mở được phiếu thì lượt kết thúc ngay: mọi kết quả tra cứu thêm đều đi vào
+ * một câu trả lời sẽ không bao giờ được gửi. Riêng hoàn vé bị <i>từ chối</i> theo chính sách thì
+ * không kết thúc lượt: đó là dữ liệu cho mô hình nói lại với khách, như mọi kết quả tool khác.
  */
 @Service
 public class CustomerSupportAgentUseCase {
@@ -58,8 +73,10 @@ public class CustomerSupportAgentUseCase {
     private final LlmProviderPort llm;
     private final ToolDispatcher tools;
     private final HandoffUseCase handoffs;
+    private final SupportCaseUseCase supportCases;
     private final AgentProperties properties;
     private final AgentMetrics metrics;
+    private final ObjectMapper json;
 
     public CustomerSupportAgentUseCase(
             ChatHistoryPort history,
@@ -68,16 +85,20 @@ public class CustomerSupportAgentUseCase {
             LlmProviderPort llm,
             ToolDispatcher tools,
             HandoffUseCase handoffs,
+            SupportCaseUseCase supportCases,
             AgentProperties properties,
-            AgentMetrics metrics) {
+            AgentMetrics metrics,
+            ObjectMapper json) {
         this.history = history;
         this.embeddings = embeddings;
         this.knowledge = knowledge;
         this.llm = llm;
         this.tools = tools;
         this.handoffs = handoffs;
+        this.supportCases = supportCases;
         this.properties = properties;
         this.metrics = metrics;
+        this.json = json;
     }
 
     /**
@@ -158,25 +179,23 @@ public class CustomerSupportAgentUseCase {
                     answer = cleaned == null || cleaned.isBlank() ? null : cleaned;
                 }
                 case LlmProviderPort.LlmTurn.ToolRequest request -> {
-                    // Tool điều khiển được xử lý TRƯỚC, và nó kết thúc lượt ngay.
-                    //
-                    // Không đi qua ToolDispatcher vì dispatcher không biết phiên nào, người nào —
-                    // xem SupportAgentTools.ESCALATE_TO_HUMAN. Và không chạy nốt những tool còn
-                    // lại trong cùng lượt: khi đã quyết định chuyển cho người thật thì mọi kết quả
-                    // tra cứu thêm đều đi vào một câu trả lời sẽ không bao giờ được gửi.
-                    ToolInvocation escalation = request.calls().stream()
-                            .filter(call -> SupportAgentTools.ESCALATE_TO_HUMAN.equals(call.toolName()))
-                            .findFirst()
-                            .orElse(null);
-                    if (escalation != null) {
-                        return escalate(
-                                sessionId, userId, userQuery, HandoffTrigger.LOW_CONFIDENCE, reasonOf(escalation));
-                    }
-
                     transcript.add(new Exchange.AssistantRequestedTools(request.calls(), request.providerEcho()));
                     List<ToolOutcome> outcomes = new ArrayList<>(request.calls().size());
                     for (ToolInvocation call : request.calls()) {
                         toolsUsed.add(call.toolName());
+
+                        if (SupportAgentTools.CONTROL_TOOLS.contains(call.toolName())) {
+                            // Tool điều khiển: hoặc kết thúc lượt bằng một phiếu, hoặc trả về một
+                            // kết quả cho mô hình đọc tiếp (hoàn vé bị từ chối theo chính sách,
+                            // thiếu tham số). Khi đã mở phiếu thì không chạy nốt những tool còn lại.
+                            ControlResult control = handleControlTool(sessionId, userId, userQuery, call, toolsUsed);
+                            if (control.reply() != null) {
+                                return control.reply();
+                            }
+                            outcomes.add(control.outcome());
+                            continue;
+                        }
+
                         ToolDispatcher.DispatchResult result = tools.dispatch(call);
                         outcomes.add(result.outcome());
                         // Gom sự kiện tra được, theo slug để không trùng khi mô hình gọi findEvents
@@ -245,6 +264,142 @@ public class CustomerSupportAgentUseCase {
     }
 
     /**
+     * Kết cục của một tool điều khiển: đúng một trong hai trường khác null.
+     *
+     * @param reply lượt kết thúc với câu trả lời này (đã mở phiếu, đã ghi hội thoại)
+     * @param outcome lượt đi tiếp; mô hình đọc kết quả này ở vòng sau
+     */
+    private record ControlResult(AgentReply reply, ToolOutcome outcome) {
+
+        static ControlResult ended(AgentReply reply) {
+            return new ControlResult(reply, null);
+        }
+
+        static ControlResult continued(ToolOutcome outcome) {
+            return new ControlResult(null, outcome);
+        }
+    }
+
+    private ControlResult handleControlTool(
+            UUID sessionId, UUID userId, String userQuery, ToolInvocation call, Set<String> toolsUsed) {
+        return switch (call.toolName()) {
+            case SupportAgentTools.ESCALATE_TO_HUMAN -> ControlResult.ended(
+                    escalate(sessionId, userId, userQuery, HandoffTrigger.LOW_CONFIDENCE, reasonOf(call)));
+            case SupportAgentTools.REQUEST_TICKET_REFUND -> requestRefund(
+                    sessionId, userId, userQuery, call, toolsUsed);
+            case SupportAgentTools.REPORT_INCIDENT -> reportIncident(sessionId, userId, userQuery, call, toolsUsed);
+            default -> throw new IllegalStateException("Không phải tool điều khiển: " + call.toolName());
+        };
+    }
+
+    /**
+     * Xin hoàn vé.
+     *
+     * <p>Từ chối theo chính sách là <b>dữ liệu</b>, không phải điểm dừng: mô hình cần đọc lý do để
+     * nói lại với khách bằng lời của nó. Mở được phiếu mới là điểm dừng.
+     */
+    private ControlResult requestRefund(
+            UUID sessionId, UUID userId, String userQuery, ToolInvocation call, Set<String> toolsUsed) {
+        UUID orderId = parseUuid(call.stringArg("orderId"));
+        if (orderId == null) {
+            return ControlResult.continued(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of(
+                            "opened",
+                            false,
+                            "reason",
+                            "THIẾU MÃ ĐƠN",
+                            "hint",
+                            "Gọi getCustomerProfileAndHistory để khách chọn đơn, rồi gọi lại với orderId."))));
+        }
+        SupportCaseUseCase.RefundOutcome outcome;
+        try {
+            outcome = supportCases.requestRefund(sessionId, userId, orderId, call.stringArg("reason"), userQuery);
+        } catch (RemoteCallException e) {
+            log.warn("Không xét được hoàn vé cho đơn {}: {}", orderId, e.getMessage());
+            return ControlResult.continued(ToolOutcome.error(
+                    call.callId(),
+                    "Hệ thống đơn hàng tạm thời không phản hồi nên chưa xét được yêu cầu hoàn vé. "
+                            + "Mời khách thử lại sau ít phút — ĐỪNG nói là không được hoàn."));
+        }
+        return switch (outcome) {
+            case SupportCaseUseCase.RefundOutcome.Denied denied -> ControlResult.continued(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of("opened", false, "refundable", false, "reason", denied.explanation()))));
+            case SupportCaseUseCase.RefundOutcome.Opened opened -> ControlResult.ended(new AgentReply(
+                    sessionId,
+                    SupportAgentPrompts.refundRequestOpenedMessage(opened.orderNumber()),
+                    List.copyOf(toolsUsed)));
+        };
+    }
+
+    /**
+     * Báo sự cố.
+     *
+     * <p>Thiếu loại hay thiếu mô tả thì không mở phiếu mà trả về hướng dẫn: một phiếu "sự cố khác:
+     * (trống)" là phiếu người trực phải mở ra hỏi lại từ đầu. Loại cần đơn mà không có mã đơn thì
+     * cũng vậy — người trực không có gì để tra.
+     */
+    private ControlResult reportIncident(
+            UUID sessionId, UUID userId, String userQuery, ToolInvocation call, Set<String> toolsUsed) {
+        Optional<IncidentKind> kind = IncidentKind.parse(call.stringArg("kind"));
+        String description = call.stringArg("description");
+        UUID orderId = parseUuid(call.stringArg("orderId"));
+
+        if (kind.isEmpty()) {
+            return ControlResult.continued(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of(
+                            "opened",
+                            false,
+                            "reason",
+                            "LOẠI SỰ CỐ KHÔNG HỢP LỆ",
+                            "hint",
+                            "kind phải là một trong: TICKET_NOT_RECEIVED, PAYMENT_NOT_CONFIRMED, "
+                                    + "QR_NOT_SCANNABLE, WRONG_TICKET_DETAILS, EVENT_CHANGED, OTHER."))));
+        }
+        if (description == null || description.isBlank()) {
+            return ControlResult.continued(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of(
+                            "opened",
+                            false,
+                            "reason",
+                            "THIẾU MÔ TẢ",
+                            "hint",
+                            "Hỏi khách chuyện gì xảy ra và lúc nào, rồi gọi lại với description."))));
+        }
+        if (kind.get().needsOrder() && orderId == null) {
+            return ControlResult.continued(ToolOutcome.ok(
+                    call.callId(),
+                    write(Map.of(
+                            "opened",
+                            false,
+                            "reason",
+                            "SỰ CỐ NÀY CẦN MÃ ĐƠN",
+                            "hint",
+                            "Gọi getCustomerProfileAndHistory để khách chọn đơn, rồi gọi lại với orderId."))));
+        }
+
+        Handoff opened = supportCases.reportIncident(sessionId, userId, kind.get(), description, orderId, userQuery);
+        // Câu báo đã được SupportCaseUseCase ghi vào hội thoại; ở đây trả về đúng câu ấy. Số đơn
+        // đọc lại từ chi tiết phiếu vì chính use case kia mới tra được nó bằng token của khách.
+        String orderNumber = opened.details() == null ? null : extractOrderNumber(opened.details());
+        return ControlResult.ended(new AgentReply(
+                sessionId, SupportAgentPrompts.incidentOpenedMessage(kind.get(), orderNumber), List.copyOf(toolsUsed)));
+    }
+
+    /** Đọc {@code orderNumber} từ JSON chi tiết phiếu mà không cần kiểu riêng cho nó. */
+    private String extractOrderNumber(String details) {
+        try {
+            var node = json.readTree(details).get("orderNumber");
+            return node == null || node.isNull() ? null : node.asText();
+        } catch (JsonProcessingException e) {
+            return null;
+        }
+    }
+
+    /**
      * Mở phiếu, ghi cả hai lượt vào hội thoại, trả câu báo cho khách.
      *
      * <p>Lượt của khách vẫn được ghi: người trực phải đọc được chính câu khiến khách phải nhờ tới
@@ -302,6 +457,25 @@ public class CustomerSupportAgentUseCase {
         } catch (RuntimeException e) {
             log.warn("Không lấy được ngữ cảnh RAG, trả lời không kèm tri thức nền", e);
             return List.of();
+        }
+    }
+
+    private static UUID parseUuid(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private String write(Map<String, Object> payload) {
+        try {
+            return json.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Không tuần tự hoá được kết quả tool", e);
         }
     }
 }

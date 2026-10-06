@@ -132,7 +132,7 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
     void ban_nhap_khong_lo_cho_khach() {
         UUID eventId = UUID.randomUUID();
 
-        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cấm mang chai thuỷ tinh.", false);
+        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cấm mang chai thuỷ tinh.", false, 0, false);
 
         // Người soạn thấy bản nháp...
         assertThat(knowledge.rules(eventId).published()).isFalse();
@@ -143,7 +143,7 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
     @Test
     void cong_bo_roi_thi_tool_doc_duoc() {
         UUID eventId = UUID.randomUUID();
-        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cửa mở trước 60 phút.", true);
+        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cửa mở trước 60 phút.", false, 0, true);
 
         ToolOutcome outcome = tools.dispatch(new ToolInvocation(
                         "call-1", SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())))
@@ -156,9 +156,9 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
     @Test
     void ghi_de_thi_thay_ca_noi_dung_va_trang_thai_cong_bo() {
         UUID eventId = UUID.randomUUID();
-        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Bản nháp đầu.", false);
+        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Bản nháp đầu.", false, 0, false);
 
-        knowledge.upsertRules(eventId, "Đêm nhạc Hạ 2025", "Bản đã duyệt.", true);
+        knowledge.upsertRules(eventId, "Đêm nhạc Hạ 2025", "Bản đã duyệt.", false, 0, true);
 
         KnowledgeViews.RulesRow rules = knowledge.rules(eventId);
         assertThat(rules.eventTitle()).isEqualTo("Đêm nhạc Hạ 2025");
@@ -181,5 +181,32 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
         assertThatThrownBy(() -> knowledge.addChunk(null, "Tiêu đề", "Nội dung"))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("Không nhúng được văn bản");
+    }
+
+    @Test
+    void chinh_sach_hoan_ve_di_cung_quy_dinh_va_tool_doc_duoc() {
+        UUID eventId = UUID.randomUUID();
+
+        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cửa mở trước 60 phút.", true, 48, true);
+
+        // Người soạn thấy đúng hai giá trị vừa nhập...
+        KnowledgeViews.RulesRow row = knowledge.rules(eventId);
+        assertThat(row.refundAllowed()).isTrue();
+        assertThat(row.refundWindowHours()).isEqualTo(48);
+        // ...và tool đọc được chính sách dưới dạng có cấu trúc, không phải tự đọc trong văn bản.
+        assertThat(store.findRules(eventId).orElseThrow().refundPolicy().allowed())
+                .isTrue();
+        assertThat(store.findRules(eventId).orElseThrow().refundPolicy().windowHours())
+                .isEqualTo(48);
+    }
+
+    @Test
+    void chua_khai_chinh_sach_thi_mac_dinh_khong_hoan_ve() {
+        UUID eventId = UUID.randomUUID();
+        knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cửa mở trước 60 phút.", false, 0, true);
+
+        // Sai theo hướng an toàn: quên khai thì tool nói "không nhận hoàn vé", không nói "có".
+        assertThat(store.findRules(eventId).orElseThrow().refundPolicy().allowed())
+                .isFalse();
     }
 }

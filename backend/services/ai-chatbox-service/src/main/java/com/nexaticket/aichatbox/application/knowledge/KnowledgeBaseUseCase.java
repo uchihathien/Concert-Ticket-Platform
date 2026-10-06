@@ -112,12 +112,20 @@ public class KnowledgeBaseUseCase {
     }
 
     /**
-     * @param refundPolicy phần có cấu trúc của quy định — tool xin hoàn vé <i>thực thi</i> nó, nên nó
-     *     không nằm trong văn bản tự do
+     * @param refundAllowed sự kiện có nhận yêu cầu hoàn vé không
+     * @param refundWindowHours số giờ kể từ lúc thanh toán còn được xin hoàn; 0 là không giới hạn.
+     *     Hai giá trị thô thay vì một {@code RefundPolicy} vì bên gọi là tầng interfaces, nơi không
+     *     được chạm vào kiểu của domain; phép dựng — và phép kiểm số âm — nằm ở đây.
      */
     @Transactional
     public KnowledgeViews.RulesRow upsertRules(
-            UUID eventId, String eventTitle, String content, RefundPolicy refundPolicy, boolean published) {
+            UUID eventId,
+            String eventTitle,
+            String content,
+            boolean refundAllowed,
+            int refundWindowHours,
+            boolean published) {
+        RefundPolicy refundPolicy = new RefundPolicy(refundAllowed, refundWindowHours);
         knowledge.upsertRules(eventId, eventTitle, content, refundPolicy, published);
         log.info(
                 "Ghi quy định sự kiện {} (đã công bố: {}, hoàn vé: {})",
