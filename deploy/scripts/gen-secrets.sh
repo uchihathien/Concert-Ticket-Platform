@@ -128,6 +128,23 @@ put LOG_LEVEL           "INFO" String
 # Đổi sang `anthropic` khi đã nạp hai khoá ở phần dưới.
 put AI_PROVIDER "local" String
 
+# Registry và tag ảnh. THIẾU HAI BIẾN NÀY LÀ CẢ CỤM KHÔNG CHẠY, và lỗi không nói vì sao.
+#
+# prod.yml khai `image: ${REGISTRY:-nexaticket}/api-gateway:${BACKEND_TAG:-latest}`. Không có
+# REGISTRY trong .env thì mặc định `nexaticket` áp dụng, và đó là một tên trên DOCKER HUB — nơi không
+# có gì cả:
+#
+#     Image nexaticket/api-gateway:latest  pull access denied for nexaticket/api-gateway,
+#     repository does not exist or may require 'docker login'
+#
+# Triệu chứng người dùng thấy là 502 ở mọi tên miền và `docker compose ps` trống trơn; không có gì
+# chỉ về một biến môi trường còn thiếu.
+#
+# `main` là tag mà release.yml đẩy lên cho mỗi commit trên nhánh main (cùng với tag theo SHA).
+put REGISTRY      "ghcr.io/${GH_OWNER:-uchihathien}" String
+put BACKEND_TAG   "${BACKEND_TAG:-main}" String
+put FRONTEND_TAG  "${FRONTEND_TAG:-main}" String
+
 cat <<MANUAL
 
 ================================================================
