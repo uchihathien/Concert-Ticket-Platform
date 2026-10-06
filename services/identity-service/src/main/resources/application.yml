@@ -1,0 +1,150 @@
+spring:
+  application:
+    name: identity-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/identity_db}
+    username: ${DB_USER:identity}
+    password: ${DB_PASSWORD:identity}
+    hikari:
+      # 30-50 là đủ. To hơn KHÔNG giúp — nó chỉ chuyển tranh chấp vào trong database
+      # (plan/backend.md §14).
+      # Mười một service dùng CHUNG một cụm PostgreSQL ở MVP (ADR-1002 — database riêng, cụm
+      # chung). Với pool 30 thì tổng nhu cầu là 330 kết nối, còn cụm mặc định cho 100: hệ thống
+      # KHÔNG BAO GIỜ chạy đủ được. Thực tế bốn service đã chiếm 99/100, toàn bộ nhàn rỗi, và
+      # service thứ năm chết lúc khởi động với "remaining connection slots are reserved".
+      #
+      # 10 là con số hợp lý cho một service Spring: pool lớn không làm nhanh hơn, nó chỉ dịch chỗ
+      # xếp hàng từ ứng dụng sang database. Service nào thật sự cần nhiều hơn thì nâng bằng
+      # DB_POOL_SIZE, và đó là một quyết định có chủ đích chứ không phải mặc định.
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      pool-name: identity-pool
+  flyway:
+    enabled: true
+    # Migration nền tảng đến từ các starter; migration của service nằm trong service.
+    locations: classpath:db/migration/platform,classpath:db/migration/identity
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:nexaticket}
+    password: ${RABBITMQ_PASSWORD:nexaticket}
+    publisher-confirm-type: correlated   # ADR-1009: chỉ đánh dấu published_at sau khi broker xác nhận
+    publisher-returns: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
+  jackson:
+    default-property-inclusion: non_null
+
+nexaticket:
+  identity:
+    # Email duoc cap quyen SUPER_ADMIN o lan dang nhap dau tien.
+    #
+    # Khong co danh sach nay thi he thong khong khoi dong duoc tu trang thai rong:
+    # is_super_admin mac dinh false, va POST /v1/platform/organizations — cua vao duy nhat
+    # cua toan bo luong onboarding — se luon tra 403.
+    #
+    # O production dat bang bien moi truong, khong commit vao repo.
+    super-admin-emails: ${SUPER_ADMIN_EMAILS:superadmin@nexaticket.local}
+
+    keycloak:
+      # Admin API — CHỈ dùng cho một việc: nhờ Keycloak gửi thư đặt lại mật khẩu khi quản trị viên
+      # bấm hộ. Người dùng tự bấm "Quên mật khẩu?" trên trang đăng nhập thì KHÔNG đi qua đây.
+      #
+      # Trống client-secret thì tính năng đó tắt và trả 503 kèm lý do; mọi thứ còn lại chạy như cũ.
+      # Ở production đặt bằng biến môi trường, và xoay vòng như một mật khẩu database — bí mật này
+      # cho phép quản lý mọi tài khoản trong realm.
+      base-url: ${OIDC_BASE_URL:http://localhost:8081}
+      realm: ${OIDC_REALM:nexaticket}
+      client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:identity-admin}
+      client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:dev-secret-identity-admin}
+
+      # Người dùng quay về đâu sau khi đặt xong mật khẩu.
+      #
+      # PHẢI nằm trong redirect URI đã khai của client tương ứng, nếu không Keycloak từ chối cả
+      # lời gọi — và thông báo lỗi của nó không nói rõ là vì lý do này.
+      #
+      # Mặc định trỏ về app của ban tổ chức: đường "quản trị viên gửi hộ" gần như luôn dành cho
+      # nhân viên nội bộ.
+      default-reset-client-id: ${PASSWORD_RESET_CLIENT_ID:web-admin}
+      default-reset-redirect-uri: ${PASSWORD_RESET_REDIRECT_URI:http://localhost:3001/login}
+
+    demo:
+      # Dựng sẵn người dùng, tổ chức, thành viên và lời mời mẫu lúc khởi động.
+      #
+      # BẬT mặc định vì một danh sách tổ chức rỗng làm khu vực quản trị trông như hỏng, và vì
+      # bảng thành viên chỉ có nghĩa khi cả bốn vai trò cùng xuất hiện trong đó.
+      #
+      # Idempotent: tổ chức đã có thì bỏ qua nguyên cụm, người dùng thì upsert theo idp_subject.
+      # Không bao giờ ghi đè tài khoản thật đến từ Keycloak.
+      #
+      # ĐẶT false Ở PRODUCTION.
+      enabled: ${IDENTITY_DEMO_DATA:true}
+
+      # Tổ chức mẫu nào đứng tên sự kiện mẫu của catalog-service.
+      #
+      # PHẢI khớp nexaticket.catalog.demo-organization-id. Lệch nhau thì sự kiện mẫu thuộc về một
+      # tổ chức không ai là thành viên, và khu vực quản trị vẫn trống dù database đầy dữ liệu —
+      # đúng cái triệu chứng mà bộ dựng này sinh ra để chữa.
+      catalog-organization-id: ${CATALOG_DEMO_ORG_ID:00000000-0000-4000-a000-000000000001}
+
+      # Tài khoản THẬT được gắn làm ORG_OWNER của tổ chức trên, ngăn cách bằng dấu phẩy.
+      #
+      # Đây là chỗ dữ liệu mẫu thôi làm cảnh và bắt đầu dùng được: đăng nhập bằng một trong những
+      # email này là thấy ngay 26 sự kiện mẫu trong app tổ chức. Thêm email của bạn vào đây (hoặc
+      # đặt IDENTITY_DEMO_OWNER_EMAILS) rồi khởi động lại; tài khoản chưa từng đăng nhập thì bỏ
+      # qua, và được gắn ở lần khởi động sau khi nó đã tồn tại.
+      owner-emails: ${IDENTITY_DEMO_OWNER_EMAILS:organizer@nexaticket.local}
+  outbox:
+    publish-interval-ms: 500
+
+server:
+  port: ${PORT:8090}
+  shutdown: graceful
+
+management:
+  # Cổng quản trị riêng, KHÔNG publish ra ngoài.
+  #
+  # /actuator/prometheus lộ tên endpoint, số lượng request và độ trễ của từng đường — đủ để vẽ lại
+  # bề mặt API và đoán được lúc nào hệ thống đang tải nặng. Trước đây nó nằm chung cổng ứng dụng và
+  # được `anyRequest().authenticated()` bảo vệ, nên Prometheus không scrape nổi nếu không có JWT —
+  # tức là hoặc không có metric, hoặc phải cấp token cho một scraper.
+  #
+  # Tách cổng giải quyết cả hai: bên trong cụm thì gọi thẳng 9090, còn ingress chỉ mở 8080.
+  server:
+    port: ${MANAGEMENT_PORT:9090}
+  # Trace phân tán — TẮT mặc định.
+  #
+  # Bật bằng TRACING_ENABLED=true, và chỉ bật khi thật sự có collector nghe ở OTEL_ENDPOINT: không
+  # có ai nhận thì exporter vẫn thử gửi mỗi vài giây và lấp đầy log bằng lỗi kết nối, che mất
+  # những dòng đáng đọc.
+  #
+  # `probability` là tỷ lệ MẪU, không phải công tắc. 1.0 ở lưu lượng thật là rất nhiều dữ liệu và
+  # rất nhiều tiền lưu trữ; 0.1 đủ để thấy hình dạng của độ trễ. Lỗi thì không cần lấy mẫu — chúng
+  # đã có log kèm correlationId, và correlationId nay đi xuyên mọi service (CorrelationPropagation).
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${OTEL_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_ENDPOINT:http://localhost:4318/v1/traces}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      service: identity-service
+
+logging:
+  pattern:
+    # correlationId đi xuyên toàn bộ saga; luôn có mặt trong log.
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{36} - %msg%n"
+  level:
+    com.nexaticket: ${LOG_LEVEL:INFO}
