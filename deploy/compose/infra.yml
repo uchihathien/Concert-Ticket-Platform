@@ -91,7 +91,7 @@ services:
       # Vì vậy `id` của bốn tài khoản mẫu được ghim thẳng trong nexaticket-realm.json. Đừng bỏ
       # chúng đi. Tài khoản người dùng tự đăng ký thì vẫn mất khi recreate; đó là cái giá của việc
       # không gắn volume, đổi lại realm JSON luôn được import lại đúng như trong repo.
-      - ../keycloak:/opt/keycloak/data/import:ro
+      - ../keycloak/nexaticket-realm.json:/opt/keycloak/data/import/nexaticket-realm.json:ro
     healthcheck:
       # Cổng 9000 (management), KHÔNG phải 8081: bản trước hỏi /health/ready trên cổng ứng
       # dụng và nhận 404 mãi mãi. Cổng này chỉ dùng trong mạng của compose, không cần publish.

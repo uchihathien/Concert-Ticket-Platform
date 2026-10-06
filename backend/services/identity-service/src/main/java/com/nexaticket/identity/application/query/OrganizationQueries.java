@@ -13,6 +13,7 @@ import com.nexaticket.platform.security.tenant.TenantContext;
 import com.nexaticket.platform.security.tenant.TenantScope;
 import com.nexaticket.platform.web.error.ApiException;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -109,6 +110,25 @@ public class OrganizationQueries {
         TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
         return invitations.findPending(organizationId).stream()
                 .map(invitation -> InvitationView.from(invitation, clock.instant()))
+                .toList();
+    }
+
+    /** Invitations addressed to the signed-in user's email, for the in-app invitation inbox. */
+    public List<MyInvitationView> myPendingInvitations() {
+        TenantScope scope = TenantContext.requireAuthenticated();
+        UserRepository.UserRecord user = users.findById(scope.userId())
+                .orElseThrow(() -> new ApiException(IdentityErrorCode.USER_NOT_FOUND, "User not found"));
+        Instant now = clock.instant();
+
+        return invitations.findPendingForEmail(user.email()).stream()
+                .map(invitation -> {
+                    String organizationName = organizations
+                            .findById(invitation.organizationId())
+                            .orElseThrow(() -> new ApiException(
+                                    IdentityErrorCode.ORGANIZATION_NOT_FOUND, "Organization not found"))
+                            .name();
+                    return MyInvitationView.from(invitation, organizationName, now);
+                })
                 .toList();
     }
 

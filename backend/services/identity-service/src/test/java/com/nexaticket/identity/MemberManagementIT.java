@@ -46,20 +46,26 @@ class MemberManagementIT extends PostgresTestBase {
     private static final String BEARER = "Bearer test-token";
     private static final String IDP_SUBJECT = "keycloak-sub-member-test";
     private static final String EMAIL = "owner-test@example.com";
+    private static final String INVITEE_TOKEN = "invitee-test-token";
+    private static final String INVITEE_SUBJECT = "keycloak-sub-invitee-test";
+    private static final String INVITEE_EMAIL = "moi-staff@example.com";
 
     @TestConfiguration
     static class StubJwt {
         @Bean
         @Primary
         JwtDecoder stubDecoder() {
-            return token -> Jwt.withTokenValue(token)
-                    .header("alg", "RS256")
-                    .subject(IDP_SUBJECT)
-                    .claim("email", EMAIL)
-                    .claim("name", "Chu So Huu")
-                    .issuedAt(Instant.now())
-                    .expiresAt(Instant.now().plus(1, ChronoUnit.HOURS))
-                    .build();
+            return token -> {
+                boolean invitee = INVITEE_TOKEN.equals(token);
+                return Jwt.withTokenValue(token)
+                        .header("alg", "RS256")
+                        .subject(invitee ? INVITEE_SUBJECT : IDP_SUBJECT)
+                        .claim("email", invitee ? INVITEE_EMAIL : EMAIL)
+                        .claim("name", invitee ? "Nhan Vien" : "Chu So Huu")
+                        .issuedAt(Instant.now())
+                        .expiresAt(Instant.now().plus(1, ChronoUnit.HOURS))
+                        .build();
+            };
         }
     }
 
@@ -89,11 +95,12 @@ class MemberManagementIT extends PostgresTestBase {
     @BeforeEach
     void setUpOrganization() {
         jdbc.update(
-                "DELETE FROM organization_members WHERE user_id IN (SELECT id FROM users WHERE email IN (?, ?))",
+                "DELETE FROM organization_members WHERE user_id IN (SELECT id FROM users WHERE email IN (?, ?, ?))",
                 EMAIL,
-                "manager-test@example.com");
+                "manager-test@example.com",
+                INVITEE_EMAIL);
         jdbc.update("DELETE FROM invitations WHERE email LIKE 'moi-%@example.com'");
-        jdbc.update("DELETE FROM users WHERE email IN (?, ?)", EMAIL, "manager-test@example.com");
+        jdbc.update("DELETE FROM users WHERE email IN (?, ?, ?)", EMAIL, "manager-test@example.com", INVITEE_EMAIL);
 
         ownerId =
                 users.upsertByIdpSubject(IDP_SUBJECT, EMAIL, "Chu So Huu").id().value();
@@ -271,6 +278,50 @@ class MemberManagementIT extends PostgresTestBase {
     }
 
     @Test
+    @DisplayName("staff thấy lời mời trong app và chỉ email được mời mới chấp nhận được")
+    void staff_nhan_va_chap_nhan_loi_moi_trong_app() throws Exception {
+        users.upsertByIdpSubject(INVITEE_SUBJECT, INVITEE_EMAIL, "Nhan Vien");
+        perform(post("/v1/organizations/" + organizationId + "/invitations")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(Map.of("email", INVITEE_EMAIL, "role", "CHECKIN_STAFF"))));
+
+        JsonNode pending = json.readTree(perform(get("/v1/organizations/" + organizationId + "/invitations"))
+                .getResponse()
+                .getContentAsString());
+        String invitationId = pending.get(0).path("id").asText();
+
+        MvcResult inboxResult = performAs(INVITEE_TOKEN, get("/v1/me/invitations"));
+        assertThat(inboxResult.getResponse().getStatus()).isEqualTo(200);
+        JsonNode inbox = json.readTree(inboxResult.getResponse().getContentAsString());
+        assertThat(inbox).hasSize(1);
+        assertThat(inbox.get(0).path("id").asText()).isEqualTo(invitationId);
+        assertThat(inbox.get(0).path("organizationName").asText()).isEqualTo("To chuc thu");
+        assertThat(inbox.get(0).path("role").asText()).isEqualTo("CHECKIN_STAFF");
+        assertThat(inbox.toString()).doesNotContain("token_hash").doesNotContain("tokenHash");
+
+        assertThat(perform(post("/v1/me/invitations/" + invitationId + "/accept"))
+                        .getResponse()
+                        .getStatus())
+                .isEqualTo(403);
+
+        MvcResult accepted = performAs(INVITEE_TOKEN, post("/v1/me/invitations/" + invitationId + "/accept"));
+        assertThat(accepted.getResponse().getStatus()).isEqualTo(200);
+
+        JsonNode permissions = json.readTree(performAs(INVITEE_TOKEN, get("/v1/me/permissions"))
+                .getResponse()
+                .getContentAsString());
+        assertThat(permissions
+                        .path("organizations")
+                        .path(organizationId.toString())
+                        .toString())
+                .contains("CHECKIN_SCAN");
+        assertThat(json.readTree(performAs(INVITEE_TOKEN, get("/v1/me/invitations"))
+                        .getResponse()
+                        .getContentAsString()))
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("trần mua vé: null nghĩa là kế thừa, và ghi lại đọc lại đúng")
     void tran_mua_ve() throws Exception {
         // Tổ chức chưa khai gì: mọi trường phải CÓ MẶT và bằng null, không phải vắng mặt.
@@ -318,6 +369,13 @@ class MemberManagementIT extends PostgresTestBase {
     private MvcResult perform(org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder builder)
             throws Exception {
         return mockMvc.perform(builder.header("Authorization", BEARER)).andReturn();
+    }
+
+    private MvcResult performAs(
+            String token, org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder builder)
+            throws Exception {
+        return mockMvc.perform(builder.header("Authorization", "Bearer " + token))
+                .andReturn();
     }
 
     private void addMember(UUID userId, String role) {

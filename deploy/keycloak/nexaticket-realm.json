@@ -3,6 +3,9 @@
   "enabled": true,
   "displayName": "NexaTicket",
   "sslRequired": "none",
+  "attributes": {
+    "frontendUrl": "https://challenging-widescreen-composed-edwards.trycloudflare.com"
+  },
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
@@ -40,6 +43,79 @@
     }
   ],
   "clients": [
+    {
+      "clientId": "mobile-customer",
+      "name": "NexaTicket — Mobile",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "nexaticket://auth",
+        "exp://172.16.0.149:8082/--/auth",
+        "exp://192.168.1.18:8082/--/auth",
+        "exp://myzfi0k-hanhphamthi-8082.exp.direct/--/auth"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "mobile-scanner",
+      "name": "NexaTicket — Mobile Scanner",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "nexaticket-scanner://auth",
+        "exp://192.168.1.18:8083/--/auth",
+        "exp://vgq2o3e-hanhphamthi-8083.exp.direct/--/auth"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "mobile-organizer",
+      "name": "NexaTicket — Mobile Organizer",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "nexaticket-organizer://auth",
+        "exp://qz_fzfs-hanhphamthi-8084.exp.direct/--/auth",
+        "exp://192.168.1.18:8084/--/auth"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "mobile-platform",
+      "name": "NexaTicket — Mobile Platform",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "nexaticket-platform://auth",
+        "exp://0myhai0-hanhphamthi-8085.exp.direct/--/auth",
+        "exp://192.168.1.18:8085/--/auth"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
     {
       "clientId": "web-customer",
       "name": "NexaTicket — Khách hàng",

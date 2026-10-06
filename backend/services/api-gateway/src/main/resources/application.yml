@@ -76,11 +76,11 @@ spring:
             - id: catalog
               uri: ${CATALOG_URL:http://localhost:8091}
               predicates:
-                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**,/v1/organizations/*/concert-templates/**,/v1/organizations/*/dashboard,/v1/platform/concert-templates/**,/v1/organizations/*/uploads/**
+                - Path=/v1/events/**,/v1/organizations/*/venues/**,/v1/organizations/*/events/**,/v1/organizations/*/checkin-sessions,/v1/organizations/*/concert-templates/**,/v1/organizations/*/dashboard,/v1/platform/concert-templates/**,/v1/organizations/*/uploads/**
             - id: ticketing
               uri: ${TICKETING_URL:http://localhost:8097}
               predicates:
-                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets
+                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets,/v1/organizations/*/sessions/*/checkins
             - id: ordering
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:

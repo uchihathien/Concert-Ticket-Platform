@@ -165,6 +165,43 @@ class CatalogFlowIT extends CatalogTestBase {
     }
 
     @Test
+    @DisplayName("nhân viên check-in thấy suất đã từng publish nhưng không thấy bản nháp")
+    void staff_chon_suat_checkin() throws Exception {
+        UUID venueId = createVenue("Nhà hát Staff", "Đà Nẵng");
+        createZone(venueId, "A", "Khu A", 4, 5);
+        UUID publishedEventId = createEvent(venueId, "Đêm nhạc đã bán", "dem-nhac-staff");
+        JsonNode sessionResponse = createSession(publishedEventId);
+        UUID sessionId = UUID.fromString(
+                sessionResponse.path("sessions").get(0).path("id").asText());
+        UUID zoneId = UUID.fromString(
+                sessionResponse.path("venue").path("zones").get(0).path("id").asText());
+        createTicketType(publishedEventId, sessionId, zoneId, "Hạng A", 400_000);
+        publish(publishedEventId);
+        mockMvc.perform(post("/v1/organizations/" + ORG + "/events/" + publishedEventId + "/unpublish")
+                        .header("Authorization", BEARER))
+                .andExpect(res -> assertThat(res.getResponse().getStatus()).isEqualTo(200));
+
+        UUID draftEventId = createEvent(venueId, "Bản nháp", "ban-nhap-staff");
+        createSession(draftEventId);
+        actAsCheckinStaff();
+
+        MvcResult result = mockMvc.perform(
+                        get("/v1/organizations/" + ORG + "/checkin-sessions").header("Authorization", BEARER))
+                .andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        JsonNode sessions = json.readTree(result.getResponse().getContentAsString());
+        assertThat(sessions).hasSize(1);
+        assertThat(sessions.get(0).path("eventSessionId").asText()).isEqualTo(sessionId.toString());
+        assertThat(sessions.get(0).path("eventTitle").asText()).isEqualTo("Đêm nhạc đã bán");
+        assertThat(sessions.get(0).path("venueName").asText()).isEqualTo("Nhà hát Staff");
+
+        mockMvc.perform(get("/v1/organizations/" + OTHER_ORG + "/checkin-sessions")
+                        .header("Authorization", BEARER))
+                .andExpect(res -> assertThat(res.getResponse().getStatus()).isEqualTo(404));
+    }
+
+    @Test
     @DisplayName("publish khi chưa đủ điều kiện: 409 kèm danh sách vướng mắc")
     void publish_som_thi_bao_ro_thieu_gi() throws Exception {
         UUID venueId = createVenue("Địa điểm chưa khai khu", "Hà Nội");

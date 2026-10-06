@@ -35,6 +35,29 @@ public class JdbcCatalogQueries implements CatalogQueries {
         return count != null && count > 0;
     }
 
+    @Override
+    public List<CatalogViews.CheckinSession> checkinSessions(UUID organizationId) {
+        return jdbc.query(
+                """
+                SELECT s.id AS event_session_id, e.id AS event_id, e.title AS event_title,
+                       v.name AS venue_name, s.starts_at, s.ends_at
+                  FROM events e
+                  JOIN venues v ON v.id = e.venue_id
+                  JOIN event_sessions s ON s.event_id = e.id
+                                                                 WHERE e.organization_id = ? AND e.status IN ('PUBLISHED', 'UNPUBLISHED')
+                                                                         AND (s.ends_at IS NULL OR s.ends_at >= now())
+                 ORDER BY s.starts_at, e.title, s.id
+                """,
+                (rs, i) -> new CatalogViews.CheckinSession(
+                        rs.getObject("event_session_id", UUID.class),
+                        rs.getObject("event_id", UUID.class),
+                        rs.getString("event_title"),
+                        rs.getString("venue_name"),
+                        instant(rs, "starts_at"),
+                        instant(rs, "ends_at")),
+                organizationId);
+    }
+
     /**
      * Danh sách sự kiện đang bán.
      *

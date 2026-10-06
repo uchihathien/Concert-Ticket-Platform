@@ -61,6 +61,20 @@ public class JdbcInvitationRepository implements InvitationRepository {
     }
 
     @Override
+    public List<Invitation> findPendingForEmail(String email) {
+        return jdbc.query(
+                """
+                SELECT id, organization_id, email, role, token_hash, expires_at, accepted_at
+                  FROM invitations
+                 WHERE lower(email) = lower(?) AND accepted_at IS NULL
+                 ORDER BY created_at DESC
+                 LIMIT 50
+                """,
+                MAPPER,
+                email);
+    }
+
+    @Override
     public Optional<Invitation> findById(UUID id) {
         return jdbc
                 .query(
