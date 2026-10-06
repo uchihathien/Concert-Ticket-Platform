@@ -377,6 +377,15 @@ services:
       KEYCLOAK_ISSUER: ${OIDC_ISSUER:?}
       KEYCLOAK_CLIENT_ID: web-customer
       KEYCLOAK_CLIENT_SECRET: ${KC_SECRET_WEB_CUSTOMER:?can secret client web-customer}
+      # HAI địa chỉ API, cùng một lý do với MEDIA_ENDPOINT / MEDIA_PUBLIC_URL ở catalog-service:
+      #   - NEXT_PUBLIC_API_BASE_URL : nhúng vào bundle lúc build, TRÌNH DUYỆT gọi -> tên miền thật.
+      #   - API_BASE_URL             : server-api.ts đọc lúc chạy, TIẾN TRÌNH NODE trong container gọi
+      #                                khi render phía server -> đi thẳng tới gateway qua mạng compose.
+      # Thiếu dòng này thì SSR rơi về NEXT_PUBLIC_API_BASE_URL: mỗi lần render trang chủ, container
+      # đi ra internet, tới Elastic IP của chính máy này, qua Nginx, rồi mới vào gateway cách nó một
+      # bridge. Chậm hơn, phụ thuộc hairpin NAT của AWS, và khi đường đó hỏng thì trang khách trống
+      # trơn trong khi smoke test — chạy từ host — vẫn xanh.
+      API_BASE_URL: http://api-gateway:8080
       REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379
     depends_on:
       redis: {condition: service_healthy}

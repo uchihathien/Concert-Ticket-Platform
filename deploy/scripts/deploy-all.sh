@@ -495,6 +495,16 @@ GHCRHINT
   # từ chối cả lời gọi. Số nguyên không cần bọc nháy, nên ở đây không mất gì.
   on_server "đếm container đang chạy"     "cd /srv/nexaticket && n=\$(docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env ps -q | wc -l) && echo \$n container dang chay && test \$n -ge 20" 300
   on_server "kiểm khói" "cd /srv/nexaticket && bash deploy/scripts/smoke.sh" 300
+
+  # SAU smoke test, vì nó cần Keycloak đã healthy và SMTP đã đúng — và vì một hệ thống xanh mà không
+  # ai đăng nhập được thì chưa phải là đã deploy xong.
+  #
+  # Realm production KHÔNG có tài khoản nào và không có đường tự tạo: realm dev cài sẵn
+  # superadmin/organizer/... với mật khẩu trùng tên, bỏ đi là đúng, nhưng SUPER_ADMIN_EMAILS chỉ CẤP
+  # VAI TRÒ lúc email đó đăng nhập lần đầu — nó không tạo tài khoản Keycloak. Script tạo user, Keycloak
+  # gửi email đặt mật khẩu; mật khẩu không đi qua bất kỳ đâu ngoài trình duyệt của người nhận.
+  # Idempotent: lần chạy lại chỉ báo "đã có".
+  on_server "tài khoản SUPER_ADMIN trên Keycloak" "cd /srv/nexaticket && bash deploy/scripts/bootstrap-keycloak.sh" 300
 fi
 
 # ===========================================================================
