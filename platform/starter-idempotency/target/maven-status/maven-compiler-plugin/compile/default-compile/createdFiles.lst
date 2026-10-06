@@ -1,0 +1,6 @@
+com/nexaticket/platform/idempotency/ConsumedEvent$MalformedEventException.class
+com/nexaticket/platform/idempotency/ProcessedEvents.class
+com/nexaticket/platform/idempotency/IdempotencyAutoConfiguration.class
+com/nexaticket/platform/idempotency/IdempotencyStore.class
+com/nexaticket/platform/idempotency/ConsumedEvent.class
+com/nexaticket/platform/idempotency/IdempotencyStore$Existing.class

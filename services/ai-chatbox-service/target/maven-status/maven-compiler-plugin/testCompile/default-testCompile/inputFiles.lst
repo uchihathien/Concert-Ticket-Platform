@@ -1,0 +1,10 @@
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/ArchitectureTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/application/AnswerGroundingTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/application/HandoffFlowIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/application/HandoffIntentTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/application/KnowledgeBaseIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/application/TurnAdmissionTest.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/infrastructure/seed/KnowledgeSeederIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/interfaces/ChatIdempotencyIT.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/support/AiChatboxTestBase.java
+/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ai-chatbox-service/src/test/java/com/nexaticket/aichatbox/support/FakeAiProviders.java

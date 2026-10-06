@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.nexaticket</groupId>
+    <artifactId>platform</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>shared-kernel</artifactId>
+  <name>shared-kernel</name>
+  <description>Value object bất biến, thuần kỹ thuật: Money, Role, TenantId, TimeWindow</description>
+
+  <!--
+    KHÔNG có dependency nào ngoài JDK. Đây là ràng buộc cố ý:
+    shared-kernel bị mọi service dùng, nên mỗi dependency thêm vào đây là một dependency
+    ép lên toàn hệ thống. Thấy cần thêm gì vào đây thì gần như chắc chắn nó không thuộc về đây.
+  -->
+</project>
