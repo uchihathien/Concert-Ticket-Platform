@@ -29,4 +29,27 @@ public interface IdentityLookupPort {
      *     nên phân biệt chúng ở đây chỉ tạo ra ba nhánh làm cùng một việc.
      */
     Optional<String> displayNameOf(UUID userId);
+
+    /**
+     * Tên VÀ email của một người dùng.
+     *
+     * <p>Bàn hỗ trợ cần cả hai, không phải một. Tên để người trực biết đang nói với ai; email để
+     * liên hệ lại khi khách đóng tab giữa chừng — phiếu bị bỏ dở sống 24 giờ (xem
+     * {@code handoff.abandoned-after}), và trong 24 giờ đó cách duy nhất chạm được tới khách là địa
+     * chỉ thư. Trước đây phiếu không mang thông tin nào về người hỏi, nên mọi phiếu trong hàng chờ
+     * đều là "khách hàng" — người trực mở ra đọc mà không biết đang trả lời ai.
+     *
+     * <p>Trả {@code Optional.empty()} khi không tra được, KHÔNG ném: identity chập chờn thì bàn hỗ
+     * trợ vẫn phải làm việc được, chỉ thiếu một cái tên.
+     */
+    default Optional<Contact> contactOf(UUID userId) {
+        // Mặc định suy từ tên, KHÔNG phải để tiện: nó giữ cho interface còn đúng MỘT phương thức
+        // trừu tượng, nên các test vẫn dựng được cổng này bằng một lambda. Bản thật
+        // (IdentityHttpAdapter) ghi đè và trả cả email; bất kỳ cài đặt nào khác vẫn cho bàn hỗ trợ
+        // một cái tên thay vì không gì cả.
+        return displayNameOf(userId).map(name -> new Contact(name, null));
+    }
+
+    /** Thông tin liên hệ tối thiểu của một người dùng. */
+    record Contact(String fullName, String email) {}
 }

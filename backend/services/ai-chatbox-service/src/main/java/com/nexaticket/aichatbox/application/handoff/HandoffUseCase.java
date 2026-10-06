@@ -389,7 +389,11 @@ public class HandoffUseCase {
         String agentName = handoff.assignedAgentId() == null
                 ? null
                 : identities.displayNameOf(handoff.assignedAgentId()).orElse(null);
-        return HandoffViews.HandoffRow.of(handoff, clock.instant(), agentName);
+        return HandoffViews.HandoffRow.of(
+                handoff,
+                clock.instant(),
+                agentName,
+                identities.contactOf(handoff.userId()).orElse(null));
     }
 
     /**
@@ -402,7 +406,14 @@ public class HandoffUseCase {
     private List<HandoffViews.HandoffRow> withAgentNames(List<Handoff> rows) {
         Instant now = clock.instant();
         Map<UUID, String> names = new HashMap<>();
+        // Cùng một khách thường có nhiều phiếu trong hàng chờ. Gom theo id để không hỏi
+        // identity-service một lần cho mỗi dòng — cùng lý do với `names` ngay bên dưới.
+        Map<UUID, IdentityLookupPort.Contact> customers = new HashMap<>();
         for (Handoff handoff : rows) {
+            if (!customers.containsKey(handoff.userId())) {
+                customers.put(
+                        handoff.userId(), identities.contactOf(handoff.userId()).orElse(null));
+            }
             UUID agentId = handoff.assignedAgentId();
             if (agentId != null && !names.containsKey(agentId)) {
                 // `put` kể cả khi rỗng: nhớ luôn cả lần tra không ra, để một id không tra được không
@@ -411,7 +422,8 @@ public class HandoffUseCase {
             }
         }
         return rows.stream()
-                .map(handoff -> HandoffViews.HandoffRow.of(handoff, now, names.get(handoff.assignedAgentId())))
+                .map(handoff -> HandoffViews.HandoffRow.of(
+                        handoff, now, names.get(handoff.assignedAgentId()), customers.get(handoff.userId())))
                 .toList();
     }
 

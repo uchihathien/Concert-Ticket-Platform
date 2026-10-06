@@ -140,6 +140,23 @@ public final class SupportAgentPrompts {
     }
 
     /**
+     * Câu báo khi trợ lý KHÔNG dùng được và cuộc trò chuyện được chuyển thẳng cho người thật.
+     *
+     * <p>KHÔNG nhắc tới "trợ lý ảo", "AI" hay "mô hình": với khách thì một trợ lý tắt là chi tiết nội
+     * bộ, nói ra chỉ làm họ nghĩ cả hệ thống đang hỏng. Thứ họ cần biết là câu hỏi đã được ghi và có
+     * người sẽ trả lời.
+     *
+     * <p>Cũng không hứa thời gian cụ thể. Bàn hỗ trợ làm theo giờ hành chính — {@code
+     * handoff.abandoned-after} để 24 giờ chính vì vậy — nên "trong ít phút" là lời hứa không giữ
+     * được cho tin nhắn lúc 22h đêm.
+     */
+    public static String assistantUnavailableMessage() {
+        return """
+                Mình đã ghi lại câu hỏi của bạn và chuyển cho nhân viên hỗ trợ. Bạn cứ nhắn tiếp ngay                 tại đây nhé — nhân viên sẽ đọc được toàn bộ nội dung và trả lời bạn.
+                Nếu cần gấp, bạn gọi hotline 1900 1234 (8:00–22:00 hằng ngày).""";
+    }
+
+    /**
      * Câu trả lời cho những lượt TIẾP THEO khi người trực đang cầm cuộc hội thoại.
      *
      * <p>Trợ lý không được nói gì thêm vào lúc này — xem {@code HandoffUseCase}. Nhưng im lặng

@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.application.handoff;
 
 import com.nexaticket.aichatbox.domain.model.ChatMessage;
 import com.nexaticket.aichatbox.domain.model.Handoff;
+import com.nexaticket.aichatbox.domain.port.IdentityLookupPort;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -35,6 +36,20 @@ public final class HandoffViews {
             String reason,
             String details,
             String lastQuestion,
+            /**
+             * AI đang hỏi — không phải "khách hàng" chung chung.
+             *
+             * <p>Trước đây phiếu không mang gì về người hỏi, nên người trực mở hàng chờ ra thấy một
+             * danh sách phiếu giống hệt nhau và không biết đang trả lời ai, cũng không có cách nào
+             * liên hệ lại khi khách đóng tab. Phiếu bị bỏ dở sống 24 giờ; trong 24 giờ đó email là
+             * đường duy nhất chạm tới khách.
+             *
+             * <p>Rỗng khi identity-service không trả lời — bàn hỗ trợ vẫn phải làm việc được, chỉ
+             * thiếu một cái tên.
+             */
+            UUID customerId,
+            String customerName,
+            String customerEmail,
             UUID assignedAgentId,
             String assignedAgentName,
             Instant requestedAt,
@@ -50,10 +65,15 @@ public final class HandoffViews {
          * trong đường đi của khách.
          */
         public static HandoffRow of(Handoff handoff, Instant now) {
-            return of(handoff, now, null);
+            return of(handoff, now, null, null);
         }
 
         public static HandoffRow of(Handoff handoff, Instant now, String assignedAgentName) {
+            return of(handoff, now, assignedAgentName, null);
+        }
+
+        public static HandoffRow of(
+                Handoff handoff, Instant now, String assignedAgentName, IdentityLookupPort.Contact customer) {
             return new HandoffRow(
                     handoff.id(),
                     handoff.sessionId(),
@@ -63,6 +83,9 @@ public final class HandoffViews {
                     handoff.reason(),
                     handoff.details(),
                     handoff.lastQuestion(),
+                    handoff.userId(),
+                    customer == null ? null : customer.fullName(),
+                    customer == null ? null : customer.email(),
                     handoff.assignedAgentId(),
                     assignedAgentName,
                     handoff.requestedAt(),
