@@ -23,8 +23,25 @@ set -euo pipefail
 
 NAME="${NAME:-nexaticket}"
 PREFIX="${PREFIX:-/$NAME}"
-REGION="${REGION:-ap-southeast-1}"
-export AWS_DEFAULT_REGION="$REGION"
+# Vùng: ưu tiên AWS_REGION của môi trường, KHÔNG ghim cứng một vùng.
+#
+# AWS CLI chọn endpoint theo AWS_REGION TRƯỚC AWS_DEFAULT_REGION. Bản trước ghim ap-southeast-1 và
+# chỉ export AWS_DEFAULT_REGION, nên AWS_REGION của CloudShell thắng: mọi tài nguyên được tạo ở vùng
+# của CloudShell, trong khi script tin là ap-southeast-1.
+#
+# Hậu quả đã xảy ra thật, và nó giả dạng thành một chuỗi lỗi khác hẳn:
+#   - Elastic IP cấp ra là 52.62.179.59, thuộc ap-southeast-2 — không phải vùng script khai.
+#   - gen-secrets.sh ghi tham số vào ap-southeast-2 (AWS_REGION thắng).
+#   - pull-env.sh trên máy chủ đọc ap-southeast-1 (ở đó AWS_REGION không được đặt) -> không thấy gì.
+#   - create-bucket gửi tới endpoint ap-southeast-2 kèm LocationConstraint=ap-southeast-1 ->
+#     IllegalLocationConstraintException.
+#   - Và nặng nhất: Service Control Policy của tổ chức CHỈ cho phép một vùng, nên mọi lời gọi tới
+#     vùng sai bị "explicit deny" — thông điệp nói về `ssm:GetParameters`, khiến ta tưởng SSM bị
+#     chặn, trong khi thứ bị chặn là VÙNG.
+#
+# Export CẢ HAI biến để không còn chỗ cho sự khác biệt.
+REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}}"
+export AWS_DEFAULT_REGION="$REGION" AWS_REGION="$REGION"
 
 ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 BUCKET="${BUCKET:-$NAME-env-$ACCOUNT}"
@@ -64,31 +81,42 @@ if [ -n "$missing" ]; then
 fi
 
 # --- Bucket chuyển tiếp ------------------------------------------------------
-say "Bucket $BUCKET"
-if aws s3api head-bucket --bucket "$BUCKET" 2>/dev/null; then
+# `--region` TƯỜNG MINH ở mọi lời gọi S3, không dựa vào biến môi trường.
+#
+# `create-bucket` thất bại với một thông điệp khó hiểu nếu endpoint của request khác với
+# LocationConstraint:
+#
+#     IllegalLocationConstraintException: The ap-southeast-1 location constraint is incompatible
+#     for the region specific endpoint this request was sent to.
+#
+# AWS CLI chọn endpoint theo `AWS_REGION` TRƯỚC `AWS_DEFAULT_REGION`, và CloudShell đặt `AWS_REGION`
+# theo vùng nó được mở — có thể khác vùng ta đang dựng. Khai `--region` thì không còn chỗ cho sự
+# khác biệt đó.
+say "Bucket $BUCKET (vùng $REGION)"
+if aws s3api head-bucket --bucket "$BUCKET" --region "$REGION" 2>/dev/null; then
   echo "  đã có"
 else
   # `--create-bucket-configuration` BẮT BUỘC ở mọi vùng trừ us-east-1; thiếu nó thì lời gọi bị từ
   # chối với một thông điệp không nói rõ là vì lý do này.
   if [ "$REGION" = us-east-1 ]; then
-    aws s3api create-bucket --bucket "$BUCKET" >/dev/null
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" >/dev/null
   else
-    aws s3api create-bucket --bucket "$BUCKET" \
+    aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" \
       --create-bucket-configuration "LocationConstraint=$REGION" >/dev/null
   fi
   # Chặn mọi đường công khai. File này chứa mọi bí mật của hệ thống; một bucket mở là mất tất cả.
-  aws s3api put-public-access-block --bucket "$BUCKET" \
+  aws s3api put-public-access-block --bucket "$BUCKET" --region "$REGION" \
     --public-access-block-configuration \
     BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true >/dev/null
   # Mã hoá mặc định: object nằm trên đĩa của AWS ở dạng đã mã hoá, không phải nguyên văn.
-  aws s3api put-bucket-encryption --bucket "$BUCKET" \
+  aws s3api put-bucket-encryption --bucket "$BUCKET" --region "$REGION" \
     --server-side-encryption-configuration \
     '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}' >/dev/null
   echo "  đã tạo, chặn public, bật mã hoá"
 fi
 
 say "Đẩy .env lên"
-aws s3 cp "$tmp" "s3://$BUCKET/env" --sse AES256 --only-show-errors
+aws s3 cp "$tmp" "s3://$BUCKET/env" --sse AES256 --region "$REGION" --only-show-errors
 echo "  s3://$BUCKET/env"
 
 # --- Máy chủ tải về ---------------------------------------------------------
@@ -118,11 +146,11 @@ if [ "$st" != Success ]; then
   echo "  ghi bí mật vào log. Khi đó phải nhờ người quản lý Organization nới SCP." >&2
   # XOÁ object kể cả khi thất bại: để nó nằm lại trên S3 là để một bản .env đầy bí mật ở nơi không
   # ai theo dõi.
-  aws s3 rm "s3://$BUCKET/env" --only-show-errors || true
+  aws s3 rm "s3://$BUCKET/env" --region "$REGION" --only-show-errors || true
   exit 1
 fi
 echo "  máy chủ ghi $(echo "$out" | tr -d '[:space:]') biến vào /srv/nexaticket/deploy/compose/.env"
 
 # Xoá NGAY. Object chỉ cần tồn tại trong vài giây giữa lúc đẩy lên và lúc tải về.
-aws s3 rm "s3://$BUCKET/env" --only-show-errors
+aws s3 rm "s3://$BUCKET/env" --region "$REGION" --only-show-errors
 echo "  đã xoá object trên S3"

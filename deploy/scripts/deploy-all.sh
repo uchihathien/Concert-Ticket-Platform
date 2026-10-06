@@ -17,11 +17,28 @@
 set -euo pipefail
 
 DOMAIN="${DOMAIN:?Dat DOMAIN, vi du: DOMAIN=concertth.site bash deploy/scripts/deploy-all.sh}"
-REGION="${REGION:-ap-southeast-1}"
+# Vùng: ưu tiên AWS_REGION của môi trường, KHÔNG ghim cứng một vùng.
+#
+# AWS CLI chọn endpoint theo AWS_REGION TRƯỚC AWS_DEFAULT_REGION. Bản trước ghim ap-southeast-1 và
+# chỉ export AWS_DEFAULT_REGION, nên AWS_REGION của CloudShell thắng: mọi tài nguyên được tạo ở vùng
+# của CloudShell, trong khi script tin là ap-southeast-1.
+#
+# Hậu quả đã xảy ra thật, và nó giả dạng thành một chuỗi lỗi khác hẳn:
+#   - Elastic IP cấp ra là 52.62.179.59, thuộc ap-southeast-2 — không phải vùng script khai.
+#   - gen-secrets.sh ghi tham số vào ap-southeast-2 (AWS_REGION thắng).
+#   - pull-env.sh trên máy chủ đọc ap-southeast-1 (ở đó AWS_REGION không được đặt) -> không thấy gì.
+#   - create-bucket gửi tới endpoint ap-southeast-2 kèm LocationConstraint=ap-southeast-1 ->
+#     IllegalLocationConstraintException.
+#   - Và nặng nhất: Service Control Policy của tổ chức CHỈ cho phép một vùng, nên mọi lời gọi tới
+#     vùng sai bị "explicit deny" — thông điệp nói về `ssm:GetParameters`, khiến ta tưởng SSM bị
+#     chặn, trong khi thứ bị chặn là VÙNG.
+#
+# Export CẢ HAI biến để không còn chỗ cho sự khác biệt.
+REGION="${REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}}"
 NAME="${NAME:-nexaticket}"
 PREFIX="${PREFIX:-/$NAME}"
 SKIP="${SKIP:-}"
-export AWS_DEFAULT_REGION="$REGION"
+export AWS_DEFAULT_REGION="$REGION" AWS_REGION="$REGION"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ok()   { printf '\033[32m  ✓\033[0m %s\n' "$*"; }
@@ -38,6 +55,31 @@ ACCOUNT=$(aws sts get-caller-identity --query Account --output text) \
   || die "Chưa đăng nhập AWS."
 printf '\n\033[1mNexaTicket → AWS\033[0m\n  tài khoản %s · vùng %s · domain %s\n' \
   "$ACCOUNT" "$REGION" "$DOMAIN"
+
+# CHỐT CHẶN VÙNG. Nếu đã có instance mang tag này ở một vùng KHÁC, dừng ngay.
+#
+# Vùng sai không hỏng một cách rõ ràng — nó giả dạng thành lỗi khác: tham số "không tồn tại", bucket
+# "sai LocationConstraint", và tệ nhất là "explicit deny in a service control policy" khi tổ chức chỉ
+# cho phép một vùng. Thông điệp cuối nói về `ssm:GetParameters`, nên người đọc đi tìm quyền SSM trong
+# khi thứ sai là vùng. Đã mất nhiều lần chạy vì đúng chuyện này.
+for r in $(aws ec2 describe-regions --query 'Regions[].RegionName' --output text 2>/dev/null); do
+  [ "$r" = "$REGION" ] && continue
+  other=$(aws ec2 describe-instances --region "$r" \
+            --filters "Name=tag:Name,Values=$NAME" "Name=instance-state-name,Values=running,stopped" \
+            --query 'Reservations[0].Instances[0].InstanceId' --output text 2>/dev/null || echo None)
+  [ "$other" = "None" ] && continue
+  cat >&2 <<REGIONMISMATCH
+
+  [DUNG] Da co instance '$NAME' ($other) o vung $r, nhung script dang chay voi vung $REGION.
+
+  Dung tiep o $REGION se tao mot bo tai nguyen THU HAI, va bo cu van tinh tien.
+  Chon mot:
+    REGION=$r DOMAIN=$DOMAIN bash $0
+    aws ec2 terminate-instances --region $r --instance-ids $other
+
+REGIONMISMATCH
+  exit 1
+done
 
 # ===========================================================================
 if phase 1 "Hạ tầng (Security Group, IAM, EC2, Elastic IP)"; then
