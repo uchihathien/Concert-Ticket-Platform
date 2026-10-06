@@ -298,11 +298,26 @@ if phase 5 "Chờ DNS"; then
   printf '    Script tự phát hiện khi cả bảy đúng. Ctrl-C để dừng và làm tiếp sau bằng SKIP=1,2,3,4\n\n'
 
   for round in $(seq 1 180); do      # 180 × 10s = 30 phút
-    bad=""
+    bad=""; stale=""
     for h in $HOSTS; do
-      points_only_to "$(fqdn "$h")" "$EIP" || bad="$bad $(fqdn "$h")"
+      name=$(fqdn "$h")
+      if points_only_to "$name" "$EIP"; then continue; fi
+      bad="$bad $name"
+      # Phân biệt hai tình huống cần hai hành động KHÁC NHAU: tên đang trả về IP lạ thì phải SỬA bản
+      # ghi cũ; tên chưa có bản ghi thì phải THÊM. Gộp chung thành "còn thiếu" là để người dùng đi
+      # thêm một bản ghi thứ hai cạnh bản ghi sai — đúng cái làm DNS trả về luân phiên.
+      wrong=$(resolve "$name" | sort -u | grep -v "^$EIP\$" | tr '\n' ' ')
+      [ -z "$wrong" ] || stale="$stale$name còn trỏ về $wrong|"
     done
     if [ -z "$bad" ]; then dns_ok=1; ok "cả bảy tên đã trỏ về $EIP"; break; fi
+
+    # In cảnh báo bản ghi cũ MỘT LẦN. Lặp mỗi 10 giây thì nó trôi mất giữa dòng đếm thời gian.
+    if [ -n "$stale" ] && [ -z "${stale_shown:-}" ]; then
+      stale_shown=1
+      printf '\n\n    BẢN GHI CŨ CÒN SÓT — phải SỬA giá trị, KHÔNG thêm bản ghi thứ hai:\n'
+      echo "$stale" | tr '|' '\n' | sed '/^$/d; s/^/      /'
+      printf '    Hai bản ghi A cùng tên làm DNS trả về luân phiên, và certbot hỏng ngẫu nhiên.\n\n'
+    fi
     printf '\r    chờ %-4s còn thiếu: %-60s' "$((round * 10))s" "$(echo $bad | cut -c1-60)"
     sleep 10
   done
