@@ -27,15 +27,47 @@ public interface TicketRepository {
     List<Ticket> findByUser(UUID userId, int limit, int offset);
 
     /**
-     * Chuyển vé sang đã soát, <b>chỉ khi</b> đang VALID.
+     * Tìm vé theo mã nhân viên gõ tay — phần đầu của id vé, đúng thứ app khách đang in ra.
      *
-     * <p>Một câu {@code UPDATE ... WHERE status = 'VALID'} chứ không phải đọc-rồi-ghi: hai máy
-     * quét cùng một vé trong cùng một giây là chuyện bình thường ở cửa vào, và đọc-rồi-ghi sẽ cho
-     * cả hai cùng thấy VALID rồi cùng cho qua.
-     *
-     * @return true nếu lần gọi này thực sự soát được vé; false nghĩa là ai đó đã soát trước
+     * <p>Giới hạn trong một tổ chức: không ai dò được vé của tổ chức khác bằng cách gõ thử mã. Trả
+     * tối đa hai vé — người gọi chỉ cần biết "không có", "đúng một", hay "trùng, gõ thêm ký tự".
      */
-    boolean checkIn(UUID ticketId, UUID staffId, Instant at);
+    List<Ticket> findByCodePrefix(UUID organizationId, String codePrefix);
+
+    /**
+     * Ghi nhận khách vào cửa, <b>chỉ khi</b> vé đang ở ngoài và chưa bị thu hồi.
+     *
+     * <p>Một câu {@code UPDATE ... WHERE inside = FALSE} chứ không phải đọc-rồi-ghi: hai máy quét
+     * cùng một vé trong cùng một giây là chuyện bình thường ở cửa vào, và đọc-rồi-ghi sẽ cho cả hai
+     * cùng thấy "đang ở ngoài" rồi cùng cho qua.
+     *
+     * @param reentryAllowed false thì chỉ lần vào đầu tiên mới thắng
+     * @return số lần vào sau lần này (1 = lần đầu); rỗng nghĩa là lần gọi này không thắng
+     */
+    Optional<Integer> enter(UUID ticketId, UUID staffId, Instant at, String gate, boolean reentryAllowed);
+
+    /**
+     * Cho vào thủ công một vé đang được ghi nhận là ở trong — khách đã ra mà quên quét Ra.
+     *
+     * @return số lần vào sau lần này; rỗng nếu vé không còn ở trạng thái "đang ở trong"
+     */
+    Optional<Integer> forceEnter(UUID ticketId, Instant at, String gate);
+
+    /**
+     * Ghi nhận khách ra ngoài, <b>chỉ khi</b> vé đang ở trong.
+     *
+     * @return true nếu lần gọi này thực sự ghi nhận được
+     */
+    boolean exit(UUID ticketId, Instant at);
+
+    /** Số khách của một suất, đếm trong phạm vi một tổ chức. */
+    Presence presenceOf(UUID organizationId, UUID eventSessionId);
+
+    /**
+     * @param inside đang ở trong khu vực
+     * @param checkedIn đã vào ít nhất một lần
+     */
+    record Presence(int inside, int checkedIn) {}
 
     /** Thu hồi vé khi hoàn tiền hoặc huỷ sự kiện. */
     int revokeByOrder(UUID orderId, String reason, Instant at);

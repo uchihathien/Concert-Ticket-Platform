@@ -10,8 +10,28 @@ package com.nexaticket.ticketing.domain.model;
 public enum CheckinResult {
     ACCEPTED,
 
-    /** Vé hợp lệ nhưng đã được quét trước đó. Nhân viên cần biết ai quét và lúc nào. */
+    /**
+     * Quét Vào một vé đang được ghi nhận là ở trong khu vực — dấu hiệu dùng chung mã QR. Nhân viên
+     * cần biết lần vào trước là lúc nào, ở cổng nào.
+     *
+     * <p>Tên giữ nguyên từ thời chưa có vào/ra: web-scanner rẽ nhánh giao diện theo chuỗi này.
+     */
     ALREADY_CHECKED_IN,
+
+    /** Quét Ra thành công. Không phải "cho vào", nhưng cũng không phải từ chối. */
+    EXITED,
+
+    /** Quét Ra một vé chưa vào hoặc đã ra rồi. */
+    NOT_INSIDE,
+
+    /** Chưa tới giờ mở cổng của suất diễn. */
+    NOT_OPEN_YET,
+
+    /** Suất diễn đã kết thúc. */
+    SESSION_ENDED,
+
+    /** Vé đã vào rồi ra, và hệ thống đang cấu hình không cho vào lại. */
+    REENTRY_NOT_ALLOWED,
 
     REVOKED,
 
@@ -26,5 +46,10 @@ public enum CheckinResult {
 
     public boolean accepted() {
         return this == ACCEPTED;
+    }
+
+    /** Lần quét đã đổi trạng thái vé: cho vào, hoặc ghi nhận ra. */
+    public boolean succeeded() {
+        return this == ACCEPTED || this == EXITED;
     }
 }

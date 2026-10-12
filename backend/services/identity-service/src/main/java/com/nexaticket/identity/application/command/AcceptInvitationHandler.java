@@ -9,6 +9,7 @@ import com.nexaticket.identity.domain.model.Organization;
 import com.nexaticket.identity.domain.port.InvitationRepository;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
 import com.nexaticket.identity.domain.port.UserRepository;
+import com.nexaticket.kernel.access.Role;
 import com.nexaticket.platform.outbox.OutboxWriter;
 import com.nexaticket.platform.security.tenant.TenantContext;
 import com.nexaticket.platform.web.error.ApiException;
@@ -75,6 +76,14 @@ public class AcceptInvitationHandler {
         // Lời mời gửi cho một địa chỉ cụ thể; người khác cầm được token cũng không dùng được.
         if (!invitation.email().equalsIgnoreCase(user.email())) {
             throw new ApiException(IdentityErrorCode.EMAIL_MISMATCH, "Invitation was issued to a different email");
+        }
+
+        if (invitation.role() == Role.CHECKIN_STAFF) {
+            // Lời mời bằng mã phát từ trước khi có mục Nhân sự. Nhận nó là cấp vai trò soát vé cho
+            // một tài khoản tự đăng ký — đúng đường vòng mà luồng mời nhân viên đóng lại.
+            throw new ApiException(
+                    IdentityErrorCode.STAFF_INVITE_REQUIRED,
+                    "Lời mời này không còn dùng được. Hãy nhờ ban tổ chức mời lại ở mục Nhân sự.");
         }
 
         Instant now = clock.instant();
