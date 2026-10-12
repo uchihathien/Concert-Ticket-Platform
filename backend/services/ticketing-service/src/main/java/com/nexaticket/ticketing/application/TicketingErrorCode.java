@@ -10,6 +10,9 @@ public enum TicketingErrorCode implements ErrorCode {
     /** Nhân viên soát vé không thuộc tổ chức sở hữu vé. */
     NOT_YOUR_EVENT(403),
 
+    /** Cho vào thủ công mà không khai lý do. Lý do là thứ duy nhất giải thích được lần ghi đè đó về sau. */
+    OVERRIDE_REASON_REQUIRED(400),
+
     /** Chưa cấu hình khoá ký nào — không phát hành được vé. */
     NO_SIGNING_KEY(500);
 

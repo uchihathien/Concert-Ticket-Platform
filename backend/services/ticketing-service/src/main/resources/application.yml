@@ -89,3 +89,12 @@ nexaticket:
     # localhost:8093 trong container: vé không bao giờ được phát sau khi khách đã trả tiền. Một quy
     # ước cho mọi service: URL của service khác đến từ biến <TÊN>_URL, prod.yml cấp đủ mười biến.
     ordering-url: ${ORDERING_URL:http://localhost:8093}
+    # CatalogHttpAdapter: giờ diễn và tên sự kiện của suất đang soát.
+    catalog-url: ${CATALOG_URL:http://localhost:8091}
+    checkin:
+      # Khách đã quét Ra thì quét Vào lại được. Tắt đi thì mỗi vé chỉ vào một lần.
+      reentry-allowed: ${CHECKIN_REENTRY_ALLOWED:true}
+      # Catalog không có cột "giờ mở cổng": cửa mở trước giờ diễn một khoảng cố định.
+      gates-open-before: ${CHECKIN_GATES_OPEN_BEFORE:PT2H}
+      # Suất không khai giờ kết thúc thì đóng cửa sau khoảng này kể từ giờ diễn.
+      fallback-session-duration: ${CHECKIN_FALLBACK_SESSION_DURATION:PT6H}

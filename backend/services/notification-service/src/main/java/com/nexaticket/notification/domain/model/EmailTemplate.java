@@ -17,7 +17,8 @@ public enum EmailTemplate {
     ORGANIZATION_INVITATION("Lời mời tham gia %s trên NexaTicket"),
     ORDER_PAID("Đơn hàng %s đã thanh toán thành công"),
     ORDER_EXPIRED("Đơn hàng %s đã hết hạn thanh toán"),
-    TICKETS_ISSUED("Vé của bạn cho %s đã sẵn sàng");
+    TICKETS_ISSUED("Vé của bạn cho %s đã sẵn sàng"),
+    TICKET_CHECKED_IN("Vé của bạn đã check-in tại %s");
 
     private final String subjectPattern;
 
@@ -61,6 +62,12 @@ public enum EmailTemplate {
 
                     Mở mục "Vé của tôi" trên ứng dụng để lấy mã QR khi tới cửa.
                     Mã QR chỉ có hiệu lực vài giờ nên hãy mở ứng dụng lúc đi xem.
+                    """
+                    .formatted(payload.getOrDefault("headline", ""));
+            case TICKET_CHECKED_IN -> """
+                    Vé của bạn đã check-in thành công tại %s.
+
+                    Nếu không phải bạn vừa vào cửa, hãy báo ngay cho ban tổ chức tại quầy hỗ trợ.
                     """
                     .formatted(payload.getOrDefault("headline", ""));
         };

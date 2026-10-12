@@ -48,6 +48,15 @@ public class InviteMemberHandler {
     public String handle(TenantId organizationId, String email, Role role) {
         TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
 
+        if (role == Role.CHECKIN_STAFF) {
+            // Nhân viên soát vé không tự đăng ký và không nhận vai trò qua mã lời mời: tài khoản của
+            // họ do ban tổ chức tạo ở mục Nhân sự (StaffInvitationHandler). Chặn ở đây — không chỉ ở
+            // giao diện — để gọi thẳng API cũng không vòng qua được.
+            throw new ApiException(
+                    IdentityErrorCode.STAFF_INVITE_REQUIRED,
+                    "Nhân viên soát vé được mời ở mục Nhân sự, không qua lời mời bằng mã");
+        }
+
         Organization organization = organizations
                 .findById(organizationId)
                 .orElseThrow(

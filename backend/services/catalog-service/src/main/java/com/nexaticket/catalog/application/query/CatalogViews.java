@@ -142,6 +142,14 @@ public final class CatalogViews {
     public record CheckinSession(
             UUID eventSessionId, UUID eventId, String eventTitle, String venueName, Instant startsAt, Instant endsAt) {}
 
+    /**
+     * Giờ diễn và tên sự kiện của một suất — thứ ticketing-service cần để kiểm giờ mở cổng và để
+     * ghi tên sự kiện vào thông báo check-in.
+     *
+     * @param endsAt {@code null} khi ban tổ chức không khai giờ kết thúc
+     */
+    public record SessionInfo(UUID eventSessionId, UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
+
     public record AdminTicketType(
             UUID id, UUID venueZoneId, String zoneCode, String zoneName, String name, long priceVnd, int capacity) {}
 

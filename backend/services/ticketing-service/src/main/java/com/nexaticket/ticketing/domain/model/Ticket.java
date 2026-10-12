@@ -30,6 +30,12 @@ public final class Ticket {
     private Instant checkedInAt;
     private UUID checkedInBy;
 
+    private boolean inside;
+    private int entryCount;
+    private Instant lastEntryAt;
+    private String lastEntryGate;
+    private Instant lastExitAt;
+
     @SuppressWarnings("java:S107") // Vé có nhiều nhãn snapshot; gom thành DTO chỉ đổi chỗ đặt tham số.
     private Ticket(
             UUID id,
@@ -64,6 +70,21 @@ public final class Ticket {
         this.status = status;
         this.checkedInAt = checkedInAt;
         this.checkedInBy = checkedInBy;
+        // Mặc định khớp với vé có từ trước khi có vào/ra: đã soát nghĩa là đang ở trong.
+        this.inside = status == TicketStatus.CHECKED_IN;
+        this.entryCount = this.inside ? 1 : 0;
+        this.lastEntryAt = checkedInAt;
+    }
+
+    /** Nạp trạng thái trong/ngoài đọc từ database. */
+    public Ticket withPresence(
+            boolean inside, int entryCount, Instant lastEntryAt, String lastEntryGate, Instant lastExitAt) {
+        this.inside = inside;
+        this.entryCount = entryCount;
+        this.lastEntryAt = lastEntryAt;
+        this.lastEntryGate = lastEntryGate;
+        this.lastExitAt = lastExitAt;
+        return this;
     }
 
     @SuppressWarnings("java:S107")
@@ -140,27 +161,33 @@ public final class Ticket {
      * Quyết định kết quả một lần quét, <b>chưa</b> thay đổi gì.
      *
      * <p>Tách quyết định khỏi việc ghi để luật soát vé kiểm được bằng test thuần. Việc thực sự
-     * chuyển sang {@code CHECKED_IN} phải là một {@code UPDATE ... WHERE status = 'VALID'} nguyên
-     * tử ở tầng persistence — hai máy quét cùng một vé trong cùng một giây là chuyện bình thường ở
-     * cửa vào.
+     * đổi trạng thái phải là một {@code UPDATE ... WHERE inside = ...} nguyên tử ở tầng
+     * persistence — hai máy quét cùng một vé trong cùng một giây là chuyện bình thường ở cửa vào.
+     *
+     * <p>Thứ tự là cố ý: sai suất trước, thu hồi sau, rồi mới tới trong/ngoài. Khách cầm vé đêm
+     * qua tới đêm nay cần nghe "vé của suất khác", không phải "vé đang ở trong".
      *
      * @param scanningSession suất diễn mà máy soát vé đang phục vụ
      */
-    public CheckinResult evaluate(UUID scanningSession) {
+    public CheckinResult evaluate(UUID scanningSession, ScanDirection direction, boolean reentryAllowed) {
         if (!eventSessionId.equals(scanningSession)) {
             return CheckinResult.WRONG_SESSION;
         }
-        return switch (status) {
-            case REVOKED -> CheckinResult.REVOKED;
-            case CHECKED_IN -> CheckinResult.ALREADY_CHECKED_IN;
-            case VALID -> CheckinResult.ACCEPTED;
-        };
+        if (status == TicketStatus.REVOKED) {
+            return CheckinResult.REVOKED;
+        }
+        if (direction == ScanDirection.OUT) {
+            return inside ? CheckinResult.EXITED : CheckinResult.NOT_INSIDE;
+        }
+        if (inside) {
+            return CheckinResult.ALREADY_CHECKED_IN;
+        }
+        return entryCount > 0 && !reentryAllowed ? CheckinResult.REENTRY_NOT_ALLOWED : CheckinResult.ACCEPTED;
     }
 
-    public void markCheckedIn(Instant now, UUID staffId) {
-        this.status = TicketStatus.CHECKED_IN;
-        this.checkedInAt = now;
-        this.checkedInBy = staffId;
+    /** Quét Vào, cho phép vào lại. */
+    public CheckinResult evaluate(UUID scanningSession) {
+        return evaluate(scanningSession, ScanDirection.IN, true);
     }
 
     public boolean belongsToOrganization(UUID candidate) {
@@ -235,5 +262,26 @@ public final class Ticket {
 
     public UUID checkedInBy() {
         return checkedInBy;
+    }
+
+    public boolean inside() {
+        return inside;
+    }
+
+    /** Số lần đã vào cửa, kể cả lần đang ở trong. */
+    public int entryCount() {
+        return entryCount;
+    }
+
+    public Instant lastEntryAt() {
+        return lastEntryAt;
+    }
+
+    public String lastEntryGate() {
+        return lastEntryGate;
+    }
+
+    public Instant lastExitAt() {
+        return lastExitAt;
     }
 }

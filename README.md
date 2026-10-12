@@ -124,6 +124,33 @@ Tài khoản dev trong realm: `superadmin`, `organizer`, `staff`, `customer` —
 > Bản ghi người dùng được tạo ở **request đầu tiên sau khi đăng nhập**, không có bước đăng ký
 > riêng: Keycloak là nguồn chân lý của danh tính.
 
+## Mời nhân viên soát vé (dev)
+
+Nhân viên soát vé không tự đăng ký. Ban tổ chức mời ở web-admin → **Nhân sự soát vé**: nhập họ tên,
+email và chọn sự kiện. Hệ thống tạo sẵn một tài khoản chưa có mật khẩu và nhờ Keycloak gửi thư có
+liên kết dùng một lần (hạn 72 giờ) để nhân viên tự đặt mật khẩu.
+
+Chuẩn bị máy phát triển — chạy lại bao nhiêu lần cũng được:
+
+```bash
+./scripts/dev-staff-setup.sh
+```
+
+Script bật SMTP của realm dev (trỏ vào Mailpit) và gán nhân viên soát vé **hiện có** vào mọi sự kiện
+**hiện có** của tổ chức họ. Sự kiện tạo sau đó phải gán tay ở mục Nhân sự soát vé.
+
+Thư mời rơi vào Mailpit: <http://localhost:8025>. Mailpit giữ lại MỌI thư, kể cả thư gửi tới địa
+chỉ thật — không có gì đi ra hộp thư bên ngoài. Mời bằng email nào thì cũng mở Mailpit để lấy liên
+kết.
+
+**Liên kết trong thư dùng địa chỉ công khai của Keycloak.** Khi Keycloak chạy sau một tunnel, địa
+chỉ đó đổi mỗi lần tunnel khởi động lại và liên kết trong thư đã gửi chết theo. Gửi lời mời ngay
+trước khi demo, hoặc bấm **Gửi lại lời mời** để lấy liên kết mới — thao tác này cũng làm liên kết
+cũ hết dùng được.
+
+Việc gán nhân viên vào sự kiện chỉ lưu ở ticketing-service (`checkin_assignments`), nơi kiểm quyền
+ở mỗi lượt quét. identity-service đọc và ghi qua `/internal/checkin-assignments`, không giữ bản sao.
+
 ## Thử luồng G0
 
 Chỉ superadmin tạo được tổ chức ([ADR-1010](docs/architecture-v2/adr/ADR-1010-superadmin-tenancy-and-finance-visibility.md)).

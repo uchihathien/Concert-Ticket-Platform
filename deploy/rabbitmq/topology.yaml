@@ -98,6 +98,12 @@ queues:
     exchange: nexaticket.ordering
     routing_key: "#"
 
+  # Thư "vé đã check-in". ticketing chỉ phát sự kiện này ở lần vào ĐẦU TIÊN của mỗi vé; ra ngoài
+  # và vào lại không phát gì, nên queue này không bao giờ thấy quá một message cho một vé.
+  - name: notification.ticketing.checked-in
+    exchange: nexaticket.ticketing
+    routing_key: ticket.checked_in
+
 defaults:
   queue_type: quorum
   durable: true
