@@ -132,6 +132,16 @@ public class JdbcUserRepository implements UserRepository {
     }
 
     @Override
+    public void changeIdpSubject(UserId id, String idpSubject) {
+        jdbc.update("UPDATE users SET idp_subject = ?, updated_at = now() WHERE id = ?", idpSubject, id.value());
+    }
+
+    @Override
+    public void delete(UserId id) {
+        jdbc.update("DELETE FROM users WHERE id = ?", id.value());
+    }
+
+    @Override
     public java.util.List<UserRecord> findAllByIds(java.util.Collection<UserId> ids) {
         if (ids.isEmpty()) {
             return java.util.List.of();

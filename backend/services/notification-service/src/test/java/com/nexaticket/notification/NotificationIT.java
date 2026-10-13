@@ -2,6 +2,7 @@
 package com.nexaticket.notification;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
 import com.nexaticket.notification.application.command.DispatchNotificationsJob;
 import com.nexaticket.notification.application.command.QueueNotificationHandler;
@@ -9,13 +10,19 @@ import com.nexaticket.notification.domain.model.EmailTemplate;
 import com.nexaticket.notification.domain.model.NotificationStatus;
 import com.nexaticket.notification.domain.port.EmailSender;
 import com.nexaticket.notification.domain.port.NotificationRepository;
+import com.nexaticket.notification.domain.port.RecipientDirectory;
+import com.nexaticket.notification.infrastructure.amqp.TicketEventsListener;
 import com.nexaticket.platform.test.PostgresSingleton;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -26,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
@@ -84,6 +92,12 @@ class NotificationIT {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    TicketEventsListener ticketEvents;
+
+    @MockitoBean
+    RecipientDirectory recipients;
 
     @BeforeEach
     void reset() {
@@ -171,6 +185,41 @@ class NotificationIT {
         String body = EmailTemplate.TICKETS_ISSUED.body(java.util.Map.of("headline", "Đêm nhạc ABC"));
 
         assertThat(body).contains("Vé của tôi").doesNotContain("data:image").doesNotContain("eyJ");
+    }
+
+    @Test
+    @DisplayName("Check-in: một vé chỉ có MỘT thư, kể cả khi sự kiện đến hai lần với id khác nhau")
+    void check_in_mot_ve_mot_thu() {
+        // event_id UNIQUE chặn được cùng một message giao lại. Nó KHÔNG chặn được hai message khác
+        // nhau cho cùng một vé — nên khoá chống trùng phải suy từ vé.
+        UUID ticketId = UUID.randomUUID();
+        UUID userId = UUID.randomUUID();
+        when(recipients.lookup(userId))
+                .thenReturn(Optional.of(new RecipientDirectory.Recipient("khach@example.com", "Nguyễn Văn A")));
+
+        ticketEvents.onTicketCheckedIn(checkedIn(ticketId, userId));
+        ticketEvents.onTicketCheckedIn(checkedIn(ticketId, userId));
+        ticketEvents.onTicketCheckedIn(checkedIn(UUID.randomUUID(), userId));
+
+        dispatch.runOnce();
+        assertThat(mail.sent).hasSize(2);
+        // 12:42 UTC là 19:42 ở nơi diễn ra sự kiện — thư in giờ địa phương.
+        assertThat(mail.sent).allMatch(subject -> subject.contains("Đêm nhạc ABC lúc 19:42 ngày 12/10/2026"));
+    }
+
+    private static Message checkedIn(UUID ticketId, UUID userId) {
+        String body =
+                """
+                {"ticketId":"%s","userId":"%s","eventTitle":"Đêm nhạc ABC","checkedInAt":"2026-10-12T12:42:00Z","gate":null}
+                """
+                        .formatted(ticketId, userId);
+        MessageProperties properties = new MessageProperties();
+        // Mỗi lần giao một messageId mới: mô phỏng ticketing phát lại sự kiện, không phải broker
+        // giao lại cùng một message.
+        properties.setMessageId(UUID.randomUUID().toString());
+        properties.setHeader("eventType", "ticket.checked_in");
+        properties.setHeader("aggregateId", ticketId.toString());
+        return new Message(body.getBytes(StandardCharsets.UTF_8), properties);
     }
 
     private static QueueNotificationHandler.Command command(UUID eventId) {

@@ -49,6 +49,14 @@ nexaticket:
     # O production dat bang bien moi truong, khong commit vao repo.
     super-admin-emails: ${SUPER_ADMIN_EMAILS:superadmin@nexaticket.local}
 
+    # TicketingHttpAdapter: việc gán nhân viên soát vé vào sự kiện là dữ liệu của ticketing-service,
+    # identity chỉ đọc/ghi qua /internal/checkin-assignments.
+    ticketing-url: ${TICKETING_URL:http://localhost:8097}
+
+    staff-invitation:
+      # Hạn của liên kết đặt mật khẩu trong thư mời nhân viên soát vé.
+      link-lifetime: ${STAFF_INVITE_LINK_LIFETIME:PT72H}
+
     keycloak:
       # Admin API — CHỈ dùng cho một việc: nhờ Keycloak gửi thư đặt lại mật khẩu khi quản trị viên
       # bấm hộ. Người dùng tự bấm "Quên mật khẩu?" trên trang đăng nhập thì KHÔNG đi qua đây.

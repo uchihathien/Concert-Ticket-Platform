@@ -82,6 +82,14 @@ public interface CatalogQueries {
     List<CatalogViews.CheckinSession> checkinSessions(UUID organizationId);
 
     /**
+     * Giờ diễn của một suất, <b>bất kể</b> trạng thái sự kiện.
+     *
+     * <p>Người hỏi là máy soát vé: vé đã bán thì vẫn phải soát được, kể cả khi ban tổ chức đã rút
+     * sự kiện khỏi trang bán.
+     */
+    Optional<CatalogViews.SessionInfo> sessionInfo(UUID eventSessionId);
+
+    /**
      * Suất diễn này có thật không.
      *
      * <p>Cố ý KHÔNG đòi sự kiện phải đang ở trạng thái PUBLISHED. Đường gọi duy nhất là báo giá lúc

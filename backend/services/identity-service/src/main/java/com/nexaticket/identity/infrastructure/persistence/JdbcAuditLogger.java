@@ -3,6 +3,7 @@ package com.nexaticket.identity.infrastructure.persistence;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.identity.application.command.AuditLogger;
+import com.nexaticket.identity.application.command.ExternalAuditWriter;
 import com.nexaticket.kernel.id.CorrelationContext;
 import com.nexaticket.platform.security.tenant.TenantContext;
 import com.nexaticket.platform.security.tenant.TenantScope;
@@ -13,7 +14,7 @@ import org.springframework.stereotype.Component;
 
 /** Ghi audit trong cùng transaction với thay đổi, để không bao giờ có thay đổi thiếu vết. */
 @Component
-public class JdbcAuditLogger implements AuditLogger {
+public class JdbcAuditLogger implements AuditLogger, ExternalAuditWriter {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -41,6 +42,30 @@ public class JdbcAuditLogger implements AuditLogger {
                 entityId,
                 toJson(before),
                 toJson(after),
+                CorrelationContext.current());
+    }
+
+    @Override
+    public void recordFor(
+            UUID actorUserId,
+            UUID organizationId,
+            String action,
+            String entityType,
+            UUID entityId,
+            Map<String, Object> details) {
+        jdbc.update(
+                """
+                INSERT INTO audit_logs (id, actor_user_id, organization_id, action, entity_type,
+                                        entity_id, after_state, correlation_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?)
+                """,
+                UUID.randomUUID(),
+                actorUserId,
+                organizationId,
+                action,
+                entityType,
+                entityId,
+                toJson(details),
                 CorrelationContext.current());
     }
 

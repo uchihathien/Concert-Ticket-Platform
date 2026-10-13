@@ -10,6 +10,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -22,7 +23,7 @@ public class JdbcTicketRepository implements TicketRepository {
             """
             id, order_id, order_item_id, event_session_id, organization_id, user_id, session_seat_id,
             seat_code, zone_code, admission_type, seat_label, ticket_type_name, holder_name, status,
-            checked_in_at, checked_in_by
+            checked_in_at, checked_in_by, inside, entry_count, last_entry_at, last_entry_gate, last_exit_at
             """;
 
     private final JdbcTemplate jdbc;
@@ -93,19 +94,86 @@ public class JdbcTicketRepository implements TicketRepository {
     }
 
     @Override
-    public boolean checkIn(UUID ticketId, UUID staffId, Instant at) {
-        // WHERE status = 'VALID' nằm trong chính câu ghi. Hai máy quét cùng một vé trong cùng
-        // một giây là chuyện bình thường ở cửa; chỉ một câu UPDATE thắng và trả về 1 dòng.
-        return jdbc.update(
+    public List<Ticket> findByCodePrefix(UUID organizationId, String codePrefix) {
+        // `id::text LIKE 'abc%'` không dùng được index của khoá chính, nhưng mệnh đề tổ chức đã thu
+        // tập về vé của một tổ chức (idx_ticket_org_issued) — cùng đánh đổi với màn tra cứu vé.
+        return jdbc.query(
+                "SELECT " + COLUMNS + " FROM tickets WHERE organization_id = ? AND id::text LIKE ? LIMIT 2",
+                JdbcTicketRepository::map,
+                organizationId,
+                codePrefix.toLowerCase(Locale.ROOT) + "%");
+    }
+
+    @Override
+    public Optional<Integer> enter(UUID ticketId, UUID staffId, Instant at, String gate, boolean reentryAllowed) {
+        // WHERE inside = FALSE nằm trong chính câu ghi. Hai máy quét cùng một vé trong cùng một
+        // giây là chuyện bình thường ở cửa; chỉ một câu UPDATE thắng và trả về 1 dòng.
+        //
+        // COALESCE giữ checked_in_at / checked_in_by là lần vào ĐẦU TIÊN — màn tra cứu của ban tổ
+        // chức và email "đã check-in" đều đọc nghĩa đó.
+        Timestamp now = Timestamp.from(at);
+        return jdbc
+                .query(
                         """
                         UPDATE tickets
-                           SET status = 'CHECKED_IN', checked_in_at = ?, checked_in_by = ?
-                         WHERE id = ? AND status = 'VALID'
+                           SET status = 'CHECKED_IN', inside = TRUE, entry_count = entry_count + 1,
+                               checked_in_at = COALESCE(checked_in_at, ?),
+                               checked_in_by = COALESCE(checked_in_by, ?),
+                               last_entry_at = ?, last_entry_gate = ?
+                         WHERE id = ? AND status <> 'REVOKED' AND inside = FALSE
+                           AND (? OR entry_count = 0)
+                        RETURNING entry_count
                         """,
-                        Timestamp.from(at),
+                        (rs, i) -> rs.getInt(1),
+                        now,
                         staffId,
+                        now,
+                        gate,
+                        ticketId,
+                        reentryAllowed)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public Optional<Integer> forceEnter(UUID ticketId, Instant at, String gate) {
+        return jdbc
+                .query(
+                        """
+                        UPDATE tickets
+                           SET entry_count = entry_count + 1, last_entry_at = ?, last_entry_gate = ?
+                         WHERE id = ? AND status = 'CHECKED_IN' AND inside = TRUE
+                        RETURNING entry_count
+                        """,
+                        (rs, i) -> rs.getInt(1),
+                        Timestamp.from(at),
+                        gate,
+                        ticketId)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public boolean exit(UUID ticketId, Instant at) {
+        return jdbc.update(
+                        "UPDATE tickets SET inside = FALSE, last_exit_at = ? WHERE id = ? AND inside = TRUE",
+                        Timestamp.from(at),
                         ticketId)
                 == 1;
+    }
+
+    @Override
+    public Presence presenceOf(UUID organizationId, UUID eventSessionId) {
+        return jdbc.queryForObject(
+                """
+                SELECT count(*) FILTER (WHERE inside) AS inside,
+                       count(*) FILTER (WHERE entry_count > 0) AS checked_in
+                  FROM tickets
+                 WHERE event_session_id = ? AND organization_id = ?
+                """,
+                (rs, i) -> new Presence(rs.getInt("inside"), rs.getInt("checked_in")),
+                eventSessionId,
+                organizationId);
     }
 
     @Override
@@ -124,7 +192,7 @@ public class JdbcTicketRepository implements TicketRepository {
 
     private static Ticket map(ResultSet rs, int rowNum) throws SQLException {
         Timestamp checkedInAt = rs.getTimestamp("checked_in_at");
-        return Ticket.rehydrate(
+        Ticket ticket = Ticket.rehydrate(
                 rs.getObject("id", UUID.class),
                 rs.getObject("order_id", UUID.class),
                 rs.getObject("order_item_id", UUID.class),
@@ -141,5 +209,16 @@ public class JdbcTicketRepository implements TicketRepository {
                 TicketStatus.valueOf(rs.getString("status")),
                 checkedInAt == null ? null : checkedInAt.toInstant(),
                 rs.getObject("checked_in_by", UUID.class));
+        return ticket.withPresence(
+                rs.getBoolean("inside"),
+                rs.getInt("entry_count"),
+                instant(rs, "last_entry_at"),
+                rs.getString("last_entry_gate"),
+                instant(rs, "last_exit_at"));
+    }
+
+    private static Instant instant(ResultSet rs, String column) throws SQLException {
+        Timestamp value = rs.getTimestamp(column);
+        return value == null ? null : value.toInstant();
     }
 }

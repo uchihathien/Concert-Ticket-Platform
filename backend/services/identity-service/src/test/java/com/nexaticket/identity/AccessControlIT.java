@@ -76,12 +76,42 @@ class AccessControlIT extends PostgresTestBase {
         @Bean
         @Primary
         IdentityProviderPort stubIdp() {
-            return (idpSubject, clientId, redirectUri) -> {
-                if (identityProviderDown) {
-                    throw new IdentityProviderPort.IdentityProviderUnavailableException(
-                            "test: Keycloak Admin API chưa cấu hình", null);
+            // Cổng không còn một phương thức nên không viết thành lambda được nữa. Test này chỉ
+            // đụng tới thư đặt lại mật khẩu; phần mời nhân viên có StaffInvitationIT.
+            return new IdentityProviderPort() {
+                @Override
+                public void sendPasswordResetEmail(String idpSubject, String clientId, String redirectUri) {
+                    if (identityProviderDown) {
+                        throw new IdentityProviderPort.IdentityProviderUnavailableException(
+                                "test: Keycloak Admin API chưa cấu hình", null);
+                    }
+                    RESET_EMAILS_SENT.add(idpSubject);
                 }
-                RESET_EMAILS_SENT.add(idpSubject);
+
+                @Override
+                public String createInvitedAccount(String email, String fullName) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void sendInvitationEmail(String idpSubject, java.time.Duration linkLifetime) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public java.util.Optional<Account> findAccount(String idpSubject) {
+                    return java.util.Optional.empty();
+                }
+
+                @Override
+                public java.util.Optional<Account> findAccountByEmail(String email) {
+                    return java.util.Optional.empty();
+                }
+
+                @Override
+                public void deleteUnactivatedAccount(String idpSubject) {
+                    throw new UnsupportedOperationException();
+                }
             };
         }
     }
@@ -157,14 +187,14 @@ class AccessControlIT extends PostgresTestBase {
         assertThat(status(post("/v1/organizations/" + organizationId + "/invitations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(
-                                Map.of("email", "moi-access@example.com", "role", "CHECKIN_STAFF")))))
+                                Map.of("email", "moi-access@example.com", "role", "EVENT_MANAGER")))))
                 .isEqualTo(403);
 
         actAsOwner();
         assertThat(status(post("/v1/organizations/" + organizationId + "/invitations")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json.writeValueAsString(
-                                Map.of("email", "moi-access@example.com", "role", "CHECKIN_STAFF")))))
+                                Map.of("email", "moi-access@example.com", "role", "EVENT_MANAGER")))))
                 .isEqualTo(200);
     }
 
@@ -310,7 +340,7 @@ class AccessControlIT extends PostgresTestBase {
         actAsOwner();
         perform(post("/v1/organizations/" + organizationId + "/invitations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("email", "moi2-access@example.com", "role", "CHECKIN_STAFF"))));
+                .content(json.writeValueAsString(Map.of("email", "moi2-access@example.com", "role", "EVENT_MANAGER"))));
 
         JsonNode logs = json.readTree(perform(get("/v1/organizations/" + organizationId + "/audit-logs"))
                 .getResponse()
