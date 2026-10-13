@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.identity.domain.port;
 
+import java.time.Duration;
+import java.util.Optional;
+
 /**
  * Những việc chỉ Keycloak làm được.
  *
@@ -35,6 +38,52 @@ public interface IdentityProviderPort {
      * @throws IdentityProviderUnavailableException khi không cấu hình, hoặc Keycloak không trả lời
      */
     void sendPasswordResetEmail(String idpSubject, String clientId, String redirectUri);
+
+    /*
+     * --- Tài khoản nhân viên soát vé do ban tổ chức mời ---
+     *
+     * Bốn phương thức dưới đây nới cổng này ra, và nới có chủ đích: nhân viên soát vé KHÔNG tự đăng
+     * ký, nên phải có ai đó tạo tài khoản cho họ. Chúng vẫn giữ nguyên tắc của cổng — không phương
+     * thức nào đặt được mật khẩu hay đọc được thông tin đăng nhập. Tài khoản ra đời không có mật
+     * khẩu, và người duy nhất đặt được nó là người mở thư.
+     */
+
+    /**
+     * Tạo sẵn một tài khoản chưa có mật khẩu, buộc đặt mật khẩu và xác minh email ở lần đầu.
+     *
+     * @return id của tài khoản bên Keycloak — chính là claim {@code sub} khi người đó đăng nhập
+     */
+    String createInvitedAccount(String email, String fullName);
+
+    /** Gửi thư chứa liên kết dùng một lần để đặt mật khẩu và xác minh email. */
+    void sendInvitationEmail(String idpSubject, Duration linkLifetime);
+
+    Optional<Account> findAccount(String idpSubject);
+
+    Optional<Account> findAccountByEmail(String email);
+
+    /**
+     * Xoá một tài khoản <b>chưa kích hoạt</b> — cách duy nhất làm liên kết đã gửi hết dùng được.
+     *
+     * <p>Tự kiểm lại trạng thái ngay trước khi xoá chứ không tin người gọi: xoá nhầm một tài khoản
+     * đang dùng là mất luôn người đó khỏi hệ thống, và không có lệnh nào hoàn tác.
+     *
+     * @throws AccountAlreadyActivatedException nếu tài khoản đã có người đặt mật khẩu
+     */
+    void deleteUnactivatedAccount(String idpSubject);
+
+    /**
+     * @param activated đã đặt mật khẩu xong — tức là không còn hành động bắt buộc nào chờ
+     */
+    record Account(String idpSubject, boolean activated) {}
+
+    /** Từ chối xoá một tài khoản đã kích hoạt. */
+    class AccountAlreadyActivatedException extends RuntimeException {
+
+        public AccountAlreadyActivatedException(String idpSubject) {
+            super("Tài khoản " + idpSubject + " đã kích hoạt, không được xoá");
+        }
+    }
 
     /** Cổng chưa được cấu hình, hoặc Keycloak không trả lời. Tách khỏi lỗi nghiệp vụ. */
     class IdentityProviderUnavailableException extends RuntimeException {

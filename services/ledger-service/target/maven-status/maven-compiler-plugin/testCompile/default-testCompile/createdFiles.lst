@@ -1,6 +1,0 @@
-com/nexaticket/ledger/domain/JournalEntryTest.class
-com/nexaticket/ledger/LedgerInvariantIT.class
-com/nexaticket/ledger/support/LedgerTestBase.class
-com/nexaticket/ledger/ArchitectureTest.class
-com/nexaticket/ledger/LedgerAppendOnlyIT.class
-com/nexaticket/ledger/RecordPaymentIT.class

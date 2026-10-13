@@ -26,6 +26,25 @@ public enum IdentityErrorCode implements ErrorCode {
      * ta đi đọc log của identity, trong khi nguyên nhân nằm ở chỗ khác.
      */
     PASSWORD_RESET_UNAVAILABLE(503),
+
+    /**
+     * Email này không mời làm nhân viên soát vé được.
+     *
+     * <p>Cố ý KHÔNG nói vì sao. Lý do thật — email đã là khách, đã thuộc tổ chức khác, đã giữ vai
+     * trò khác — đều là thông tin về một tài khoản không thuộc về người đang mời.
+     */
+    EMAIL_NOT_INVITABLE(409),
+
+    /** Vai trò nhân viên soát vé chỉ được cấp qua mục Nhân sự, không qua lời mời bằng mã. */
+    STAFF_INVITE_REQUIRED(400),
+
+    STAFF_INVITATION_NOT_FOUND(404),
+
+    /** Nhân viên đã đặt mật khẩu: không còn lời mời nào để gửi lại hay huỷ. */
+    STAFF_ALREADY_ACTIVATED(409),
+
+    /** Keycloak hoặc ticketing-service không trả lời. Người gọi thử lại được. */
+    STAFF_INVITE_UNAVAILABLE(503),
     SCANNER_CODE_INVALID(400),
     SCANNER_CODE_EXHAUSTED(409);
 

@@ -40,6 +40,24 @@
       "defaultAction": false,
       "priority": 10,
       "config": {}
+    },
+    {
+      "alias": "UPDATE_PASSWORD",
+      "name": "Update Password",
+      "providerId": "UPDATE_PASSWORD",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 30,
+      "config": {}
+    },
+    {
+      "alias": "VERIFY_EMAIL",
+      "name": "Verify Email",
+      "providerId": "VERIFY_EMAIL",
+      "enabled": true,
+      "defaultAction": false,
+      "priority": 50,
+      "config": {}
     }
   ],
   "clients": [
@@ -55,7 +73,8 @@
         "nexaticket://auth",
         "exp://172.16.0.149:8082/--/auth",
         "exp://192.168.1.18:8082/--/auth",
-        "exp://myzfi0k-hanhphamthi-8082.exp.direct/--/auth"
+        "exp://myzfi0k-hanhphamthi-8082.exp.direct/--/auth",
+        "exp://172.27.108.74:8082/--/auth"
       ],
       "webOrigins": [],
       "attributes": {

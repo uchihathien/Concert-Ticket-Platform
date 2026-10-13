@@ -1,6 +1,0 @@
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/test/java/com/nexaticket/ledger/ArchitectureTest.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/test/java/com/nexaticket/ledger/LedgerAppendOnlyIT.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/test/java/com/nexaticket/ledger/LedgerInvariantIT.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/test/java/com/nexaticket/ledger/RecordPaymentIT.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/test/java/com/nexaticket/ledger/domain/JournalEntryTest.java
-/Users/phamthihanh/KLTN/Project/Concert-Ticket-Platform/backend/services/ledger-service/src/test/java/com/nexaticket/ledger/support/LedgerTestBase.java

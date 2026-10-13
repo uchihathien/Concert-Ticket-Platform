@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.catalog.interfaces.rest;
 
+import com.nexaticket.catalog.application.query.CheckinSessionQuery;
 import com.nexaticket.catalog.application.query.PricingQuery;
+import java.time.Instant;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,9 +26,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class InternalCatalogController {
 
     private final PricingQuery pricing;
+    private final CheckinSessionQuery sessions;
 
-    public InternalCatalogController(PricingQuery pricing) {
+    public InternalCatalogController(PricingQuery pricing, CheckinSessionQuery sessions) {
         this.pricing = pricing;
+        this.sessions = sessions;
+    }
+
+    /** Tên field là hợp đồng với {@code CatalogHttpAdapter} của ticketing-service. */
+    public record SessionResponse(
+            UUID eventSessionId, UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
+
+    /** Giờ diễn và tên sự kiện của một suất — ticketing-service hỏi khi soát vé. */
+    @GetMapping("/{eventSessionId}")
+    public SessionResponse session(@PathVariable UUID eventSessionId) {
+        var info = sessions.info(eventSessionId);
+        return new SessionResponse(
+                info.eventSessionId(), info.eventId(), info.eventTitle(), info.startsAt(), info.endsAt());
     }
 
     /**

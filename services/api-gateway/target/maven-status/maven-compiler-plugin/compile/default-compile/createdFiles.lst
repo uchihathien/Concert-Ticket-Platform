@@ -1,5 +1,0 @@
-com/nexaticket/gateway/GatewayApplication.class
-com/nexaticket/gateway/RateLimitConfig.class
-com/nexaticket/gateway/GatewaySecurityConfig.class
-com/nexaticket/gateway/CorsConfig.class
-com/nexaticket/gateway/CorrelationIdGatewayFilter.class

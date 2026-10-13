@@ -70,4 +70,15 @@ public interface UserRepository {
      * request, nên việc thu hồi không thêm lần đi database nào.
      */
     void revokeTokensIssuedBefore(UserId id, java.time.Instant cutoff);
+
+    /**
+     * Trỏ một người dùng sang tài khoản Keycloak khác.
+     *
+     * <p>Chỉ dùng cho tài khoản <b>chưa kích hoạt</b> vừa được tạo lại bên Keycloak để vô hiệu
+     * liên kết mời cũ. {@code users.id} giữ nguyên, nên mọi thứ trỏ vào người này vẫn đúng.
+     */
+    void changeIdpSubject(UserId id, String idpSubject);
+
+    /** Xoá hẳn một người dùng chưa từng kích hoạt (huỷ lời mời). */
+    void delete(UserId id);
 }

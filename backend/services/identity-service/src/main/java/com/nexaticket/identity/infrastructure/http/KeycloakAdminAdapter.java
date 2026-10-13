@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.identity.infrastructure.http;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.nexaticket.identity.domain.port.IdentityProviderPort;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -110,6 +114,180 @@ public class KeycloakAdminAdapter implements IdentityProviderPort {
             throw e;
         } catch (RuntimeException e) {
             throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API", e);
+        }
+    }
+
+    /** Hai hành động của thư mời: đặt mật khẩu và xác minh email. Khác thư đặt lại mật khẩu ở trên. */
+    private static final List<String> INVITATION_ACTIONS = List.of("UPDATE_PASSWORD", "VERIFY_EMAIL");
+
+    @Override
+    public String createInvitedAccount(String email, String fullName) {
+        requireConfigured();
+        NameParts name = NameParts.of(fullName);
+        Map<String, Object> body = new LinkedHashMap<>();
+        // Realm dùng email làm tên đăng nhập (registrationEmailAsUsername).
+        body.put("username", email);
+        body.put("email", email);
+        body.put("firstName", name.first());
+        body.put("lastName", name.last());
+        body.put("enabled", true);
+        body.put("emailVerified", false);
+        // Không có `credentials`: tài khoản ra đời KHÔNG có mật khẩu, nên chưa đăng nhập được cho
+        // tới khi chính chủ mở thư và đặt.
+        body.put("requiredActions", INVITATION_ACTIONS);
+        try {
+            return client.post()
+                    .uri("/admin/realms/{realm}/users", properties.realm())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .exchange((request, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak trả " + response.getStatusCode() + " khi tạo tài khoản: "
+                                            + errorBody(response),
+                                    null);
+                        }
+                        java.net.URI location = response.getHeaders().getLocation();
+                        if (location == null) {
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak tạo tài khoản nhưng không trả về id", null);
+                        }
+                        String path = location.getPath();
+                        return path.substring(path.lastIndexOf('/') + 1);
+                    });
+        } catch (IdentityProviderUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API", e);
+        }
+    }
+
+    @Override
+    public void sendInvitationEmail(String idpSubject, Duration linkLifetime) {
+        requireConfigured();
+        try {
+            client.put()
+                    .uri(uri -> uri.path("/admin/realms/{realm}/users/{userId}/execute-actions-email")
+                            .queryParam("lifespan", linkLifetime.toSeconds())
+                            .build(properties.realm(), idpSubject))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(INVITATION_ACTIONS)
+                    .exchange((request, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak trả " + response.getStatusCode() + " khi gửi thư mời: "
+                                            + errorBody(response),
+                                    null);
+                        }
+                        return null;
+                    });
+            log.info("Đã nhờ Keycloak gửi thư mời cho {}", idpSubject);
+        } catch (IdentityProviderUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API", e);
+        }
+    }
+
+    @Override
+    public Optional<Account> findAccount(String idpSubject) {
+        requireConfigured();
+        try {
+            return client.get()
+                    .uri("/admin/realms/{realm}/users/{userId}", properties.realm(), idpSubject)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .exchange((request, response) -> {
+                        if (response.getStatusCode().value() == 404) {
+                            return Optional.<Account>empty();
+                        }
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak trả " + response.getStatusCode() + " khi đọc tài khoản", null);
+                        }
+                        return Optional.ofNullable(response.bodyTo(UserRepresentation.class))
+                                .map(UserRepresentation::toAccount);
+                    });
+        } catch (IdentityProviderUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API", e);
+        }
+    }
+
+    @Override
+    public Optional<Account> findAccountByEmail(String email) {
+        requireConfigured();
+        try {
+            UserRepresentation[] found = client.get()
+                    .uri(uri -> uri.path("/admin/realms/{realm}/users")
+                            .queryParam("email", email)
+                            // exact: không có nó Keycloak tìm theo chuỗi con, và "an@x.vn" khớp cả
+                            // "lan@x.vn".
+                            .queryParam("exact", true)
+                            .build(properties.realm()))
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .retrieve()
+                    .body(UserRepresentation[].class);
+            return found == null || found.length == 0 ? Optional.empty() : Optional.of(found[0].toAccount());
+        } catch (IdentityProviderUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API", e);
+        }
+    }
+
+    @Override
+    public void deleteUnactivatedAccount(String idpSubject) {
+        Optional<Account> account = findAccount(idpSubject);
+        if (account.isEmpty()) {
+            // Đã không còn: kết quả mong muốn của lệnh này đã đạt.
+            return;
+        }
+        if (account.get().activated()) {
+            throw new AccountAlreadyActivatedException(idpSubject);
+        }
+        try {
+            client.delete()
+                    .uri("/admin/realms/{realm}/users/{userId}", properties.realm(), idpSubject)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("Đã xoá tài khoản chưa kích hoạt {}", idpSubject);
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không xoá được tài khoản bên Keycloak", e);
+        }
+    }
+
+    private void requireConfigured() {
+        if (!properties.isConfigured()) {
+            throw new IdentityProviderUnavailableException(
+                    "Chưa cấu hình Keycloak Admin API (nexaticket.identity.keycloak.*)", null);
+        }
+    }
+
+    /** Chỉ những field cần đọc. Keycloak trả thêm nhiều thứ khác; không khai thì không bị ràng buộc. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UserRepresentation(String id, List<String> requiredActions) {
+
+        Account toAccount() {
+            // "Đã kích hoạt" = đã đặt mật khẩu. Tài khoản mời ra đời với UPDATE_PASSWORD đang chờ, và
+            // Keycloak gỡ hành động đó đúng lúc mật khẩu được đặt.
+            boolean pending = requiredActions != null && requiredActions.contains("UPDATE_PASSWORD");
+            return new Account(id, !pending);
+        }
+    }
+
+    /** Keycloak tách họ và tên; ta chỉ có một ô "họ tên". Từ cuối là tên gọi, phần còn lại là họ. */
+    private record NameParts(String first, String last) {
+
+        static NameParts of(String fullName) {
+            String trimmed = fullName == null ? "" : fullName.strip();
+            int space = trimmed.lastIndexOf(' ');
+            return space < 0
+                    ? new NameParts(trimmed, "")
+                    : new NameParts(trimmed.substring(space + 1), trimmed.substring(0, space));
         }
     }
 

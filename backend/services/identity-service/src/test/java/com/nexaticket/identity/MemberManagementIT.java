@@ -253,7 +253,7 @@ class MemberManagementIT extends PostgresTestBase {
     void moi_va_thu_hoi() throws Exception {
         MvcResult created = perform(post("/v1/organizations/" + organizationId + "/invitations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("email", "moi-1@example.com", "role", "CHECKIN_STAFF"))));
+                .content(json.writeValueAsString(Map.of("email", "moi-1@example.com", "role", "EVENT_MANAGER"))));
         assertThat(created.getResponse().getStatus()).isEqualTo(200);
 
         JsonNode pending = json.readTree(perform(get("/v1/organizations/" + organizationId + "/invitations"))
@@ -283,7 +283,7 @@ class MemberManagementIT extends PostgresTestBase {
         users.upsertByIdpSubject(INVITEE_SUBJECT, INVITEE_EMAIL, "Nhan Vien");
         perform(post("/v1/organizations/" + organizationId + "/invitations")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(json.writeValueAsString(Map.of("email", INVITEE_EMAIL, "role", "CHECKIN_STAFF"))));
+                .content(json.writeValueAsString(Map.of("email", INVITEE_EMAIL, "role", "EVENT_MANAGER"))));
 
         JsonNode pending = json.readTree(perform(get("/v1/organizations/" + organizationId + "/invitations"))
                 .getResponse()
@@ -296,7 +296,7 @@ class MemberManagementIT extends PostgresTestBase {
         assertThat(inbox).hasSize(1);
         assertThat(inbox.get(0).path("id").asText()).isEqualTo(invitationId);
         assertThat(inbox.get(0).path("organizationName").asText()).isEqualTo("To chuc thu");
-        assertThat(inbox.get(0).path("role").asText()).isEqualTo("CHECKIN_STAFF");
+        assertThat(inbox.get(0).path("role").asText()).isEqualTo("EVENT_MANAGER");
         assertThat(inbox.toString()).doesNotContain("token_hash").doesNotContain("tokenHash");
 
         assertThat(perform(post("/v1/me/invitations/" + invitationId + "/accept"))
