@@ -127,6 +127,26 @@ class GatewayRoutingIT {
     }
 
     @Test
+    @DisplayName("thống kê của ban tổ chức tới đúng service, không rơi vào identity")
+    void thong_ke_cua_ban_to_chuc() {
+        assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/stats/orders/summary")
+                        .getId())
+                .isEqualTo("stats-orders");
+        assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/stats/checkins/presence")
+                        .getId())
+                .isEqualTo("stats-checkins");
+        assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/stats/inventory/stock")
+                        .getId())
+                .isEqualTo("stats-inventory");
+        assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/stats/catalog/sessions")
+                        .getId())
+                .isEqualTo("stats-catalog");
+        // Phần còn lại của `/v1/organizations/**` không bị các route mới nuốt mất.
+        assertThat(match(HttpMethod.GET, "/v1/organizations/0f8c/staff").getId())
+                .isEqualTo("identity");
+    }
+
+    @Test
     @DisplayName("những cặp chồng lấn cũ vẫn đi đúng chỗ")
     void cac_cap_chong_lan_cu() {
         // Mỗi dòng ở đây từng là một sự cố thật hoặc là hàng xóm trực tiếp của một sự cố thật.
