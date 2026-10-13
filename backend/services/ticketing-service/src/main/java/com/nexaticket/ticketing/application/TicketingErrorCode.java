@@ -14,6 +14,12 @@ public enum TicketingErrorCode implements ErrorCode {
     OVERRIDE_REASON_REQUIRED(400),
 
     /** Chưa cấu hình khoá ký nào — không phát hành được vé. */
+    /** Lượt xuất vượt trần số dòng; người dùng phải thu hẹp theo sự kiện hoặc suất. */
+    EXPORT_TOO_LARGE(400),
+
+    /** Không ghi được nhật ký nên không cho xuất dữ liệu cá nhân. */
+    AUDIT_UNAVAILABLE(503),
+
     NO_SIGNING_KEY(500);
 
     private final int status;
