@@ -22,6 +22,7 @@ import com.nexaticket.ticketing.domain.port.CatalogPort;
 import com.nexaticket.ticketing.domain.port.CheckinAssignmentRepository;
 import com.nexaticket.ticketing.interfaces.rest.CheckinController;
 import com.nexaticket.ticketing.interfaces.rest.OrganizationCheckinController;
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -124,7 +125,7 @@ class CheckinControllerWebTest extends WebSliceTest {
             String encoded =
                     "/v1/organizations/%36" + ORG.toString().substring(1) + "/sessions/" + SESSION + "/checkins";
 
-            mvc.perform(post(encoded)
+            mvc.perform(post(URI.create(encoded))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(QR_BODY)
                             .with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
@@ -368,6 +369,34 @@ class CheckinControllerWebTest extends WebSliceTest {
                             .with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.result").value("ACCEPTED"));
+        }
+    }
+
+    @Nested
+    @DisplayName("Đường cũ vẫn kiểm quyền (đã bỏ @RequiresPermission, không bỏ kiểm quyền)")
+    class DuongCuVanKiemQuyen {
+
+        @Test
+        @DisplayName("Nhân viên chưa được gán sự kiện: 403 NOT_YOUR_EVENT, handler không chạy")
+        void chua_duoc_gan() throws Exception {
+            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(false);
+
+            mvc.perform(post(LEGACY_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(QR_BODY)
+                            .with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("NOT_YOUR_EVENT"));
+        }
+
+        @Test
+        @DisplayName("Vai trò không có quyền soát vé (EVENT_MANAGER hợp lệ nhưng khách không): khách bị từ chối")
+        void khach_khong_soat_duoc() throws Exception {
+            mvc.perform(post(LEGACY_URL)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(QR_BODY)
+                            .with(customer(UUID.randomUUID())))
+                    .andExpect(status().is4xxClientError());
         }
     }
 

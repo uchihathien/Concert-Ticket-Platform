@@ -55,6 +55,7 @@ class ExpireHoldsJobTest {
     @Test
     @DisplayName("Mỗi giữ chỗ hết hạn: ghi EXPIRED, nhả chỗ, xoá khoá Redis, bump version của đúng suất")
     void nha_tung_giu_cho() {
+        when(holds.updateStatus(any(), any(), any())).thenReturn(true);
         List<UUID> seatsA = List.of(UUID.randomUUID(), UUID.randomUUID());
         List<UUID> seatsB = List.of(UUID.randomUUID());
         SeatHold holdA = expiredActive(SESSION_A, seatsA);

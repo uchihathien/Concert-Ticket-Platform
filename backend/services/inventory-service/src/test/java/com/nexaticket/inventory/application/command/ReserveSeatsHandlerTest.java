@@ -65,6 +65,7 @@ class ReserveSeatsHandlerTest {
     void setUp() {
         TransactionSynchronizationManager.initSynchronization();
         when(holds.findHoldIdByOrder(ORDER)).thenReturn(Optional.empty());
+        when(holds.updateStatus(any(), any(), any())).thenReturn(true);
         when(sessions.findBySessionId(SESSION))
                 .thenReturn(Optional.of(new SessionInventory(
                         UUID.randomUUID(),
@@ -193,6 +194,17 @@ class ReserveSeatsHandlerTest {
 
             assertRejected(InventoryErrorCode.HOLD_EXPIRED, USER);
             verifyNoInteractions(seats);
+        }
+
+        @Test
+        @DisplayName("Hồi quy: khách bỏ chỗ giữa lúc đọc và lúc ghi — HOLD_EXPIRED, không đặt ghế nào")
+        void thua_cuoc_dua_voi_bo_cho() {
+            givenHold(HoldStatus.ACTIVE, NOW.plusSeconds(60));
+            when(holds.updateStatus(HOLD, HoldStatus.CONVERTED, NOW)).thenReturn(false);
+
+            assertRejected(InventoryErrorCode.HOLD_EXPIRED, USER);
+            verifyNoInteractions(seats);
+            verify(holds, never()).createReservation(any(), any(), any());
         }
 
         @Test
