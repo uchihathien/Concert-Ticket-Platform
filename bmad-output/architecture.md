@@ -118,10 +118,14 @@
 1. Gỡ `initiateTicketBooking` khỏi `SupportAgentTools.CATALOG`. Mô hình chỉ còn hai tool liên quan giao dịch, cả hai **không ghi vào tồn kho**:
    - `proposeBooking(slug, sessionId, zoneCode, quantity)` → kiểm hợp lệ (như `TicketBookingUseCase.initiate` các bước trước `holdZone`), tính `totalVnd` từ `EventDetail.tiers`, lưu `booking_proposals` (TTL 10 phút), trả `proposalId` + tóm tắt.
    - `draftBookingIntent(slug, zoneCodes[], quantity, maxUnitPriceVnd, validUntil, trigger)` → lưu `booking_intents.status = DRAFT`, trả `intentId`.
-2. `AskResponse` thêm trường có kiểu `action: ActionCard | null` (`{ kind: "BOOKING_PROPOSAL" | "BOOKING_INTENT", id, summary, totalVnd, expiresAt }`). Giao diện vẽ thẻ với nút Xác nhận/Huỷ từ trường này, **không** parse từ `answer`.
-3. Xác nhận là endpoint REST riêng, **không qua mô hình**: `POST /v1/chat/agent/proposals/{id}/confirm` và `POST /v1/chat/agent/intents/{id}/confirm`. Chủ sở hữu = `userId` trong JWT phải trùng `booking_proposals.user_id`.
-4. Confirm proposal chạy `TicketBookingUseCase.initiate` với idempotency key = `proposalId` (ADR-2006) bằng token của chính khách; kết quả ghi vào `chat_messages` dưới vai `SYSTEM` để lượt sau mô hình thấy "đơn X đã được tạo".
-5. Thanh toán **không bao giờ** tự động; `checkoutUrl` được trả nguyên, không sinh lại.
+2. `AskResponse` thêm trường có kiểu `action: ActionCard | null`, ba loại: `BOOKING_PROPOSAL {id, summary, eventTitle, sessionStartsAt, zoneCode, quantity, totalVnd, expiresAt}`; `PAYMENT {orderId, orderNumber, totalVnd, vietQrPayload, paymentReference, checkoutUrl, paymentExpiresAt}`; `BOOKING_INTENT {id, summary, validUntil}` (Phase 2). Giao diện vẽ thẻ từ trường này, **không** parse từ `answer`. `GET /sessions/{id}/messages` cũng trả `action` đang mở (đề xuất còn hạn, hoặc đơn vừa tạo còn trong hạn thanh toán) để tải lại trang vẫn thấy thẻ.
+3. Xác nhận đề xuất có **hai đường, cả hai không qua mô hình** *(sửa 2026-10-22)*:
+   - (a) nút → `POST /v1/chat/agent/proposals/{id}/confirm` (và `/cancel`);
+   - (b) **câu trả lời ngắn** của khách ("ok", "đồng ý", "đặt đi", "chốt", "xác nhận"; từ chối: "thôi", "không", "huỷ") được `BookingConfirmIntent` — mã nhận dạng từ khoá cùng mẫu `HandoffIntent` — bắt ở bước 1d của `runAgent`, *trước* RAG và LLM, **khi và chỉ khi** phiên có đúng một đề xuất `PROPOSED` còn hạn của chính `userId`. Không có đề xuất mở thì câu "ok" đi tiếp vào LLM như mọi câu khác. Lượt này không gọi LLM.
+   Chủ sở hữu = `userId` trong JWT phải trùng `booking_proposals.user_id`. Câu trả lời của trợ lý sau `proposeBooking` kết bằng lời mời "trả lời *ok* để mình giữ chỗ" (đặt trong `nextStep` của kết quả tool).
+4. Confirm (đường nào cũng vậy) chạy `TicketBookingUseCase.initiate` với idempotency key = `proposalId` (ADR-2006) bằng token của chính khách; trả thẻ `PAYMENT` kèm **VietQR** để khách quét ngay trong chat; ghi lượt `ASSISTANT` "đã tạo đơn X, thanh toán trước HH:mm" vào `chat_messages` để lượt sau mô hình biết. `vietQrPayload`/`paymentReference` đi **chỉ** qua thẻ — không bao giờ vào JSON cho mô hình (một mô hình chép sai một ký tự là tiền đi lạc).
+5. Thanh toán **không bao giờ** tự động; thanh toán là bước xác nhận cuối: đơn chưa trả hết hạn sau 15 phút (ADR-0015) và chỗ tự nhả. `checkoutUrl` được trả nguyên làm đường dự phòng. Giao diện poll `GET /v1/orders/{id}` 5 giây một lần khi thẻ `PAYMENT` đang mở, đổi thẻ sang "đã thanh toán"/"hết hạn" — cùng cách trang checkout đang làm.
+6. **Không** gộp đề xuất và xác nhận vào một lượt dù câu đầu đã đủ thông tin: chữ "ok" là thứ phân biệt "đặt 2 vé khu A" với "khu A còn 2 vé không?", và nhầm là khoá chỗ của người khác 15 phút lúc mở bán. Gộp chỉ được phép sau ADR mới, kèm cờ theo sự kiện.
 
 **Consequences — LOCKED for all stories:**
 - Không có tool nào trong `SupportAgentTools.CATALOG` được gọi `InventoryClientPort.holdZone` hay `OrderingClientPort.placeOrder`. `ArchitectureTest` thêm rule: package `application.agent` không phụ thuộc `InventoryClientPort`/`OrderingClientPort.placeOrder`.
@@ -446,11 +450,14 @@ ai-chatbox-service ────────────────────�
 
 ### `POST /v1/chat/agent/proposals/{proposalId}/confirm`
 **Auth:** Required; chủ sở hữu. **Request:** rỗng; `Idempotency-Key` tuỳ chọn (server tự dùng `proposalId`).
-**Response 201:** `{proposalId, status: "CONFIRMED", order: {orderId, orderNumber, totalVnd, checkoutUrl, paymentExpiresAt}}`.
+**Response 201:** `{proposalId, status: "CONFIRMED", order: {orderId, orderNumber, totalVnd, checkoutUrl, paymentExpiresAt}, action: ActionCard<PAYMENT>}` — cùng thẻ mà đường xác nhận bằng câu trả lời trả về trong `AskResponse.action`.
 **Errors:** 404 `PROPOSAL_NOT_FOUND`, 410 `PROPOSAL_EXPIRED`, 409 `PROPOSAL_ALREADY_CONFIRMED` (trả lại đơn cũ trong body), 422 `BOOKING_REJECTED {reason}` (hết chỗ, vượt hạn mức — từ inventory/ordering), 503 `REMOTE_UNAVAILABLE`.
 **NFR:** p95 ≤ 2 giây (hai lời gọi nội bộ, timeout 3 giây mỗi lời).
 
 ### `POST /v1/chat/agent/proposals/{proposalId}/cancel` → 204.
+
+### Xác nhận bằng câu trả lời (không endpoint riêng)
+`POST /v1/chat/agent/support` với `message` ∈ từ điển của `BookingConfirmIntent` khi phiên có đúng một đề xuất mở → `AskResponse {answer: "Đã giữ 2 vé … thanh toán trước 21:15", toolsUsed: [], action: PAYMENT}`. Từ chối → `action: null`, đề xuất chuyển `CANCELLED`. Lỗi nghiệp vụ (hết chỗ) → `answer` nói lý do, `action: null`, đề xuất `CANCELLED`; lỗi hệ thống → `answer` mời thử lại, đề xuất giữ `PROPOSED`.
 
 ### `POST /v1/chat/agent/intents/{intentId}/confirm` (Phase 2)
 **Response 200:** `{intentId, status: "ACTIVE", queuePosition, validUntil}`. **Errors:** 409 `INTENT_LIMIT_REACHED`, 422 `INTENT_DISABLED_FOR_EVENT`, 410 khi `validUntil` đã qua.
