@@ -16,6 +16,7 @@ import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
 import com.nexaticket.aichatbox.application.agent.AgentReply;
 import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
+import com.nexaticket.aichatbox.application.agent.SessionTurnLock;
 import com.nexaticket.aichatbox.application.agent.TurnAdmission;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.platform.security.tenant.ChatTenantFixture;
@@ -58,9 +59,70 @@ class SupportChatControllerTest {
         ChatTenantFixture.clear();
     }
 
+    private final SessionTurnLock sessionLock = new SessionTurnLock();
+
     private SupportChatController controller(Executor executor, Clock clock) {
         return new SupportChatController(
-                agent, mock(HandoffUseCase.class), admission, executor, idempotency, Duration.ofSeconds(60), clock);
+                agent,
+                mock(HandoffUseCase.class),
+                admission,
+                executor,
+                idempotency,
+                Duration.ofSeconds(60),
+                clock,
+                sessionLock);
+    }
+
+    // --- Một phiên một lượt (6.10, R-23) ---------------------------------------------------------
+
+    /** Lượt thứ hai cùng phiên khi lượt đầu còn chạy: 409 ngay, không gọi mô hình, nhả khoá của nó. */
+    @Test
+    void cung_phien_dang_chay_tra_409_ngay() {
+        UUID session = UUID.randomUUID();
+        when(idempotency.beginOrReplay(any(), anyString(), any(), anyString())).thenReturn(Optional.empty());
+        // Pool "treo": việc không chạy cho tới khi test tự chạy nó — lượt đầu giữ khoá phiên.
+        java.util.List<Runnable> parked = new java.util.ArrayList<>();
+        SupportChatController c = controller(parked::add, Clock.fixed(T0, ZoneOffset.UTC));
+        when(agent.executeAgentProcess(any(), any(), any())).thenReturn(new AgentReply(session, "Xong", List.of()));
+
+        CompletableFuture<SupportChatController.AskResponse> first =
+                c.ask("k-a", new SupportChatController.AskRequest(session, "câu một"));
+
+        assertThatThrownBy(() -> c.ask("k-b", new SupportChatController.AskRequest(session, "câu hai")))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.errorCode())
+                        .isEqualTo(AiChatboxErrorCode.TURN_IN_PROGRESS));
+        verify(idempotency).release(userId, "k-b");
+        verify(agent, never()).executeAgentProcess(any(), any(), any());
+
+        // Phiên KHÁC của cùng người vẫn chạy được (trần người là 2).
+        c.ask(null, new SupportChatController.AskRequest(UUID.randomUUID(), "phiên khác"));
+
+        // Lượt đầu chạy xong → khoá phiên nhả → gửi tiếp được.
+        parked.forEach(Runnable::run);
+        assertThat(join(first).answer()).isEqualTo("Xong");
+        assertThat(sessionLock.tryAcquire(session)).isTrue();
+    }
+
+    /** Khoá phiên nhả ở cả đường lỗi và đường chờ hàng đợi quá hạn. */
+    @Test
+    void khoa_phien_nha_o_moi_duong_ket_thuc() {
+        UUID session = UUID.randomUUID();
+        when(agent.executeAgentProcess(any(), any(), any()))
+                .thenThrow(new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "x"));
+
+        assertThatThrownBy(() -> join(controller().ask(null, new SupportChatController.AskRequest(session, "a"))))
+                .isInstanceOf(ApiException.class);
+        assertThat(sessionLock.tryAcquire(session)).isTrue();
+        sessionLock.release(session);
+
+        Executor full = task -> {
+            throw new java.util.concurrent.RejectedExecutionException("đầy");
+        };
+        assertThatThrownBy(() -> controller(full, Clock.fixed(T0, ZoneOffset.UTC))
+                        .ask(null, new SupportChatController.AskRequest(session, "b")))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.errorCode())
+                        .isEqualTo(AiChatboxErrorCode.ASSISTANT_BUSY));
+        assertThat(sessionLock.tryAcquire(session)).isTrue();
     }
 
     private SupportChatController controller() {

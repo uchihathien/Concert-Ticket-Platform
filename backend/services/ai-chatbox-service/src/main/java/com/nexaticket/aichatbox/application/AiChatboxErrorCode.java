@@ -31,6 +31,15 @@ public enum AiChatboxErrorCode implements ErrorCode {
     ASSISTANT_BUSY(503),
 
     /**
+     * Phiên này đang có một lượt chạy (R-23).
+     *
+     * <p>409 chứ không 503: hệ thống không bận — chính phiên này đang bận với câu trước. Hai lượt
+     * cùng phiên chạy song song đọc cùng một lịch sử và ghi đan xen, và lượt sau có thể trả lời đè
+     * lên lúc nhân viên vừa tiếp quản. Client chờ câu trả lời đang tới rồi gửi tiếp.
+     */
+    TURN_IN_PROGRESS(409),
+
+    /**
      * Cùng một {@code Idempotency-Key} nhưng nội dung khác.
      *
      * <p>Đây là lỗi của client, không phải một lần gửi lại — và trả về câu trả lời cũ cho một câu

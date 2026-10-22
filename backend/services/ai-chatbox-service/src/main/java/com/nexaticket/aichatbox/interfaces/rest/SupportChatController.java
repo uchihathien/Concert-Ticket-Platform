@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.interfaces.rest;
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.agent.AgentReply;
 import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
+import com.nexaticket.aichatbox.application.agent.SessionTurnLock;
 import com.nexaticket.aichatbox.application.agent.TurnAdmission;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffViews;
@@ -48,6 +49,7 @@ public class SupportChatController {
     private final ChatIdempotency idempotency;
     private final Duration maxQueueWait;
     private final Clock clock;
+    private final SessionTurnLock sessionLock;
 
     /**
      * @param maxQueueWait lượt chờ trong hàng đợi của pool lâu hơn thế này thì không chạy nữa. Hạn
@@ -61,7 +63,8 @@ public class SupportChatController {
             @Qualifier("agentExecutor") Executor agentExecutor,
             ChatIdempotency idempotency,
             @Value("${nexaticket.aichatbox.agent.max-queue-wait:60s}") Duration maxQueueWait,
-            Clock clock) {
+            Clock clock,
+            SessionTurnLock sessionLock) {
         this.agent = agent;
         this.handoffs = handoffs;
         this.admission = admission;
@@ -69,6 +72,7 @@ public class SupportChatController {
         this.idempotency = idempotency;
         this.maxQueueWait = maxQueueWait;
         this.clock = clock;
+        this.sessionLock = sessionLock;
     }
 
     /**
@@ -164,6 +168,12 @@ public class SupportChatController {
             throw new ApiException(
                     AiChatboxErrorCode.ASSISTANT_BUSY, "Bạn đang có một câu hỏi đang được xử lý, chờ chút nhé");
         }
+        // Giữ theo NGƯỜI trước, theo PHIÊN sau; không lấy được khoá phiên thì trả suất của người.
+        if (!sessionLock.tryAcquire(sessionId)) {
+            admission.release(userId);
+            throw new ApiException(
+                    AiChatboxErrorCode.TURN_IN_PROGRESS, "Câu hỏi trước trong cuộc trò chuyện này đang được trả lời");
+        }
 
         // SecurityContext nằm trong ThreadLocal nên KHÔNG tự đi sang luồng khác. Phải mang nó theo:
         // tool tra đơn hàng gọi ordering bằng chính access token của khách, và thiếu context thì
@@ -176,6 +186,7 @@ public class SupportChatController {
                     () -> runTurn(security, acceptedAt, sessionId, userId, message), agentExecutor);
         } catch (RejectedExecutionException e) {
             // Pool đầy VÀ hàng đợi đầy. Nhả chỗ vừa giữ, nếu không người này mất suất vĩnh viễn.
+            sessionLock.release(sessionId);
             admission.release(userId);
             throw new ApiException(AiChatboxErrorCode.ASSISTANT_BUSY, "Trợ lý đang bận, bạn thử lại sau ít phút nhé");
         }
@@ -197,6 +208,7 @@ public class SupportChatController {
             // Luồng của pool sống rất lâu và được dùng lại cho người khác. Không xoá context thì
             // lượt kế tiếp chạy trên đúng luồng ấy thừa hưởng danh tính của khách trước.
             SecurityContextHolder.clearContext();
+            sessionLock.release(sessionId);
             admission.release(userId);
         }
     }
