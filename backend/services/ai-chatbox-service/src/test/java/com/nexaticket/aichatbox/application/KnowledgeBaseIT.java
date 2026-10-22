@@ -8,17 +8,21 @@ import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.knowledge.KnowledgeBaseUseCase;
 import com.nexaticket.aichatbox.application.knowledge.KnowledgeViews;
+import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ToolOutcome;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import com.nexaticket.aichatbox.support.AiChatboxTestBase;
 import com.nexaticket.aichatbox.support.FakeAiProviders;
 import com.nexaticket.platform.web.error.ApiException;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Soạn kho tri thức, rồi kiểm rằng trợ lý đọc được đúng những gì được phép đọc.
@@ -39,6 +43,12 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
 
     @Autowired
     FakeAiProviders.FakeEmbeddings embeddings;
+
+    @Autowired
+    JdbcClient jdbc;
+
+    @Autowired
+    TransactionTemplate tx;
 
     @AfterEach
     void repairEmbeddings() {
@@ -208,5 +218,101 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
         // Sai theo hướng an toàn: quên khai thì tool nói "không nhận hoàn vé", không nói "có".
         assertThat(store.findRules(eventId).orElseThrow().refundPolicy().allowed())
                 .isFalse();
+    }
+
+    /** AC #5: tiêu đề là khoá của tri thức chung — trùng thì 409, không phải 500. */
+    @Test
+    void trung_tieu_de_tri_thuc_chung_thi_409_con_doan_su_kien_thi_khong() {
+        String title = "Tiêu đề " + UUID.randomUUID();
+        knowledge.addChunk(null, title, "Bản đầu.");
+
+        assertThatThrownBy(() -> knowledge.addChunk(null, title, "Bản thứ hai."))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.errorCode())
+                        .isEqualTo(AiChatboxErrorCode.KNOWLEDGE_TITLE_TAKEN));
+
+        UUID eventId = UUID.randomUUID();
+        knowledge.addChunk(eventId, title, "Đoạn riêng của sự kiện.");
+        knowledge.addChunk(UUID.randomUUID(), title, "Đoạn riêng của sự kiện khác.");
+    }
+
+    /**
+     * R-29: 2.000 đoạn của sự kiện Y gần câu hỏi hơn — đoạn của sự kiện X vẫn phải có trong kết quả.
+     *
+     * <p>Buộc planner đi index HNSW ({@code enable_seqscan = off}, đặt trong transaction bao ngoài mà
+     * {@code searchSimilar} tham gia): ở 2.000 dòng planner có thể tự chọn quét tuần tự — chính xác
+     * tuyệt đối — và ca này sẽ xanh mà không chứng minh gì.
+     */
+    @Test
+    void loc_theo_su_kien_khong_bi_doan_cua_su_kien_khac_day_khoi_ket_qua() {
+        UUID x = UUID.randomUUID();
+        UUID y = UUID.randomUUID();
+        // Y: hướng e1 cộng nhiễu ngẫu nhiên nhỏ ở các chiều 2..1001 → khoảng cách cosine ≤ ~0,02.
+        // Nhiễu phải NGẪU NHIÊN: 2.000 vector gần như trùng nhau dựng ra một đồ thị HNSW hỏng (đo
+        // được: không lọc gì, index chỉ với tới 591/2.003 dòng), và ca này sẽ đo đồ thị hỏng chứ
+        // không đo ef_search. `where g > 0` buộc truy vấn con chạy lại cho từng dòng.
+        jdbc.sql(
+                        """
+                        insert into event_knowledge_embeddings (id, event_id, title, content, embedding)
+                        select gen_random_uuid(), :y, 'Y ' || g, 'đoạn của sự kiện khác',
+                               (select ('[' || string_agg(case when i = 1 then '1'
+                                                               when i <= 1001 then (random() * 0.01)::text
+                                                               else '0' end, ',' order by i) || ']')::vector
+                                from generate_series(1, 1024) i
+                                where g > 0)
+                        from generate_series(1, 2000) g
+                        """)
+                .param("y", y)
+                .update();
+        // X: xa hơn một chút (~0,04), ở những chiều Y không dùng.
+        for (int k = 0; k < 3; k++) {
+            float[] v = new float[1024];
+            v[0] = 1f;
+            v[1010 + k] = 0.3f;
+            store.addChunk(x, "X " + k, "đoạn của chính sự kiện", v);
+        }
+        float[] q = new float[1024];
+        q[0] = 1f;
+
+        // Tái hiện: ef_search mặc định, không iterative scan → index trả 40 ứng viên toàn Y, lọc xong
+        // thì X không còn dòng nào.
+        Long before = tx.execute(status -> {
+            jdbc.sql("select set_config('enable_seqscan', 'off', true)")
+                    .query(String.class)
+                    .single();
+            jdbc.sql("select set_config('hnsw.ef_search', '40', true)")
+                    .query(String.class)
+                    .single();
+            return jdbc.sql(
+                            """
+                            select count(*) from (
+                                select event_id from event_knowledge_embeddings
+                                where event_id is null or event_id = :x
+                                order by embedding <=> cast(:q as vector) limit 5) t
+                            where event_id = :x
+                            """)
+                    .param("x", x)
+                    .param("q", literal(q))
+                    .query(Long.class)
+                    .single();
+        });
+        assertThat(before).as("tái hiện R-29 trước khi nới ef_search").isLessThan(3);
+
+        List<KnowledgeChunk> found = tx.execute(status -> {
+            jdbc.sql("select set_config('enable_seqscan', 'off', true)")
+                    .query(String.class)
+                    .single();
+            return store.searchSimilar(q, x, 5);
+        });
+
+        assertThat(found).filteredOn(chunk -> x.equals(chunk.eventId())).hasSize(3);
+        assertThat(found).allSatisfy(chunk -> assertThat(chunk.eventId()).isIn(x, null));
+    }
+
+    private static String literal(float[] v) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < v.length; i++) {
+            sb.append(i == 0 ? "" : ",").append(v[i]);
+        }
+        return sb.append(']').toString();
     }
 }

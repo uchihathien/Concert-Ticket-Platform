@@ -95,6 +95,9 @@ public enum AiChatboxErrorCode implements ErrorCode {
 
     KNOWLEDGE_CHUNK_NOT_FOUND(404),
 
+    /** Đã có đoạn tri thức chung mang đúng tiêu đề này — tiêu đề là khoá của tri thức chung. */
+    KNOWLEDGE_TITLE_TAKEN(409),
+
     EVENT_RULES_NOT_FOUND(404),
 
     /**
