@@ -79,7 +79,8 @@ class IdempotencyFilterTest {
     @BeforeEach
     void setUp() {
         TenantContextFixture.customer(UserId.of(user));
-        IdempotencyProperties props = new IdempotencyProperties(List.of(PATH), Duration.ofMinutes(2), 1024);
+        IdempotencyProperties props =
+                new IdempotencyProperties(List.of(PATH), Duration.ofMinutes(2), 1024, null, null, null);
         mvc = MockMvcBuilders.standaloneSetup(new Echo())
                 .addFilters(new IdempotencyFilter(props, Optional.of(store), new ObjectMapper()))
                 .build();

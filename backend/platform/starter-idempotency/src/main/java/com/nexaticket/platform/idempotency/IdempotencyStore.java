@@ -63,6 +63,29 @@ public class IdempotencyStore {
                 == 1;
     }
 
+    /**
+     * Xoá bản ghi cũ hơn {@code retention}, tối đa {@code batch} dòng một lần.
+     *
+     * <p>Không phân biệt đã hoàn tất hay đang dở: bản ghi dở quá {@code retention} (hàng chục giờ) chắc chắn là của
+     * một tiến trình đã chết và đã được {@link #takeOverIfStale} bỏ qua từ lâu. Chia lô bằng {@code LIMIT} để một
+     * lần dọn bảng lớn không giữ khoá dòng lâu; chỉ số {@code idx_idempotency_cleanup} phục vụ đúng câu này.
+     *
+     * @return số dòng đã xoá; nhỏ hơn {@code batch} nghĩa là đã hết việc
+     */
+    public int purgeOlderThan(java.time.Duration retention, int batch) {
+        return jdbc.update(
+                """
+                DELETE FROM idempotency_records
+                 WHERE id IN (
+                       SELECT id FROM idempotency_records
+                        WHERE created_at < now() - (? * interval '1 second')
+                        ORDER BY created_at
+                        LIMIT ?)
+                """,
+                retention.toSeconds(),
+                batch);
+    }
+
     public Optional<Existing> find(UUID userId, String key) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(

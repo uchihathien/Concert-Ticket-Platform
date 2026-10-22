@@ -43,6 +43,9 @@ class OrderIdempotencyIT extends OrderingTestBase {
     @Autowired
     FakeRemoteServices.FakeInventory inventory;
 
+    @Autowired
+    com.nexaticket.platform.idempotency.IdempotencyCleanupJob cleanup;
+
     @MockitoBean
     JwtDecoder jwtDecoder;
 
@@ -77,6 +80,35 @@ class OrderIdempotencyIT extends OrderingTestBase {
 
     private JsonNode body(MvcResult result) throws Exception {
         return json.readTree(result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    @DisplayName(
+            "Job dọn bản ghi cũ có mặt trong ứng dụng thật và chạy được trên PostgreSQL, không xoá bản ghi còn trong hạn")
+    void job_don_dep_duoc_bat() throws Exception {
+        UUID user = UUID.randomUUID();
+        String key = "key-" + UUID.randomUUID();
+        place(user, key, UUID.randomUUID());
+        jdbc.update(
+                "INSERT INTO idempotency_records (id, user_id, idem_key, request_hash, response_status, created_at) "
+                        + "VALUES (?, ?, 'rat-cu', 'h', 201, now() - interval '100 hours')",
+                UUID.randomUUID(),
+                user);
+
+        assertThat(cleanup.runOnce()).isGreaterThanOrEqualTo(1);
+
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM idempotency_records WHERE user_id = ? AND idem_key = 'rat-cu'",
+                        Integer.class,
+                        user))
+                .isZero();
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM idempotency_records WHERE user_id = ? AND idem_key = ?",
+                        Integer.class,
+                        user,
+                        key))
+                .as("bản ghi của request vừa đặt đơn còn trong hạn giữ")
+                .isEqualTo(1);
     }
 
     @Test

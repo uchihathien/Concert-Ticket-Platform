@@ -79,7 +79,8 @@ class IdempotencyFilterIT {
     }
 
     private MockMvc mvc(Duration staleAfter) {
-        IdempotencyProperties props = new IdempotencyProperties(List.of("/v1/orders"), staleAfter, null);
+        IdempotencyProperties props =
+                new IdempotencyProperties(List.of("/v1/orders"), staleAfter, null, null, null, null);
         return MockMvcBuilders.standaloneSetup(new Slow())
                 .addFilters(new IdempotencyFilter(props, Optional.of(new IdempotencyStore(jdbc)), new ObjectMapper()))
                 .build();
