@@ -32,15 +32,15 @@
 | 1.2 | propose-booking-tool | `BookingProposalUseCase.propose`; tool `proposeBooking` thay `initiateTicketBooking`; rule ArchitectureTest | ready-for-dev |
 | 1.3 | action-card-in-reply | `ActionCard` (BOOKING_PROPOSAL, PAYMENT) đi từ DispatchResult → AgentReply → AskResponse; type trong ts-sdk — *sửa 2026-10-22: thêm loại PAYMENT* | ready-for-dev |
 | 1.4 | confirm-cancel-endpoints | `POST /proposals/{id}/confirm|cancel`; idempotency `proposal-{id}`; `PlacedOrder` mang `vietQrPayload`; confirm trả thẻ PAYMENT; `ChatThread.action` cho thẻ đang mở — *sửa 2026-10-22* | ready-for-dev |
-| 1.5 | web-confirmation-card | SupportChat.tsx vẽ thẻ đề xuất (gợi ý "trả lời ok", nút dự phòng); sdk `confirmProposal`/`cancelProposal` — *sửa 2026-10-22* | ready-for-dev |
+| 1.5 | web-confirmation-card | SupportChat.tsx vẽ thẻ đề xuất (nút **Đồng ý** / Huỷ); sdk `confirmProposal`/`cancelProposal` — *sửa 2026-10-22* | ready-for-dev |
 | 1.6 | proposal-expiry-and-metrics | Job đánh dấu EXPIRED sau 10 phút; metric `aichatbox_proposals_total` | ready-for-dev |
 | 1.7 | payment-card-in-chat | `# COURSE-CORRECTION 2026-10-22` — thẻ PAYMENT trong SupportChat: VietQR (tái dùng mã QR của `PaymentPanel`), đếm ngược, link dự phòng, poll `GET /v1/orders/{id}` tới PAID/EXPIRED, vẽ lại từ `ChatThread.action` khi tải lại | ready-for-dev |
-| 1.8 | confirm-by-reply | `# COURSE-CORRECTION 2026-10-22` — `BookingConfirmIntent` (từ khoá, không LLM) + bước 1d trong `runAgent`: "ok" khi có đúng một đề xuất mở → confirm, trả PAYMENT; "thôi" → cancel | ready-for-dev |
+| 1.8 | confirm-by-reply | **cancelled 2026-10-22** — thay bằng nút Đồng ý trên thẻ (ADR-2001 điểm 3). Nội dung cũ: `BookingConfirmIntent` (từ khoá, không LLM) + bước 1d trong `runAgent`: "ok" khi có đúng một đề xuất mở → confirm, trả PAYMENT; "thôi" → cancel | cancelled |
 
 **Cross-epic dependencies:**
 - Blocked by: none
-- Blocks: Epic 2 (2.2 sau 1.8 vì cùng `CustomerSupportAgentUseCase`; 2.4 sửa `BookingProposalUseCase`), Epic 3 (eval cần tool `proposeBooking`), Epic 5 (5.2 sửa ToolDispatcher)
-- Thứ tự trong epic: 1.1 → 1.2 → (1.3 ∥ 1.4 ∥ 1.6) → 1.5 → 1.7; 1.8 sau 1.3 và 1.4
+- Blocks: Epic 2 (2.2 sau 1.3/1.4; 2.4 sửa `BookingProposalUseCase`), Epic 3 (eval cần tool `proposeBooking`), Epic 5 (5.2 sửa ToolDispatcher)
+- Thứ tự trong epic: 1.1 → 1.2 → (1.3 ∥ 1.4 ∥ 1.6) → 1.5 → 1.7
 
 ---
 
@@ -150,10 +150,10 @@
 
 ## Delivery Tracking (count-based)
 
-- Total stories: 20
+- Total stories: 19 (+1 cancelled: 1.8)
 - Done: 0
-- Remaining: 20
-- Completion rate: 0/20
+- Remaining: 19
+- Completion rate: 0/19
 
 ## Notes
 

@@ -21,3 +21,11 @@
 - **Made by:** bmad-correct-course
 - **Supersedes:** mục "Chia Phase 1 thành 5 epic / 18 story" cùng ngày
 - **Follow-up (cùng ngày):** 1.3/1.4/1.5/2.4 sửa, 1.7/1.8 viết mới; kiểm lại 20/20 story đủ mục, mọi cặp trùng tệp có thứ tự Blocked-by, không vòng → cả 20 `ready-for-dev`. Quyết định trong story: thẻ PAYMENT dựng lại khi tải trang KHÔNG mang `vietQrPayload` (frontend lấy từ `GET /v1/orders/{id}` vốn đang poll) để chuỗi QR không lọt vào `OrderSummary`/prompt; 422 khi xác nhận → đề xuất `CANCELLED`; `BookingConfirmIntent` so khớp toàn câu ≤ 6 từ, không `contains`.
+
+### 2026-10-22 — Course Correction (lần 2): chỉ nút Đồng ý, bỏ xác nhận bằng câu "ok"
+- **Decision:** Người dùng chọn xác nhận đặt vé bằng một nút "Đồng ý" trên thẻ đề xuất. Bỏ đường gõ "ok" (`BookingConfirmIntent`, bước 1d). Câu chữ của khách không còn xác nhận đơn.
+- **Rationale:** Một nút rõ ràng hơn, không phải đoán ý từ câu chữ, và bỏ hẳn rủi ro bắt nhầm câu thành đơn thật. Luồng vẫn là: AI đề xuất → bấm Đồng ý → quét VietQR.
+- **Impact:** ADR-2001 điểm 3 viết lại; bỏ mục API "xác nhận bằng câu trả lời". Story 1.8 `cancelled` (giữ tệp). 1.3, 1.4 (`confirm(userId, proposalId)` bỏ tham số câu khách), 1.5, 1.7, 2.2, 2.4 gỡ tham chiếu 1.8. Còn 19 story.
+- **In-progress stories affected:** none
+- **Made by:** bmad-correct-course
+- **Supersedes:** Course Correction "xác nhận đặt vé bằng câu trả lời" cùng ngày (phần thẻ PAYMENT VietQR giữ nguyên)
