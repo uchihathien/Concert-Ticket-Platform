@@ -3,6 +3,7 @@ package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogAccess;
 import com.nexaticket.catalog.application.CatalogErrorCode;
+import com.nexaticket.catalog.application.InputRules;
 import com.nexaticket.catalog.domain.model.Event;
 import com.nexaticket.catalog.domain.model.EventSession;
 import com.nexaticket.catalog.domain.port.EventRepository;
@@ -51,6 +52,7 @@ public class AddSessionHandler {
             throw new ApiException(CatalogErrorCode.INVALID_EVENT_STATE, "Rút sự kiện xuống trước khi thêm suất diễn");
         }
 
+        InputRules.requireSalesWindow(salesOpenAt, salesCloseAt);
         EventSession session = EventSession.create(
                 event.id(),
                 startsAt,

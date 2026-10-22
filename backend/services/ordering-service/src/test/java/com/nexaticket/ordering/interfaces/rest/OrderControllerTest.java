@@ -48,7 +48,11 @@ import org.springframework.test.web.servlet.MockMvc;
  * của starter-web. Tầng application là mock: ở đây chỉ kiểm hợp đồng HTTP.
  */
 @WebMvcTest(controllers = OrderController.class)
-@ImportAutoConfiguration({SecurityAutoConfiguration.class, WebAutoConfiguration.class})
+@ImportAutoConfiguration({
+    SecurityAutoConfiguration.class,
+    WebAutoConfiguration.class,
+    com.nexaticket.platform.idempotency.IdempotencyAutoConfiguration.class
+})
 @Import(WebSliceSecurity.class)
 class OrderControllerTest {
 

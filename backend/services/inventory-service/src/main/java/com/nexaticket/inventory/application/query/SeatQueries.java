@@ -37,6 +37,11 @@ public class SeatQueries {
         SessionInventory inventory = sessions.findBySessionId(eventSessionId)
                 .orElseThrow(() -> new ApiException(InventoryErrorCode.SESSION_NOT_FOUND, "Event session not found"));
 
+        // Đọc version TRƯỚC khi đọc ghế. Ngược lại (như bản cũ) thì một lần giữ chỗ chen giữa hai lệnh đọc làm
+        // version MỚI đi kèm dữ liệu CŨ; ETag lấy từ version đó nên client giữ dữ liệu cũ dưới ETag mới và
+        // nhận 304 mãi tới lần đổi sau. Version cũ đi kèm dữ liệu mới thì vô hại: lần sau chỉ tải lại thừa một lần.
+        long version = sessions.currentAvailabilityVersion(eventSessionId);
+
         var seatRows = seats.seatedRows(eventSessionId).stream()
                 .map(r -> new SeatMapView.Seat(
                         r.id(),
@@ -66,8 +71,18 @@ public class SeatQueries {
                     new SeatMapView.PurchaseAllowance(limits.maxTicketsPerCustomer(), used, limits.remainingFor(used));
         }
 
-        return new SeatMapView(
-                eventSessionId, sessions.currentAvailabilityVersion(eventSessionId), seatRows, zones, allowance);
+        return new SeatMapView(eventSessionId, version, seatRows, zones, allowance);
+    }
+
+    /**
+     * Version hiện tại của suất — một câu truy vấn nhẹ, không dựng sơ đồ.
+     *
+     * <p>Để trả 304 mà không phải đọc và dựng hàng chục nghìn ghế chỉ để rồi vứt đi. Suất không tồn tại trả 0:
+     * không ai có ETag "0-…" nên request đó luôn đi tiếp vào {@link #seatMap} và nhận 404 ở đó.
+     */
+    @Transactional(readOnly = true)
+    public long availabilityVersion(UUID eventSessionId) {
+        return sessions.currentAvailabilityVersion(eventSessionId);
     }
 
     /**

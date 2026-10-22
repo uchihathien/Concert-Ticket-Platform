@@ -98,7 +98,10 @@ public class ReserveSeatsHandler {
         }
 
         hold.convert(clock.instant());
-        holds.updateStatus(hold.id(), hold.status(), clock.instant());
+        if (!holds.updateStatus(hold.id(), hold.status(), clock.instant())) {
+            // Khách vừa bỏ chỗ, hoặc worker vừa cho hết hạn, sau khi ta đọc giữ chỗ.
+            throw new ApiException(InventoryErrorCode.HOLD_EXPIRED, "Hold is no longer active");
+        }
 
         int reserved = seats.reserve(hold.seatIds());
         if (reserved != hold.size()) {

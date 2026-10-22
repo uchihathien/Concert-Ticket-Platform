@@ -82,7 +82,7 @@ public class OrderController {
     @GetMapping("/me/orders")
     public List<OrderView> mine(
             @RequestParam(defaultValue = "20") int limit, @RequestParam(defaultValue = "0") int offset) {
-        return queries.forUser(currentUser(), Math.min(limit, 100), offset);
+        return queries.forUser(currentUser(), Math.clamp(limit, 1, 100), Math.max(offset, 0));
     }
 
     @PostMapping("/orders/{orderId}/cancel")

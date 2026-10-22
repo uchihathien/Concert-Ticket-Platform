@@ -13,6 +13,7 @@ import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import com.nexaticket.aichatbox.domain.port.IdentityLookupPort;
+import com.nexaticket.aichatbox.domain.port.SessionNotOwnedException;
 import com.nexaticket.platform.web.error.ApiException;
 import java.time.Clock;
 import java.time.Instant;
@@ -614,9 +615,16 @@ public class HandoffUseCase {
     /** Hội thoại của chính khách, kèm phiếu đang mở nếu có. Không transaction: xem {@link #queue}. */
     public HandoffViews.ChatThread customerThread(UUID sessionId, UUID userId, int transcriptLimit) {
         // Đọc hội thoại TRƯỚC: nó kiểm chủ phiên — phiên của người khác thì dừng trước khi tra gì thêm.
-        List<HandoffViews.MessageRow> messages = history.transcript(sessionId, userId, transcriptLimit).stream()
-                .map(HandoffViews.MessageRow::of)
-                .toList();
+        List<HandoffViews.MessageRow> messages;
+        try {
+            messages = history.transcript(sessionId, userId, transcriptLimit).stream()
+                    .map(HandoffViews.MessageRow::of)
+                    .toList();
+        } catch (SessionNotOwnedException e) {
+            // 404 chứ không 403: không xác nhận phiên của người khác có thật. Để lọt ra là 500 kèm
+            // stack trace trong log cho mỗi lần dò.
+            throw new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "Không tìm thấy phiên chat");
+        }
         return new HandoffViews.ChatThread(sessionId, openRowFor(sessionId).orElse(null), messages);
     }
 

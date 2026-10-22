@@ -46,7 +46,18 @@ public class InviteMemberHandler {
 
     @Transactional
     public String handle(TenantId organizationId, String email, Role role) {
-        TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
+        var actor = TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);
+
+        if (role == Role.SUPER_ADMIN || role == Role.CUSTOMER) {
+            throw new ApiException(
+                    com.nexaticket.platform.web.error.ErrorCode.Common.VALIDATION_FAILED,
+                    "Vai trò không thuộc phạm vi tổ chức: " + role);
+        }
+        // Cùng luật với ManageMembersHandler.changeRole: chỉ OWNER phong được OWNER. Lời mời là đường
+        // vòng — ORG_ADMIN mời email mình kiểm soát làm OWNER rồi nhận lời mời là tự nâng quyền.
+        if (role == Role.ORG_OWNER && !actor.superAdmin() && actor.roleIn(organizationId) != Role.ORG_OWNER) {
+            throw ApiException.forbidden("Chỉ chủ sở hữu mới mời được chủ sở hữu");
+        }
 
         if (role == Role.CHECKIN_STAFF) {
             // Nhân viên soát vé không tự đăng ký và không nhận vai trò qua mã lời mời: tài khoản của

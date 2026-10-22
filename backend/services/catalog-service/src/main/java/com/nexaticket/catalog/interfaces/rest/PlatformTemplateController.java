@@ -194,7 +194,7 @@ public class PlatformTemplateController {
             @Positive Integer capacity,
             Integer sortOrder,
             @PositiveOrZero Long suggestedPriceVnd,
-            @Pattern(regexp = "GRID|ARC") String layoutShape,
+            @Pattern(regexp = "GRID|ARC|TABLE") String layoutShape,
             Double originX,
             Double originY,
             Double rotationDeg,

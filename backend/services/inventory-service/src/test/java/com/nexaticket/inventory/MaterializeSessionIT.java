@@ -135,6 +135,103 @@ class MaterializeSessionIT extends InventoryTestBase {
     }
 
     @Test
+    @DisplayName("Publish lại sau khi sửa giá: chỗ CHƯA bán lấy giá mới, chỗ đã bán / đang giữ giữ giá khách đã thấy")
+    void publish_lai_thi_dong_bo_gia_cho_chua_ban() {
+        // Sửa giá hạng vé chỉ làm được khi sự kiện đã rút xuống, rồi publish lại. Trước đây Inventory giữ
+        // giá cũ vĩnh viễn: Catalog niêm yết 25.000đ, đơn tính 2.500.000đ.
+        var first = manifest(4, 0);
+        materialize.handle(first);
+        UUID sessionId = first.eventSessionId();
+        UUID holder = UUID.randomUUID();
+        jdbc.update(
+                "UPDATE session_seats SET status = 'SOLD', holder_user_id = ? WHERE event_session_id = ? AND seat_code = 'A-1'",
+                holder,
+                sessionId);
+        jdbc.update(
+                "UPDATE session_seats SET status = 'HELD', holder_user_id = ? WHERE event_session_id = ? AND seat_code = 'A-2'",
+                holder,
+                sessionId);
+        jdbc.update(
+                "UPDATE session_seats SET status = 'BLOCKED' WHERE event_session_id = ? AND seat_code = 'A-4'",
+                sessionId);
+
+        materialize.handle(withPrice(first, 25_000L, "Ve ngoi (gia moi)", 40_000L));
+
+        assertThat(priceOf(sessionId, "A-3")).as("chỗ còn trống").isEqualTo(25_000L);
+        assertThat(priceOf(sessionId, "A-4"))
+                .as("chỗ bị chặn, mở lại sau này sẽ bán đúng giá")
+                .isEqualTo(25_000L);
+        assertThat(priceOf(sessionId, "A-1"))
+                .as("chỗ ĐÃ BÁN: hoá đơn phải khớp giá khách đã trả")
+                .isEqualTo(1_500_000L);
+        assertThat(priceOf(sessionId, "A-2"))
+                .as("chỗ ĐANG GIỮ: khách đã thấy giá cũ")
+                .isEqualTo(1_500_000L);
+        assertThat(jdbc.queryForObject(
+                        "SELECT ticket_type_name FROM session_seats WHERE event_session_id = ? AND seat_code = 'A-3'",
+                        String.class,
+                        sessionId))
+                .isEqualTo("Ve ngoi (gia moi)");
+        assertThat(jdbc.queryForObject(
+                        "SELECT status FROM session_seats WHERE event_session_id = ? AND seat_code = 'A-2'",
+                        String.class,
+                        sessionId))
+                .as("đồng bộ giá không được đụng tới trạng thái")
+                .isEqualTo("HELD");
+
+        // Vé đứng: các đơn vị ảo còn trống cũng lấy giá mới.
+        var standing = manifest(0, 5);
+        materialize.handle(standing);
+        materialize.handle(withPrice(standing, 25_000L, "Ve ngoi", 50_000L));
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM session_seats WHERE event_session_id = ? AND admission_type = 'STANDING' AND price_vnd = 50000",
+                        Integer.class,
+                        standing.eventSessionId()))
+                .isEqualTo(5);
+    }
+
+    private long priceOf(UUID sessionId, String seatCode) {
+        return jdbc.queryForObject(
+                "SELECT price_vnd FROM session_seats WHERE event_session_id = ? AND seat_code = ?",
+                Long.class,
+                sessionId,
+                seatCode);
+    }
+
+    /** Cùng suất, giá ghế ngồi và giá vé đứng mới. */
+    private static SessionMaterializer.SessionManifest withPrice(
+            SessionMaterializer.SessionManifest m, long seatPrice, String seatTypeName, long standingPrice) {
+        return new SessionMaterializer.SessionManifest(
+                m.eventSessionId(),
+                m.eventId(),
+                m.organizationId(),
+                m.salesOpenAt(),
+                m.salesCloseAt(),
+                m.maxSeatedPerHold(),
+                m.maxStandingPerHold(),
+                m.maxUnitsPerHold(),
+                m.maxTicketsPerCustomer(),
+                m.seats().stream()
+                        .map(s -> new SessionMaterializer.SeatLine(
+                                s.seatCode(),
+                                s.zoneCode(),
+                                s.sectionLabel(),
+                                s.rowLabel(),
+                                s.seatLabel(),
+                                s.posX(),
+                                s.posY(),
+                                s.ticketTypeId(),
+                                seatTypeName,
+                                seatPrice,
+                                s.blocked()))
+                        .toList(),
+                m.standingBlocks().stream()
+                        .map(b -> new SessionMaterializer.StandingBlock(
+                                b.zoneCode(), b.quantity(), b.ticketTypeId(), b.ticketTypeName(), standingPrice))
+                        .toList());
+    }
+
+    @Test
     @DisplayName("Publish lại với toạ độ mới: chỗ dịch đúng vị trí, trạng thái và người giữ không đổi")
     void publish_lai_thi_dong_bo_toa_do() {
         // Đây là đường chữa cho những suất đang giữ CHỈ SỐ hàng/cột thay vì toạ độ mặt bằng — 52

@@ -74,17 +74,21 @@ public class JdbcSeatHoldRepository implements SeatHoldRepository {
     }
 
     @Override
-    public void updateStatus(UUID holdId, HoldStatus status, Instant at) {
-        jdbc.update(
-                "UPDATE seat_holds SET status = ?, released_at = ? WHERE id = ?",
+    public boolean updateStatus(UUID holdId, HoldStatus status, Instant at) {
+        int changed = jdbc.update(
+                "UPDATE seat_holds SET status = ?, released_at = ? WHERE id = ? AND status = 'ACTIVE'",
                 status.name(),
                 status == HoldStatus.ACTIVE ? null : Timestamp.from(at),
                 holdId);
+        if (changed == 0) {
+            return false;
+        }
         // Nhả dòng khỏi unique index để chỗ dùng lại được nếu quay về AVAILABLE.
         jdbc.update(
                 "UPDATE seat_hold_items SET status = ? WHERE hold_id = ? AND status = 'ACTIVE'",
                 status == HoldStatus.CONVERTED ? "CONVERTED" : "RELEASED",
                 holdId);
+        return true;
     }
 
     @Override

@@ -129,6 +129,12 @@ spring:
               uri: ${LEDGER_URL:http://localhost:8094}
               predicates:
                 - Path=/v1/platform/trial-balance,/v1/platform/organizations/*/balance
+            # Chi trả. `PAYOUT_URL` đã được khai trong deploy/compose/prod.yml nhưng không route nào
+            # dùng nó, nên trình duyệt gọi /v1/platform/payouts nhận 404 của chính gateway.
+            - id: payout
+              uri: ${PAYOUT_URL:http://localhost:8096}
+              predicates:
+                - Path=/v1/platform/payouts/**
             # Webhook payOS. Đây là đường DUY NHẤT từ internet vào payment-service, và không có nó
             # thì mọi khoản tiền phải xác nhận tay bằng lệnh reconcile.
             #

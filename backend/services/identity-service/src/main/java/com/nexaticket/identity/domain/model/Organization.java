@@ -74,6 +74,10 @@ public final class Organization {
     }
 
     public void changeRole(UserId userId, Role newRole) {
+        if (newRole == Role.SUPER_ADMIN || newRole == Role.CUSTOMER) {
+            // Giống addMember: nếu để lọt, CHECK ck_member_role của PostgreSQL mới chặn và người gọi nhận 500.
+            throw new IllegalArgumentException("Vai trò không thuộc phạm vi tổ chức: " + newRole);
+        }
         Membership current =
                 findMember(userId).orElseThrow(() -> new IllegalStateException("Không phải thành viên của tổ chức"));
         if (current.role() == Role.ORG_OWNER && newRole != Role.ORG_OWNER && countOwners() == 1) {

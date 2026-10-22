@@ -64,9 +64,24 @@ public record ConsumedEvent(UUID eventId, String eventType, UUID aggregateId, Js
         return node == null || node.isNull() ? null : node.asText();
     }
 
+    /**
+     * Đọc một trường UUID; {@code null} nếu thiếu <b>hoặc sai khuôn</b>.
+     *
+     * <p>Sai khuôn trả null chứ không ném: mọi consumer đã coi null là message hỏng, ghi log và ack.
+     * Ném {@link IllegalArgumentException} ở đây thoát khỏi listener, transaction rollback và broker
+     * giao lại mãi một message không bao giờ xử lý được — đúng điều {@link MalformedEventException}
+     * tồn tại để tránh.
+     */
     public UUID uuid(String field) {
         String value = text(field);
-        return value == null ? null : UUID.fromString(value);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     public long number(String field) {

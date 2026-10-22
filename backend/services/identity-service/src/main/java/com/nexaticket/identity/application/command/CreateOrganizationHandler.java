@@ -85,9 +85,16 @@ public class CreateOrganizationHandler {
     }
 
     private Slug resolveSlug(CreateOrganization command) {
-        Slug base = (command.slug() == null || command.slug().isBlank())
-                ? Slug.from(command.name())
-                : new Slug(command.slug());
+        Slug base;
+        try {
+            base = (command.slug() == null || command.slug().isBlank())
+                    ? Slug.from(command.name())
+                    : new Slug(command.slug());
+        } catch (IllegalArgumentException e) {
+            // Định dạng slug do constructor của Slug kiểm; để lọt ra là 500 cho một lỗi nhập liệu.
+            throw new ApiException(
+                    com.nexaticket.platform.web.error.ErrorCode.Common.VALIDATION_FAILED, e.getMessage());
+        }
         if (!organizations.slugExists(base)) {
             return base;
         }
@@ -96,7 +103,12 @@ public class CreateOrganizationHandler {
             throw new ApiException(IdentityErrorCode.SLUG_ALREADY_TAKEN, "Slug already taken: " + base);
         }
         for (int n = 2; n <= MAX_SLUG_ATTEMPTS; n++) {
-            Slug candidate = base.withSuffix(n);
+            Slug candidate;
+            try {
+                candidate = base.withSuffix(n);
+            } catch (IllegalArgumentException e) {
+                break; // tên đã dài sát 64 ký tự: thêm hậu tố là vượt trần, coi như không còn chỗ
+            }
             if (!organizations.slugExists(candidate)) {
                 return candidate;
             }

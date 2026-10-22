@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Adapter persistence.
@@ -35,10 +36,19 @@ public class JdbcOrganizationRepository implements OrganizationRepository {
 
     @Override
     public Optional<Organization> findById(TenantId id) {
+        // Trong giao dịch GHI thì khoá dòng tổ chức tới hết giao dịch. save() đồng bộ cả tập thành
+        // viên theo ảnh chụp lúc đọc: hai lệnh đọc cùng lúc rồi ghi nối tiếp thì lệnh sau xoá mất
+        // người lệnh trước vừa thêm, hoặc chèn lại người lệnh trước vừa gỡ (OrganizationConcurrencyIT).
+        // Khoá bi quan làm lệnh thứ hai CHỜ rồi đọc ảnh đã commit. Giao dịch chỉ đọc và ngoài giao
+        // dịch thì không khoá: PostgreSQL cấm FOR UPDATE trong giao dịch read-only, và đường đọc
+        // không cần nó.
+        boolean lock = TransactionSynchronizationManager.isActualTransactionActive()
+                && !TransactionSynchronizationManager.isCurrentTransactionReadOnly();
         List<Organization> found = jdbc.query(
                 """
                 SELECT id, slug, name, status, created_at FROM organizations WHERE id = ?
-                """,
+                """
+                        + (lock ? " FOR UPDATE" : ""),
                 (rs, i) -> hydrate(
                         TenantId.of(rs.getObject("id", UUID.class)),
                         new Slug(rs.getString("slug")),

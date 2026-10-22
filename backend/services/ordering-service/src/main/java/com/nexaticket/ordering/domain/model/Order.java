@@ -226,7 +226,9 @@ public final class Order {
      * @return true nếu lần gọi này thực sự đóng đơn; false nếu đơn đã đóng hoặc đã PAID
      */
     public boolean close(OrderStatus reason, Instant now, String note) {
-        if (reason.isOpen()) {
+        // Chỉ hai kết cục đóng đơn. Nhận PAID ở đây là một đường vào PAID không qua markPaid và
+        // không có paidAt; REFUNDED / MANUAL_REVIEW có đường riêng của chúng.
+        if (reason != OrderStatus.EXPIRED && reason != OrderStatus.CANCELLED) {
             throw new IllegalArgumentException("Lý do đóng đơn không hợp lệ: " + reason);
         }
         // Đơn đã PAID không bao giờ bị worker hết hạn đóng: tiền đã vào tài khoản ta rồi.

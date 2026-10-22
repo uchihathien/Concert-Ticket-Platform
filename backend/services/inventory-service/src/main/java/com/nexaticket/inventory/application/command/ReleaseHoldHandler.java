@@ -56,7 +56,11 @@ public class ReleaseHoldHandler {
         }
 
         hold.release();
-        holds.updateStatus(hold.id(), hold.status(), clock.instant());
+        if (!holds.updateStatus(hold.id(), hold.status(), clock.instant())) {
+            // Đặt chỗ hoặc worker hết hạn vừa đưa giữ chỗ ra khỏi ACTIVE giữa lúc đọc và lúc ghi.
+            // Ghế giờ thuộc về bên kia — nhả chúng ở đây là bán một chỗ hai lần.
+            return;
+        }
         seats.release(hold.seatIds());
 
         UUID sessionId = hold.eventSessionId();

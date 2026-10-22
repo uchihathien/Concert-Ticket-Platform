@@ -60,13 +60,16 @@ public class RecordPaymentHandler {
                 .idempotencyKey(command.idempotencyKey())
                 .memo(command.memo())
                 .createdBy("ledger-service")
-                .debit(ledger.platformAccountId(AccountCode.CASH_ESCROW), gross)
-                .credit(
-                        ledger.organizationAccountId(AccountCode.ORGANIZER_PAYABLE_HELD, command.organizationId()),
-                        organizerShare);
+                .debit(ledger.platformAccountId(AccountCode.CASH_ESCROW), gross);
 
-        // Hoa hồng 0% là hợp lệ (ví dụ sự kiện phi lợi nhuận); khi đó bỏ hẳn dòng thay vì
-        // ghi một định khoản 0 đồng vô nghĩa.
+        // Hai dòng có, mỗi dòng có thể bằng 0 — và định khoản 0 đồng bị JournalEntry từ chối:
+        // hoa hồng 0% hợp lệ (sự kiện phi lợi nhuận), và 100% cũng hợp lệ (ck_commission_bps cho
+        // tới 10000) — khi đó tổ chức không nhận gì. Bỏ hẳn dòng 0 thay vì làm hỏng cả bút toán.
+        if (!organizerShare.isZero()) {
+            builder.credit(
+                    ledger.organizationAccountId(AccountCode.ORGANIZER_PAYABLE_HELD, command.organizationId()),
+                    organizerShare);
+        }
         if (!commission.isZero()) {
             builder.credit(ledger.platformAccountId(AccountCode.COMMISSION_REVENUE), commission);
         }

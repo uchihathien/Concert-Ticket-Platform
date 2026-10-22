@@ -19,7 +19,18 @@ public interface SeatHoldRepository {
 
     Optional<SeatHold> findById(UUID holdId);
 
-    void updateStatus(UUID holdId, com.nexaticket.inventory.domain.model.HoldStatus status, Instant at);
+    /**
+     * Đưa giữ chỗ ra khỏi ACTIVE — <b>chỉ khi nó còn ACTIVE</b> (compare-and-set trên {@code status}).
+     *
+     * <p>Bỏ chỗ và đặt chỗ đọc giữ chỗ không khoá rồi mới ghi. Nếu lệnh ghi không có điều kiện, bên
+     * đến sau ghi đè bên đến trước: bỏ chỗ chờ đặt chỗ commit xong rồi vẫn đổi CONVERTED thành
+     * RELEASED và trả ghế RESERVED về kho — đơn kia vẫn RESERVED và ghế bị bán lần hai
+     * ({@code ReleaseReserveRaceIT}). Với điều kiện, PostgreSQL đánh giá lại {@code WHERE} trên bản
+     * đã commit và bên đến sau nhận về false.
+     *
+     * @return true nếu lần gọi này thực sự đổi trạng thái; false nếu giữ chỗ đã rời ACTIVE trước đó
+     */
+    boolean updateStatus(UUID holdId, com.nexaticket.inventory.domain.model.HoldStatus status, Instant at);
 
     /**
      * Lấy các giữ chỗ ACTIVE đã quá hạn để worker dọn.

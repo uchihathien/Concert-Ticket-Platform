@@ -249,7 +249,7 @@ public class AdminCatalogController {
             @PathVariable UUID organizationId,
             @PathVariable UUID eventId,
             @PathVariable UUID sessionId,
-            @RequestBody SessionPatch request) {
+            @Valid @RequestBody SessionPatch request) {
         editSession.update(
                 organizationId,
                 eventId,
@@ -380,6 +380,6 @@ public class AdminCatalogController {
     public record TicketTypeRequest(
             @NotNull UUID venueZoneId,
             @NotBlank @Size(max = 100) String name,
-            @PositiveOrZero long priceVnd,
+            @NotNull @PositiveOrZero Long priceVnd,
             Integer sortOrder) {}
 }

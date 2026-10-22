@@ -79,6 +79,9 @@ public class OrganizationLifecycleHandler {
     public void activate(TenantId organizationId) {
         TenantContext.requirePlatformPermission(Permission.PLATFORM_ORG_MANAGE);
         Organization organization = load(organizationId);
+        if (organization.isActive()) {
+            return; // idempotent: không lưu, và không ghi nhật ký "trước đó: SUSPENDED" cho tổ chức chưa từng bị khoá
+        }
 
         organization.activate();
         organizations.save(organization);

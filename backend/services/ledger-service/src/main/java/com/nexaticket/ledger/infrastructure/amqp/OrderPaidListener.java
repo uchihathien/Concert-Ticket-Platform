@@ -75,8 +75,20 @@ public class OrderPaidListener {
             return;
         }
 
-        Money gross = Money.ofVnd(event.number("totalVnd"));
-        Money commission = Money.ofVnd(event.number("commissionVnd"));
+        long totalVnd = event.number("totalVnd");
+        long commissionVnd = event.number("commissionVnd");
+        if (totalVnd <= 0 || commissionVnd < 0 || commissionVnd > totalVnd) {
+            // Số tiền vô lý là message hỏng vĩnh viễn. Ném ở Money.ofVnd sẽ rollback và chặn đầu
+            // hàng đợi tuần tự này mãi mãi; ack và để con người nhìn log thì không.
+            log.error(
+                    "Message order.paid của đơn {} có số tiền vô lý (tổng {}, hoa hồng {}), bỏ qua ghi sổ",
+                    orderId,
+                    totalVnd,
+                    commissionVnd);
+            return;
+        }
+        Money gross = Money.ofVnd(totalVnd);
+        Money commission = Money.ofVnd(commissionVnd);
         int commissionBps = (int) event.number("commissionBps");
 
         UUID entryId = recordPayment.handle(RecordPaymentHandler.Command.ofOrder(

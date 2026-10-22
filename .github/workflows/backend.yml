@@ -32,12 +32,31 @@ jobs:
       # Unit test + ArchUnit. ArchUnit là thứ chặn monorepo thoái hoá thành monolith,
       # nên nó chạy ở mọi PR chứ không phải nightly.
       - name: Unit test + ArchUnit
-        run: sh ./mvnw -B -ntp verify -DskipITs
+        run: sh ./mvnw -B -ntp verify -Pcoverage -DskipITs
 
       # Tách job để thấy ngay cái nào hỏng: logic hay hạ tầng.
       # Runner của GitHub có sẵn Docker nên Testcontainers chạy được.
-      - name: Integration test (Testcontainers)
-        run: sh ./mvnw -B -ntp verify -Dsurefire.skip=true
+      #
+      # -Pcoverage ở CẢ HAI bước: bước unit ghi jacoco.exec, bước này ghi jacoco-it.exec, và JaCoCo gộp hai
+      # tệp thành báo cáo target/site/jacoco-merged/ của từng module.
+      - name: Integration test (Testcontainers) + coverage
+        run: sh ./mvnw -B -ntp verify -Pcoverage -Dsurefire.skip=true
+
+      # Cổng chặn tụt coverage, không phải mục tiêu: 85% dòng toàn repo (đo thực tế 87,7%). Nhánh chưa
+      # đặt cổng vì mới 77% — xem docs/testing/known-testing-gaps.md.
+      - name: Coverage summary + cổng 85% dòng
+        working-directory: .
+        run: |
+          python3 scripts/coverage-summary.py --markdown --fail-under-line 85 | tee coverage.md
+          cat coverage.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Lưu báo cáo JaCoCo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-merged
+          path: backend/**/target/site/jacoco-merged/
+          retention-days: 14
 
   secret-scan:
     runs-on: ubuntu-latest

@@ -2,6 +2,8 @@
 package com.nexaticket.ticketing.interfaces.rest;
 
 import com.nexaticket.ticketing.application.command.IssueTicketsHandler;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.UUID;
@@ -30,7 +32,7 @@ public class InternalTicketController {
             @NotNull UUID eventSessionId,
             @NotNull UUID organizationId,
             @NotNull UUID userId,
-            List<SeatLine> seats) {
+            @NotEmpty List<SeatLine> seats) {
 
         public record SeatLine(
                 UUID orderItemId,
@@ -48,7 +50,7 @@ public class InternalTicketController {
     public record IssueResponse(int issued) {}
 
     @PostMapping
-    public IssueResponse issue(@RequestBody IssueRequest request) {
+    public IssueResponse issue(@Valid @RequestBody IssueRequest request) {
         return new IssueResponse(issueTickets.handle(new IssueTicketsHandler.Command(
                 request.orderId(),
                 request.eventSessionId(),
