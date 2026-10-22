@@ -82,12 +82,22 @@ Các check đạt, mỗi vòng: giữ chỗ 201 · đặt đơn 201 · tổng ti
 Giới hạn: tải thấp (2 đơn/s, 4 người dùng) trên máy dùng chung; chưa chạm trần hạn mức mua của người dùng và
 chưa có ticketing / ledger / notification nên chưa kiểm phát vé sau `PAID`.
 
-**Một điều quan sát được, chưa rõ nguyên nhân:** hạng vé "Sát sàn 16 · Courtside" của `chung-ket-vba-2026` có giá
-**25.000đ** trong catalog (`ticket_types.price_vnd`, và trên trang chi tiết sự kiện) nhưng **2.500.000đ** trong
-inventory (`session_seats.price_vnd`) — khách thấy một giá, đơn lại tính giá kia (inventory là nguồn giá của đơn).
-Chỉ 3/233 hạng vé có giá dưới 100.000đ; khả năng cao giá catalog bị sửa sau khi publish (phục vụ thử payOS thật
-rẻ) mà tồn kho không được đồng bộ (`POST …/resync-inventory` là thao tác tay). Cần xác nhận: sửa giá hạng vé
-của sự kiện đã publish có bị chặn / tự đồng bộ không.
+**Một điều quan sát được — đã tìm ra nguyên nhân và đã sửa:** hạng vé "Sát sàn 16 · Courtside" của
+`chung-ket-vba-2026` có giá **25.000đ** trong catalog (`ticket_types.price_vnd`, và trên trang chi tiết sự kiện)
+nhưng **2.500.000đ** trong inventory (`session_seats.price_vnd`) — khách thấy một giá, đơn lại tính giá kia
+(inventory là nguồn giá của đơn).
+
+Nguyên nhân là một lỗi thật, không phải dữ liệu demo: sửa giá hạng vé chỉ làm được khi sự kiện đã rút xuống
+(`EditableEvent`), rồi publish lại. Publish lại gửi `session.published` với giá mới, nhưng
+`JdbcSessionMaterializer` chỉ đồng bộ lại cửa bán, trần mua vé và toạ độ — **không đồng bộ giá** — nên tồn kho giữ
+giá cũ vĩnh viễn. (Cùng họ lỗi với cửa bán đã được sửa trước đó; bản sửa cố ý không đụng giá vì lo hoá đơn của chỗ
+đã bán, một lo ngại đúng nhưng chỉ áp cho chỗ đã bán.)
+
+**Đã sửa:** `syncUnsoldPrices` đồng bộ giá và tên hạng vé cho chỗ **chưa có ai đụng tới** (`AVAILABLE`, `BLOCKED`, kể cả
+đơn vị ảo của vé đứng); chỗ đã bán / đang giữ / đã đặt giữ giá khách đã thấy. Kiểm bằng
+`MaterializeSessionIT.publish_lai_thi_dong_bo_gia_cho_chua_ban` (đỏ khi bỏ bản sửa: giá vẫn 1.500.000, xanh khi có).
+Dữ liệu demo đã lệch sẵn được chữa bằng `POST /v1/organizations/{org}/events/{id}/resync-inventory` (hoặc rút xuống rồi
+publish lại) sau khi triển khai bản sửa.
 
 ## 4. Chưa chạy
 

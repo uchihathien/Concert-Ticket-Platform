@@ -10,8 +10,8 @@ Mọi con số dưới đây **đã chạy và đọc từ đầu ra thật** tr
 | Tầng | Số test | Đạt | Đỏ | Bỏ qua |
 | --- | ---: | ---: | ---: | ---: |
 | Unit + API slice + ArchUnit (Surefire) | 2.614 | 2.614 | 0 | 0 |
-| Integration, PostgreSQL/Redis thật (Failsafe) | 383 | 383 | 0 | 0 |
-| **Tổng backend** | **2.997** | **2.997** | **0** | **0** |
+| Integration, PostgreSQL/Redis thật (Failsafe) | 384 | 384 | 0 | 0 |
+| **Tổng backend** | **2.998** | **2.998** | **0** | **0** |
 
 Trước đợt này: 358 unit test (đo ở lần chạy ban đầu, tất cả xanh) + bộ IT có sẵn (chưa chạy được lúc đó vì Docker tắt).
 
@@ -21,7 +21,7 @@ test nào đỏ hay bị bỏ qua.
 
 Theo module (unit / IT): shared-kernel 101/—, starter-web 75/—, starter-security 133/—,
 starter-outbox 10/—, starter-idempotency 28/9, api-gateway 163/8, identity 336/76, ledger 64/21,
-catalog 486/60, inventory 206/44, ordering 216/30, realtime-gateway 34/—, payment 214/27,
+catalog 486/60, inventory 206/45, ordering 216/30, realtime-gateway 34/—, payment 214/27,
 payout 79/8, ticketing 212/39, notification 57/7, analytics 47/7, ai-chatbox 153/47.
 
 ### Frontend
