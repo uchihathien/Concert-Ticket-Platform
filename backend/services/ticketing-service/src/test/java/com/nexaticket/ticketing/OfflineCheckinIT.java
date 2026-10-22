@@ -108,7 +108,10 @@ class OfflineCheckinIT extends TicketingTestBase {
         UUID shift = startShift();
         UUID a = issueOne();
         UUID b = issueOne();
-        Instant t0 = Instant.now().minus(Duration.ofMinutes(3));
+        // Cắt về micro giây: PostgreSQL lưu micro giây, còn Instant.now() trên Windows có độ phân giải 100 ns —
+        // so sánh nguyên văn đỏ trên Windows và xanh trên Linux/macOS.
+        Instant t0 =
+                Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS).minus(Duration.ofMinutes(3));
 
         // Gửi lệch thứ tự: server phải xếp lại theo thời điểm quét (vào trước, ra sau).
         var result = offline.sync(
