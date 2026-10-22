@@ -31,6 +31,12 @@ public interface HandoffRepository {
     Optional<Handoff> findById(UUID handoffId);
 
     /**
+     * Phiếu hoàn vé đang mở (WAITING/ASSIGNED) của khách cho một đơn, ở BẤT KỲ phiên nào — cũ nhất
+     * trước. Phiếu không có {@code details.orderId} (dữ liệu cũ) không khớp.
+     */
+    Optional<Handoff> findOpenRefund(UUID userId, UUID orderId);
+
+    /**
      * Hàng đợi của người trực: phiếu chưa xong, cũ nhất trước.
      *
      * @param mine {@code null} lấy cả hàng đợi; khác {@code null} chỉ lấy phiếu của chính người

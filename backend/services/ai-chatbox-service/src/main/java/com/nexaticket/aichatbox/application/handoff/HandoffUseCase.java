@@ -120,6 +120,17 @@ public class HandoffUseCase {
      * <p>Trả kiểu domain vì người gọi là {@code CustomerSupportAgentUseCase} — cùng tầng
      * application, và nó cần biết phiếu <b>có hay không</b> chứ không cần hiển thị gì.
      */
+    /**
+     * Phiếu hoàn vé đang mở của khách cho đơn này, ở bất kỳ phiên nào — để không mở phiếu thứ hai
+     * cho cùng một đơn (R-13). Không có ràng buộc DB: hai phiên cùng xin hoàn một đơn ĐÚNG cùng lúc
+     * vẫn có thể lọt; 6.10 đã tuần tự hoá lượt trong một phiên, và hai phiên song song cho cùng một
+     * đơn là đủ hiếm để chấp nhận.
+     */
+    @Transactional(readOnly = true)
+    public Optional<Handoff> findOpenRefund(UUID userId, UUID orderId) {
+        return handoffs.findOpenRefund(userId, orderId);
+    }
+
     @Transactional(readOnly = true)
     public Optional<Handoff> openFor(UUID sessionId) {
         return handoffs.openBySession(sessionId);

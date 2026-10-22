@@ -106,6 +106,21 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 .optional();
     }
 
+    /**
+     * Vị từ {@code intent = 'REFUND' and OPEN} khớp đúng index bộ phận {@code idx_handoff_queue_intent};
+     * {@code details} là TEXT JSON do ObjectMapper ghi, nên ép {@code ::jsonb} an toàn, và
+     * {@code null} chỉ cho ra {@code null}.
+     */
+    @Override
+    public Optional<Handoff> findOpenRefund(UUID userId, UUID orderId) {
+        return db.sql("select " + COLUMNS + " from chat_handoffs where user_id = :userId and intent = 'REFUND' and "
+                        + OPEN + " and details::jsonb ->> 'orderId' = :orderId order by requested_at limit 1")
+                .param("userId", userId)
+                .param("orderId", orderId.toString())
+                .query(JdbcHandoffRepository::map)
+                .optional();
+    }
+
     @Override
     public Optional<Handoff> findById(UUID handoffId) {
         return db.sql("select " + COLUMNS + " from chat_handoffs where id = :id")

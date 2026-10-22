@@ -43,6 +43,17 @@ public class InMemoryHandoffRepository implements HandoffRepository {
     }
 
     @Override
+    public Optional<Handoff> findOpenRefund(UUID userId, UUID orderId) {
+        return rows.values().stream()
+                .filter(h -> h.userId().equals(userId)
+                        && h.intent() == SupportIntent.REFUND
+                        && h.isOpen()
+                        && h.details() != null
+                        && h.details().contains("\"orderId\":\"" + orderId + "\""))
+                .min(Comparator.comparing(Handoff::requestedAt));
+    }
+
+    @Override
     public Optional<Handoff> findById(UUID handoffId) {
         return Optional.ofNullable(rows.get(handoffId));
     }
