@@ -3,6 +3,7 @@ package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogAccess;
 import com.nexaticket.catalog.application.CatalogErrorCode;
+import com.nexaticket.catalog.application.InputRules;
 import com.nexaticket.catalog.application.query.CatalogViews;
 import com.nexaticket.catalog.domain.model.AdmissionKind;
 import com.nexaticket.catalog.domain.model.Venue;
@@ -61,7 +62,7 @@ public class AddZoneHandler {
             throw new ApiException(CatalogErrorCode.ZONE_NOT_FOUND, "Loại khu không hợp lệ: " + kind);
         }
 
-        VenueZone zone = new VenueZone(
+        VenueZone zone = InputRules.validated(() -> new VenueZone(
                 UUID.randomUUID(),
                 venue.id(),
                 zoneCode,
@@ -70,7 +71,7 @@ public class AddZoneHandler {
                 rowCount,
                 seatsPerRow,
                 capacity,
-                sortOrder);
+                sortOrder));
         venues.addZone(zone);
 
         return new CatalogViews.AdminZone(

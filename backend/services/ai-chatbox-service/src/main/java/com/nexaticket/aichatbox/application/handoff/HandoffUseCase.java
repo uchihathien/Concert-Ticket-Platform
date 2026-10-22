@@ -465,12 +465,17 @@ public class HandoffUseCase {
     /** Hội thoại của chính khách, kèm phiếu đang mở nếu có. */
     @Transactional(readOnly = true)
     public HandoffViews.ChatThread customerThread(UUID sessionId, UUID userId, int transcriptLimit) {
-        return new HandoffViews.ChatThread(
-                sessionId,
-                openRowFor(sessionId).orElse(null),
-                history.transcript(sessionId, userId, transcriptLimit).stream()
-                        .map(HandoffViews.MessageRow::of)
-                        .toList());
+        List<HandoffViews.MessageRow> transcript;
+        try {
+            transcript = history.transcript(sessionId, userId, transcriptLimit).stream()
+                    .map(HandoffViews.MessageRow::of)
+                    .toList();
+        } catch (com.nexaticket.aichatbox.domain.port.SessionNotOwnedException e) {
+            // 404 chứ không 403: không xác nhận phiên của người khác có thật. Để lọt ra là 500 kèm
+            // stack trace trong log cho mỗi lần dò.
+            throw new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "Không tìm thấy phiên chat");
+        }
+        return new HandoffViews.ChatThread(sessionId, openRowFor(sessionId).orElse(null), transcript);
     }
 
     private Handoff require(UUID handoffId) {

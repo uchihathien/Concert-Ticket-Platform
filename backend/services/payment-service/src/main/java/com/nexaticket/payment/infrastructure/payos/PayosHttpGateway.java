@@ -286,7 +286,19 @@ public class PayosHttpGateway implements PayosGateway {
             RestClient.RequestHeadersSpec<?> spec = "GET".equals(method)
                     ? client.get().uri(path)
                     : client.post().uri(path).body(body == null ? Map.of() : body);
-            envelope = spec.retrieve().body(JsonNode.class);
+            var response = spec.retrieve().toEntity(JsonNode.class);
+            if (response.getStatusCode().is5xxServerError()) {
+                // 5xx là sự cố phía payOS, kể cả khi nó kèm envelope JSON có mã lỗi: hợp đồng của
+                // PayosGateway nói 5xx = Unavailable (503, thử lại được). Đọc mã trong body ở đây
+                // sẽ biến một lần payOS chập chờn thành Rejected (502) — khách bị từ chối hẳn.
+                throw new Unavailable(
+                        "payOS trả HTTP %d khi %s"
+                                .formatted(response.getStatusCode().value(), what),
+                        null);
+            }
+            envelope = response.getBody();
+        } catch (Unavailable e) {
+            throw e;
         } catch (RuntimeException e) {
             throw new Unavailable("Không gọi được payOS để " + what, e);
         }

@@ -92,7 +92,10 @@ public final class PayoutGate {
      * chỉ superadmin nhập được đích chi trả.
      */
     private static boolean namesMatch(String accountHolder, String legalName) {
-        return normalize(accountHolder).equals(normalize(legalName));
+        String holder = normalize(accountHolder);
+        // Rỗng sau chuẩn hoá (tên không có chữ Latin nào, hoặc thiếu tên) không chứng minh được gì:
+        // hai tên khác nhau hoàn toàn cùng thành "" và sẽ "khớp".
+        return !holder.isEmpty() && holder.equals(normalize(legalName));
     }
 
     private static String normalize(String value) {

@@ -1,6 +1,10 @@
 spring:
   application:
     name: catalog-service
+  jackson:
+    deserialization:
+      # Giá 1.5 phải bị từ chối, không bị cắt âm thầm thành 1.
+      accept-float-as-int: false
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/catalog_db}
     username: ${DB_USER:catalog}

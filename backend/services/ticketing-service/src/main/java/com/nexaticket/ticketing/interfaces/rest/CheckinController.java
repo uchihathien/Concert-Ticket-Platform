@@ -3,7 +3,6 @@ package com.nexaticket.ticketing.interfaces.rest;
 
 import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.TenantId;
-import com.nexaticket.platform.security.annotation.RequiresPermission;
 import com.nexaticket.platform.security.tenant.TenantContext;
 import com.nexaticket.platform.web.error.ApiException;
 import com.nexaticket.ticketing.application.CheckinAccess;
@@ -77,7 +76,9 @@ public class CheckinController {
             UUID ticketSessionId) {}
 
     @PostMapping
-    @RequiresPermission(Permission.CHECKIN_SCAN)
+    // Không dùng @RequiresPermission: đường dẫn này không mang tổ chức, và PermissionGuard từ chối mọi
+    // quyền của tổ chức trên route như vậy (nên trước đây MỌI request đều 403). Quyền CHECKIN_SCAN vẫn
+    // được kiểm — trong CheckinAccess.requireScanner, theo tổ chức của membership đang hoạt động.
     public ScanResponse scan(@PathVariable UUID eventSessionId, @Valid @RequestBody ScanRequest request) {
         var tenant = TenantContext.requireActiveTenant();
         // Tổ chức lấy từ token đăng nhập của nhân viên, KHÔNG từ request: nếu để client gửi,

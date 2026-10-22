@@ -27,7 +27,9 @@ public enum EmailTemplate {
     }
 
     public String subject(Map<String, Object> payload) {
-        Object headline = payload.getOrDefault("headline", "");
+        // Tên tổ chức / sự kiện do người dùng đặt. CR/LF trong tiêu đề thư là chèn header SMTP
+        // ("Bcc: ...") — nên gộp mọi ký tự điều khiển thành dấu cách.
+        String headline = String.valueOf(payload.getOrDefault("headline", "")).replaceAll("\\p{Cntrl}+", " ");
         return subjectPattern.formatted(headline);
     }
 

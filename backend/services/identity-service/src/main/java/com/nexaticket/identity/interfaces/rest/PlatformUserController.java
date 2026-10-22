@@ -8,6 +8,7 @@ import com.nexaticket.identity.application.query.AuditQueries;
 import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.id.UserId;
 import com.nexaticket.platform.security.annotation.RequiresPermission;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -118,7 +119,7 @@ public class PlatformUserController {
     @PostMapping("/users/{userId}/disable")
     @RequiresPermission(Permission.PLATFORM_USER_MANAGE)
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void disable(@PathVariable UUID userId, @RequestBody(required = false) DisableRequest request) {
+    public void disable(@PathVariable UUID userId, @Valid @RequestBody(required = false) DisableRequest request) {
         lifecycle.disable(UserId.of(userId), request == null ? null : request.reason());
     }
 

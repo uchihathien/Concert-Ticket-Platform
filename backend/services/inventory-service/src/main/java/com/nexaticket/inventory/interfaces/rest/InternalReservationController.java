@@ -3,6 +3,7 @@ package com.nexaticket.inventory.interfaces.rest;
 
 import com.nexaticket.inventory.application.command.ReserveSeatsHandler;
 import com.nexaticket.inventory.application.command.SettleReservationHandler;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
 import java.util.UUID;
@@ -77,7 +78,7 @@ public class InternalReservationController {
     }
 
     @PostMapping
-    public ReserveResponse reserve(@RequestBody ReserveRequest request) {
+    public ReserveResponse reserve(@Valid @RequestBody ReserveRequest request) {
         var result = reserveSeats.handle(
                 new ReserveSeatsHandler.Command(request.orderId(), request.holdId(), request.userId()));
 

@@ -26,7 +26,7 @@ public class MyTicketsController {
     @GetMapping("/me/tickets")
     public List<TicketView> mine(
             @RequestParam(defaultValue = "50") int limit, @RequestParam(defaultValue = "0") int offset) {
-        return queries.forUser(currentUser(), Math.min(limit, 100), offset);
+        return queries.forUser(currentUser(), Math.clamp(limit, 1, 100), Math.max(offset, 0));
     }
 
     @GetMapping("/orders/{orderId}/tickets")

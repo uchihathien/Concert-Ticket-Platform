@@ -38,6 +38,31 @@ public class IdempotencyStore {
                 == 1;
     }
 
+    /**
+     * Nhận lại bản ghi "đang xử lý" đã bỏ dở.
+     *
+     * <p>Tiến trình đã chết giữa {@link #tryBegin} và {@link #complete} để lại một bản ghi không bao
+     * giờ hoàn tất; không nhận lại thì khoá đó trả 409 mãi mãi. Chỉ nhận lại bản ghi CHƯA có câu trả
+     * lời và đã cũ hơn {@code staleAfter}.
+     *
+     * @return true nếu giành được quyền xử lý lại
+     */
+    public boolean takeOverIfStale(UUID userId, String key, String requestHash, java.time.Duration staleAfter) {
+        return jdbc.update(
+                        """
+                        UPDATE idempotency_records
+                           SET request_hash = ?, created_at = now()
+                         WHERE user_id IS NOT DISTINCT FROM ? AND idem_key = ?
+                           AND response_status IS NULL
+                           AND created_at < now() - (? * interval '1 second')
+                        """,
+                        requestHash,
+                        userId,
+                        key,
+                        staleAfter.toSeconds())
+                == 1;
+    }
+
     public Optional<Existing> find(UUID userId, String key) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(

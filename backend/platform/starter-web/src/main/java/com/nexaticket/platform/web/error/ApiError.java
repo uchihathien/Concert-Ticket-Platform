@@ -15,6 +15,17 @@ public record ApiError(
         String correlationId,
         Map<String, Object> meta) {
 
+    /**
+     * Cùng nội dung nhưng {@code status} trong thân khớp với mã HTTP thật.
+     *
+     * <p>{@link #of} lấy status từ {@link ErrorCode}; với lỗi do Spring phân loại (409, 405, 415…)
+     * mã HTTP đi theo ngoại lệ, và nếu thân vẫn ghi 400 thì client đọc hai con số khác nhau cho
+     * cùng một phản hồi.
+     */
+    public ApiError withStatus(int httpStatus) {
+        return new ApiError(type, title, httpStatus, code, detail, correlationId, meta);
+    }
+
     private static final String TYPE_BASE = "https://nexaticket.vn/errors/";
 
     public static ApiError of(ErrorCode errorCode, String detail, String correlationId, Map<String, Object> meta) {

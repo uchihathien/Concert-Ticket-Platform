@@ -76,8 +76,18 @@ public class SessionPublishedListener {
             return;
         }
 
+        SessionMaterializer.SessionManifest manifest;
         try {
-            SessionMaterializer.SessionManifest manifest = toManifest(event.payload());
+            manifest = toManifest(event.payload());
+        } catch (RuntimeException e) {
+            // Payload thiếu trường / sai khuôn là hỏng VĨNH VIỄN: giao lại bao nhiêu lần cũng thế,
+            // và nó chặn cả queue phía sau. Khác hẳn lỗi lúc dựng tồn kho bên dưới (database tạm
+            // chết), thứ mà giao lại thì có thể thành công.
+            log.error("Bỏ qua message session.published sai khuôn {}: {}", event.eventId(), e.toString());
+            return;
+        }
+
+        try {
             if (materialize.handle(manifest) > 0) {
                 // Chỉ chạy cho suất VỪA dựng xong. Suất đã có tồn kho từ trước có thể đã bán vé
                 // thật, và bán thêm một mớ chỗ nữa vào đó là làm hỏng dữ liệu chứ không phải làm

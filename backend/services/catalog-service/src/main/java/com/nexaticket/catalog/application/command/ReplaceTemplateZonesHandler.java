@@ -2,6 +2,7 @@
 package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogErrorCode;
+import com.nexaticket.catalog.application.InputRules;
 import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.application.PlatformAccess;
 import com.nexaticket.catalog.application.query.TemplateQueries;
@@ -52,10 +53,16 @@ public class ReplaceTemplateZonesHandler {
                 .findById(templateId)
                 .orElseThrow(() -> new ApiException(CatalogErrorCode.TEMPLATE_NOT_FOUND, "Template not found"));
 
+        java.util.Set<String> seen = new java.util.HashSet<>();
         List<TemplateZone> replacement = new ArrayList<>(zones.size());
         for (int i = 0; i < zones.size(); i++) {
             ZoneSpec spec = zones.get(i);
-            replacement.add(TemplateZone.create(
+            if (!seen.add(spec.zoneCode())) {
+                // Cùng luật với ConfigureVenueZonesHandler; để lọt thì unique (template_id, zone_code) nổ ở database.
+                throw new ApiException(CatalogErrorCode.ZONE_ALREADY_PRICED, "Mã khu trùng nhau: " + spec.zoneCode());
+            }
+            final int position = i;
+            replacement.add(InputRules.validated(() -> TemplateZone.create(
                     template.id(),
                     spec.zoneCode(),
                     spec.name(),
@@ -65,9 +72,9 @@ public class ReplaceTemplateZonesHandler {
                     spec.capacity(),
                     // Thứ tự trên màn hình = thứ tự trong request khi người gọi không nói gì khác.
                     // Bắt họ tự đánh số là bắt họ đánh lại từ đầu mỗi lần chèn một khu vào giữa.
-                    spec.sortOrder() == null ? i : spec.sortOrder(),
+                    spec.sortOrder() == null ? position : spec.sortOrder(),
                     spec.suggestedPriceVnd(),
-                    LayoutSpecs.toLayout(spec.layout())));
+                    LayoutSpecs.toLayout(spec.layout()))));
         }
 
         // Bất biến "mã khu không trùng" kiểm ở aggregate, trước khi chạm database: ràng buộc UNIQUE

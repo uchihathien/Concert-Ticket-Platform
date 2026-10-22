@@ -199,6 +199,9 @@ public class StaffInvitationHandler {
         StaffInvitation invitation = pendingInvitation(organizationId, userId);
         UserRepository.UserRecord user = users.findById(userId)
                 .orElseThrow(() -> new ApiException(IdentityErrorCode.USER_NOT_FOUND, "User not found"));
+        // Kiểm tổ chức TRƯỚC khi đụng vào hệ thống ngoài: xoá tài khoản Keycloak rồi mới phát hiện
+        // tổ chức bị khoá thì transaction rollback còn tài khoản thì mất, không có gì khôi phục.
+        Organization organization = activeOrganization(organizationId);
 
         try {
             // Gỡ quyền trước, xoá tài khoản sau: hỏng giữa chừng thì còn lại một tài khoản không
@@ -213,7 +216,6 @@ public class StaffInvitationHandler {
             throw unavailable(e);
         }
 
-        Organization organization = activeOrganization(organizationId);
         organization.removeMember(userId);
         organizations.save(organization);
         invitations.delete(invitation.id());

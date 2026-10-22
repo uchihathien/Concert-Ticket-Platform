@@ -2,6 +2,8 @@
 package com.nexaticket.analytics.interfaces.rest;
 
 import com.nexaticket.analytics.application.query.SalesQueries;
+import com.nexaticket.kernel.access.Permission;
+import com.nexaticket.platform.security.annotation.RequiresPermission;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,6 +31,9 @@ public class SalesDashboardController {
     }
 
     @GetMapping("/sales")
+    // TenantFilter chỉ chứng minh người gọi LÀ THÀNH VIÊN của tổ chức; doanh thu là dữ liệu của người
+    // có quyền xem số liệu, không phải của nhân viên soát vé đứng cổng.
+    @RequiresPermission(Permission.ORG_METRICS_VIEW)
     public SalesQueries.OrganizationSummary sales(@PathVariable UUID organizationId) {
         return queries.forOrganization(organizationId);
     }

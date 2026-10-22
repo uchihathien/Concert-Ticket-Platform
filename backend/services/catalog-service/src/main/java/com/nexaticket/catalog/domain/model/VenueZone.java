@@ -68,6 +68,11 @@ public record VenueZone(
             if (rowCount == null || seatsPerRow == null || rowCount <= 0 || seatsPerRow <= 0) {
                 throw new IllegalArgumentException("Khu ngồi phải có số hàng và số ghế mỗi hàng > 0");
             }
+            if ((long) rowCount * seatsPerRow > Integer.MAX_VALUE) {
+                // Không có chuyện một khu ngồi có hàng tỉ ghế; để tràn int thì sức chứa ra số âm và kéo
+                // theo tổng sức chứa của địa điểm và của bảng điều khiển.
+                throw new IllegalArgumentException("Khu ngồi quá lớn: " + rowCount + " × " + seatsPerRow);
+            }
             capacity = null;
         } else {
             if (capacity == null || capacity <= 0) {

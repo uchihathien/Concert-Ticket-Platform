@@ -59,7 +59,9 @@ public class ExpireHoldsJob {
         List<SeatHold> expired = holds.claimExpired(clock.instant(), BATCH_SIZE);
         for (SeatHold hold : expired) {
             hold.expire();
-            holds.updateStatus(hold.id(), hold.status(), clock.instant());
+            if (!holds.updateStatus(hold.id(), hold.status(), clock.instant())) {
+                continue; // claimExpired đã khoá dòng nên không xảy ra — nhưng nếu có thì không nhả ghế người khác
+            }
             seats.release(hold.seatIds());
             gate.release(hold.eventSessionId(), hold.seatIds());
             publisher.availabilityChanged(

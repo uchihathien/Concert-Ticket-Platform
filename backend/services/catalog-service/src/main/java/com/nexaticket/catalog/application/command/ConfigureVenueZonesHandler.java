@@ -3,6 +3,7 @@ package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogAccess;
 import com.nexaticket.catalog.application.CatalogErrorCode;
+import com.nexaticket.catalog.application.InputRules;
 import com.nexaticket.catalog.application.LayoutSpecs;
 import com.nexaticket.catalog.domain.model.AdmissionKind;
 import com.nexaticket.catalog.domain.model.Venue;
@@ -87,7 +88,8 @@ public class ConfigureVenueZonesHandler {
             if (!seen.add(spec.zoneCode())) {
                 throw new ApiException(CatalogErrorCode.ZONE_ALREADY_PRICED, "Mã khu trùng nhau: " + spec.zoneCode());
             }
-            replacement.add(new VenueZone(
+            final int position = i;
+            replacement.add(InputRules.validated(() -> new VenueZone(
                     // Id mới ở đây chỉ là id đề xuất: repository upsert theo (venue_id, zone_code)
                     // nên khu đã có giữ nguyên id cũ của nó, và hạng vé trỏ vào không bị đứt.
                     UUID.randomUUID(),
@@ -98,9 +100,9 @@ public class ConfigureVenueZonesHandler {
                     spec.rowCount(),
                     spec.seatsPerRow(),
                     spec.capacity(),
-                    spec.sortOrder() == null ? i : spec.sortOrder(),
+                    spec.sortOrder() == null ? position : spec.sortOrder(),
                     null,
-                    LayoutSpecs.toLayout(spec.layout())));
+                    LayoutSpecs.toLayout(spec.layout()))));
         }
 
         venues.updateStage(venueId, LayoutSpecs.toStage(stage));
