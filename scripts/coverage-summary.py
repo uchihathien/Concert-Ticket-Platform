@@ -5,12 +5,15 @@ Chạy sau `./mvnw -B verify -Pcoverage` (trong backend/):
 
     python scripts/coverage-summary.py            # bảng theo module + tổng
     python scripts/coverage-summary.py --classes  # thêm 25 lớp thiếu dòng nhiều nhất
+    python scripts/coverage-summary.py --fail-under-line 85   # thoát mã 1 nếu tổng dòng < 85% (cho CI)
+    python scripts/coverage-summary.py --markdown             # bảng Markdown, dán vào $GITHUB_STEP_SUMMARY
 
 Đọc target/site/jacoco-merged/jacoco.csv (unit + integration gộp). Module chưa có báo cáo gộp
 thì lùi về target/site/jacoco/jacoco.csv (chỉ unit) và đánh dấu `unit-only` — để con số không
 bao giờ trông đầy đủ hơn thực tế.
 """
 import csv
+import io
 import sys
 from pathlib import Path
 
@@ -24,6 +27,7 @@ def pct(missed: int, covered: int) -> str:
 
 
 def main() -> int:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     rows = []
     classes = []
     for module_dir in sorted(p for p in ROOT.glob("*/*") if (p / "pom.xml").exists()):
@@ -46,14 +50,29 @@ def main() -> int:
         return 1
 
     grand = {c: [0, 0] for c in COLS}
-    print(f"{'module':28} {'nguồn':10} {'instr':>7} {'branch':>7} {'line':>7} {'method':>7}")
+    md = "--markdown" in sys.argv
+    if md:
+        print("| module | nguồn | instr | branch | line | method |")
+        print("| --- | --- | ---: | ---: | ---: | ---: |")
+    else:
+        print(f"{'module':28} {'nguồn':10} {'instr':>7} {'branch':>7} {'line':>7} {'method':>7}")
     for name, kind, t in rows:
         for c in COLS:
             grand[c][0] += t[c][0]
             grand[c][1] += t[c][1]
-        print(f"{name:28} {kind:10} " + " ".join(f"{pct(*t[c]):>7}" for c in COLS))
-    print(f"{'TỔNG':28} {'':10} " + " ".join(f"{pct(*grand[c]):>7}" for c in COLS))
+        cells = [pct(*t[c]).strip() for c in COLS]
+        print(f"| {name} | {kind} | " + " | ".join(cells) + " |" if md else f"{name:28} {kind:10} " + " ".join(f"{x:>7}" for x in cells))
+    cells = [pct(*grand[c]).strip() for c in COLS]
+    print("| **TỔNG** | | " + " | ".join(f"**{x}**" for x in cells) + " |" if md else f"{'TỔNG':28} {'':10} " + " ".join(f"{x:>7}" for x in cells))
     print(f"\nDòng: {grand['LINE'][1]}/{sum(grand['LINE'])}   Nhánh: {grand['BRANCH'][1]}/{sum(grand['BRANCH'])}")
+
+    if "--fail-under-line" in sys.argv:
+        floor = float(sys.argv[sys.argv.index("--fail-under-line") + 1])
+        actual = 100.0 * grand["LINE"][1] / max(1, sum(grand["LINE"]))
+        if actual < floor:
+            print(f"\nTHẤT BẠI: coverage dòng {actual:.1f}% < ngưỡng {floor:.1f}%", file=sys.stderr)
+            return 1
+        print(f"\nĐạt ngưỡng coverage dòng: {actual:.1f}% >= {floor:.1f}%")
 
     if "--classes" in sys.argv:
         print("\n25 lớp còn thiếu nhiều dòng nhất:")

@@ -8,6 +8,7 @@ Tài liệu theo delivery milestone. Mỗi milestone là nguồn đầy đủ ch
 **Kiến trúc v2 (microservices + DDD + giữ tiền):** [architecture-v2/README.md](architecture-v2/README.md) — thay thế ADR-0001, 0013.  
 **Plan triển khai v2:** [architecture-v2/plan/README.md](architecture-v2/plan/README.md) — [backend](architecture-v2/plan/backend.md) · [frontend](architecture-v2/plan/frontend.md) · [UI](architecture-v2/ui-direction.md).  
 **Checklist tuần:** [WEEKLY-BACKLOG.md](WEEKLY-BACKLOG.md).  
+**Kiểm thử:** [testing/testing-strategy.md](testing/testing-strategy.md) · [test cases](testing/test-cases.md) · [ma trận độ phủ](testing/test-coverage-matrix.md) · [báo cáo thực thi](testing/test-execution-report.md) · [khoảng trống](testing/known-testing-gaps.md) · [báo cáo Excel kèm test case](testing/bao-cao-kiem-thu.xlsx).  
 **UI / UX:** [ui/README.md](ui/README.md) — web flows.  
 **Web screens (chi tiết):** [ui/screens/README.md](ui/screens/README.md).  
 **Mobile:** [ui/mobile/README.md](ui/mobile/README.md) — mobile web, PWA, React Native.  
