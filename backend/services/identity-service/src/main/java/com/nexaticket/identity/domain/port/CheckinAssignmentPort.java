@@ -25,6 +25,14 @@ public interface CheckinAssignmentPort {
     /** Đặt lại danh sách sự kiện của một nhân viên thành đúng {@code eventIds}. Rỗng là gỡ hết. */
     void replace(TenantId organizationId, UserId userId, Collection<UUID> eventIds, UserId assignedBy);
 
+    /**
+     * Mốc kết thúc của suất CUỐI CÙNG trong mọi sự kiện mà từng nhân viên được gán — để biết khi
+     * nào tài khoản PIN hết việc. Người không được gán gì, hoặc sự kiện chưa có suất nào, không có
+     * trong map. Suất không khai giờ kết thúc được ticketing tính bằng giờ bắt đầu cộng thời lượng
+     * mặc định.
+     */
+    Map<UserId, java.time.Instant> lastSessionEnds(TenantId organizationId);
+
     /** ticketing-service không trả lời. Tách khỏi lỗi nghiệp vụ để người gọi báo "thử lại sau". */
     class AssignmentsUnavailableException extends RuntimeException {
 

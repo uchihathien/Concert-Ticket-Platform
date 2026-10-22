@@ -172,6 +172,33 @@ class StaffInvitationIT extends PostgresTestBase {
             emailById.remove(idpSubject);
             deleted.add(idpSubject);
         }
+
+        // Tài khoản PIN có test riêng (StaffAccountIT); ở đây chỉ cần đủ để biên dịch.
+        @Override
+        public String createStaffAccount(String loginEmail, String fullName, String pin) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void setStaffPin(String idpSubject, String pin) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void setEnabled(String idpSubject, boolean enabled) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void signOutEverywhere(String idpSubject) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void deleteAccount(String idpSubject) {
+            emailById.remove(idpSubject);
+            deleted.add(idpSubject);
+        }
     }
 
     /** ticketing thu nhỏ: sự kiện theo (tổ chức, người). */
@@ -199,6 +226,11 @@ class StaffInvitationIT extends PostgresTestBase {
         @Override
         public void replace(TenantId organizationId, UserId userId, Collection<UUID> eventIds, UserId assignedBy) {
             events.put(organizationId.value() + "/" + userId.value(), List.copyOf(eventIds));
+        }
+
+        @Override
+        public Map<UserId, Instant> lastSessionEnds(TenantId organizationId) {
+            return Map.of();
         }
     }
 

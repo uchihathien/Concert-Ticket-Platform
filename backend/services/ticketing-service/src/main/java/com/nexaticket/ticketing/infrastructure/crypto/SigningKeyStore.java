@@ -98,6 +98,16 @@ public class SigningKeyStore {
         return active();
     }
 
+    /**
+     * Mọi khoá còn dùng để kiểm (đang dùng và đã nghỉ hưu) — vé cũ mang {@code kid} cũ vẫn phải kiểm
+     * được khi máy soát vé mất mạng. Chỉ khoá CÔNG KHAI.
+     */
+    public List<Key> verificationKeys() {
+        return jdbc.query(
+                "SELECT kid, public_key FROM signing_keys ORDER BY created_at DESC",
+                (rs, i) -> new Key(rs.getString("kid"), null, rs.getString("public_key")));
+    }
+
     /** Có khoá nào chưa; dùng khi khởi động môi trường dev và trong test. */
     public boolean hasActiveKey() {
         Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM signing_keys WHERE is_active", Integer.class);

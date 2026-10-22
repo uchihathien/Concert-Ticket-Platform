@@ -262,6 +262,121 @@ public class KeycloakAdminAdapter implements IdentityProviderPort {
         }
     }
 
+    @Override
+    public String createStaffAccount(String loginEmail, String fullName, String pin) {
+        requireConfigured();
+        NameParts name = NameParts.of(fullName);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("username", loginEmail);
+        body.put("email", loginEmail);
+        body.put("firstName", name.first());
+        body.put("lastName", name.last());
+        body.put("enabled", true);
+        // Đánh dấu đã xác minh: email nội bộ không nhận thư, và để false thì realm nào bật "xác minh
+        // email" sẽ chặn nhân viên ở màn hình chờ một lá thư không bao giờ tới.
+        body.put("emailVerified", true);
+        body.put("credentials", List.of(Map.of("type", "password", "value", pin, "temporary", false)));
+        try {
+            return client.post()
+                    .uri("/admin/realms/{realm}/users", properties.realm())
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .exchange((request, response) -> {
+                        if (response.getStatusCode().value() == 409) {
+                            throw new AccountAlreadyExistsException(loginEmail);
+                        }
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            // KHÔNG kèm thân request vào lỗi: nó chứa PIN.
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak trả " + response.getStatusCode() + " khi tạo tài khoản nhân viên: "
+                                            + errorBody(response),
+                                    null);
+                        }
+                        java.net.URI location = response.getHeaders().getLocation();
+                        if (location == null) {
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak tạo tài khoản nhưng không trả về id", null);
+                        }
+                        String path = location.getPath();
+                        return path.substring(path.lastIndexOf('/') + 1);
+                    });
+        } catch (IdentityProviderUnavailableException | AccountAlreadyExistsException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API", e);
+        }
+    }
+
+    @Override
+    public void setStaffPin(String idpSubject, String pin) {
+        adminCall(
+                "đặt PIN",
+                client.put()
+                        .uri("/admin/realms/{realm}/users/{userId}/reset-password", properties.realm(), idpSubject)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("type", "password", "value", pin, "temporary", false)));
+    }
+
+    @Override
+    public void setEnabled(String idpSubject, boolean enabled) {
+        adminCall(
+                enabled ? "mở khoá tài khoản" : "khoá tài khoản",
+                client.put()
+                        .uri("/admin/realms/{realm}/users/{userId}", properties.realm(), idpSubject)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("enabled", enabled)));
+    }
+
+    @Override
+    public void signOutEverywhere(String idpSubject) {
+        adminCall(
+                "đóng phiên đăng nhập",
+                client.post().uri("/admin/realms/{realm}/users/{userId}/logout", properties.realm(), idpSubject));
+    }
+
+    @Override
+    public void deleteAccount(String idpSubject) {
+        requireConfigured();
+        try {
+            client.delete()
+                    .uri("/admin/realms/{realm}/users/{userId}", properties.realm(), idpSubject)
+                    .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
+                    .exchange((request, response) -> {
+                        // 404: đã không còn — kết quả mong muốn đã đạt.
+                        if (!response.getStatusCode().is2xxSuccessful()
+                                && response.getStatusCode().value() != 404) {
+                            throw new IdentityProviderUnavailableException(
+                                    "Keycloak trả " + response.getStatusCode() + " khi xoá tài khoản", null);
+                        }
+                        return null;
+                    });
+        } catch (IdentityProviderUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không xoá được tài khoản bên Keycloak", e);
+        }
+    }
+
+    /** Một lời gọi Admin API không cần đọc kết quả: chỉ cần 2xx, còn lại là "không sẵn sàng". */
+    private void adminCall(String what, RestClient.RequestHeadersSpec<?> call) {
+        requireConfigured();
+        try {
+            call.header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken()).exchange((request, response) -> {
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    throw new IdentityProviderUnavailableException(
+                            "Keycloak trả " + response.getStatusCode() + " khi " + what + ": " + errorBody(response),
+                            null);
+                }
+                return null;
+            });
+        } catch (IdentityProviderUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new IdentityProviderUnavailableException("Không gọi được Keycloak Admin API khi " + what, e);
+        }
+    }
+
     private void requireConfigured() {
         if (!properties.isConfigured()) {
             throw new IdentityProviderUnavailableException(

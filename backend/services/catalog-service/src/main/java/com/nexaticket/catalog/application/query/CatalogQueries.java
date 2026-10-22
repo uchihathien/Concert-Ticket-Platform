@@ -90,6 +90,14 @@ public interface CatalogQueries {
     Optional<CatalogViews.SessionInfo> sessionInfo(UUID eventSessionId);
 
     /**
+     * Mọi suất của những sự kiện này, <b>bất kể</b> trạng thái — cùng lý do với {@link #sessionInfo}.
+     *
+     * <p>Người hỏi là ticketing-service: nó cần giờ kết thúc của suất cuối để biết tài khoản nhân
+     * viên soát vé hết hạn lúc nào, và giờ của từng suất để dựng ca trực.
+     */
+    List<CatalogViews.SessionInfo> sessionsOfEvents(java.util.Collection<UUID> eventIds);
+
+    /**
      * Suất diễn này có thật không.
      *
      * <p>Cố ý KHÔNG đòi sự kiện phải đang ở trạng thái PUBLISHED. Đường gọi duy nhất là báo giá lúc

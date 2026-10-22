@@ -58,6 +58,29 @@ public class JdbcCatalogQueries implements CatalogQueries {
     }
 
     @Override
+    public List<CatalogViews.SessionInfo> sessionsOfEvents(java.util.Collection<UUID> eventIds) {
+        if (eventIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.query(
+                """
+                SELECT s.id AS event_session_id, e.id AS event_id, e.title AS event_title,
+                       s.starts_at, s.ends_at
+                  FROM event_sessions s
+                  JOIN events e ON e.id = s.event_id
+                 WHERE e.id = ANY (?)
+                 ORDER BY s.starts_at, s.id
+                """,
+                (rs, i) -> new CatalogViews.SessionInfo(
+                        rs.getObject("event_session_id", UUID.class),
+                        rs.getObject("event_id", UUID.class),
+                        rs.getString("event_title"),
+                        instant(rs, "starts_at"),
+                        instant(rs, "ends_at")),
+                (Object) eventIds.toArray(UUID[]::new));
+    }
+
+    @Override
     public List<CatalogViews.CheckinSession> checkinSessions(UUID organizationId) {
         return jdbc.query(
                 """

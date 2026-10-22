@@ -25,6 +25,9 @@ public class TicketingHttpAdapter implements CheckinAssignmentPort {
     private static final ParameterizedTypeReference<List<AssignmentView>> ASSIGNMENTS =
             new ParameterizedTypeReference<>() {};
 
+    private static final ParameterizedTypeReference<List<CoverageView>> COVERAGE =
+            new ParameterizedTypeReference<>() {};
+
     private final RestClient client;
 
     public TicketingHttpAdapter(
@@ -69,6 +72,25 @@ public class TicketingHttpAdapter implements CheckinAssignmentPort {
         }
     }
 
+    @Override
+    public Map<UserId, java.time.Instant> lastSessionEnds(TenantId organizationId) {
+        try {
+            List<CoverageView> body = client.get()
+                    .uri("/internal/checkin-assignments/{org}/coverage", organizationId.value())
+                    .retrieve()
+                    .body(COVERAGE);
+            Map<UserId, java.time.Instant> result = new LinkedHashMap<>();
+            for (CoverageView view : body == null ? List.<CoverageView>of() : body) {
+                if (view.lastSessionEndsAt() != null) {
+                    result.put(UserId.of(view.userId()), view.lastSessionEndsAt());
+                }
+            }
+            return result;
+        } catch (RuntimeException e) {
+            throw new AssignmentsUnavailableException("Không đọc được lịch suất của nhân viên từ ticketing", e);
+        }
+    }
+
     private List<AssignmentView> list(TenantId organizationId, UserId userId) {
         try {
             List<AssignmentView> body = client.get()
@@ -91,4 +113,7 @@ public class TicketingHttpAdapter implements CheckinAssignmentPort {
     private record AssignmentView(UUID userId, UUID eventId) {}
 
     private record ReplaceRequest(List<UUID> eventIds, UUID assignedBy) {}
+
+    /** Hợp đồng với {@code InternalCheckinAssignmentController.CoverageView}. */
+    private record CoverageView(UUID userId, List<UUID> eventIds, java.time.Instant lastSessionEndsAt) {}
 }

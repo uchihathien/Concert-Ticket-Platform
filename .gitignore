@@ -40,3 +40,10 @@ logs/
 # Python bytecode của script tiện ích trong scripts/
 __pycache__/
 *.pyc
+
+# Dữ liệu cào từ Ticketbox (ảnh + JSON) và môi trường Python của script — chỉ để demo cục bộ,
+# không đưa lên GitHub. Xem scripts/ticketbox/README.md.
+scripts/ticketbox/data/
+scripts/ticketbox/.venv/
+scripts/ticketbox/**/__pycache__/
+scripts/ticketbox/.pytest_cache/

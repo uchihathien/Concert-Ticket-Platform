@@ -7,6 +7,8 @@ import com.nexaticket.identity.domain.model.Organization;
 import com.nexaticket.identity.domain.port.CheckinAssignmentPort;
 import com.nexaticket.identity.domain.port.IdentityProviderPort;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
+import com.nexaticket.identity.domain.port.StaffAccountRepository;
+import com.nexaticket.identity.domain.port.StaffAccountRepository.StaffAccount;
 import com.nexaticket.identity.domain.port.StaffInvitationRepository;
 import com.nexaticket.identity.domain.port.StaffInvitationRepository.StaffInvitation;
 import com.nexaticket.identity.domain.port.UserRepository;
@@ -38,6 +40,7 @@ public class StaffQueries {
     private final OrganizationRepository organizations;
     private final UserRepository users;
     private final StaffInvitationRepository invitations;
+    private final StaffAccountRepository accounts;
     private final IdentityProviderPort identityProvider;
     private final CheckinAssignmentPort assignments;
     private final Clock clock;
@@ -46,22 +49,35 @@ public class StaffQueries {
             OrganizationRepository organizations,
             UserRepository users,
             StaffInvitationRepository invitations,
+            StaffAccountRepository accounts,
             IdentityProviderPort identityProvider,
             CheckinAssignmentPort assignments,
             Clock clock) {
         this.organizations = organizations;
         this.users = users;
         this.invitations = invitations;
+        this.accounts = accounts;
         this.identityProvider = identityProvider;
         this.assignments = assignments;
         this.clock = clock;
     }
 
     /**
-     * @param status {@code INVITED} đã gửi thư, chờ đặt mật khẩu · {@code ACTIVE} đã kích hoạt ·
-     *     {@code EXPIRED} liên kết hết hạn · {@code SEND_FAILED} thư chưa đi
+     * Một dòng của bảng Nhân sự. Hai loại nhân viên nằm chung bảng, phân biệt bằng {@code kind}:
+     *
+     * <ul>
+     *   <li>{@code ACCOUNT} — tài khoản do hệ thống cấp (tên đăng nhập + PIN). {@code status}:
+     *       {@code ACTIVE} đang dùng · {@code LOCKED} ban tổ chức khoá · {@code EXPIRED} hết hạn theo
+     *       lịch suất. {@code email} luôn {@code null} (email nội bộ không phải để liên lạc).
+     *   <li>{@code INVITATION} — mời bằng email (luồng cũ). {@code status}: {@code INVITED} đã gửi
+     *       thư · {@code ACTIVE} đã kích hoạt · {@code EXPIRED} liên kết hết hạn · {@code SEND_FAILED}
+     *       thư chưa đi. Cùng chữ EXPIRED nhưng là liên kết hết hạn, không phải tài khoản.
+     * </ul>
+     *
      * @param invitedAt {@code null} với nhân viên có từ trước khi có mục Nhân sự
-     * @param invitedBy tên người mời, để hiển thị
+     * @param invitedBy tên người mời / người tạo, để hiển thị
+     * @param username chỉ với {@code ACCOUNT}
+     * @param accessUntil mốc gia hạn tay, chỉ với {@code ACCOUNT}
      */
     public record StaffRow(
             String userId,
@@ -72,7 +88,11 @@ public class StaffQueries {
             String invitedBy,
             String expiresAt,
             String activatedAt,
-            List<UUID> eventIds) {}
+            List<UUID> eventIds,
+            String kind,
+            String username,
+            String phone,
+            String accessUntil) {}
 
     /**
      * @param restricted false nghĩa là người gọi quản lý được sự kiện của tổ chức nên soát mọi sự
@@ -97,10 +117,13 @@ public class StaffQueries {
                 .collect(Collectors.toMap(UserRepository.UserRecord::id, Function.identity()));
         Map<UserId, StaffInvitation> invited = invitations.findByOrganization(organizationId).stream()
                 .collect(Collectors.toMap(StaffInvitation::userId, Function.identity()));
+        Map<UserId, StaffAccount> pinAccounts = accounts.findByOrganization(organizationId).stream()
+                .collect(Collectors.toMap(StaffAccount::userId, Function.identity()));
 
         Map<UserId, UserRepository.UserRecord> inviters = users
-                .findAllByIds(invited.values().stream()
-                        .map(StaffInvitation::invitedBy)
+                .findAllByIds(java.util.stream.Stream.concat(
+                                invited.values().stream().map(StaffInvitation::invitedBy),
+                                pinAccounts.values().stream().map(StaffAccount::createdBy))
                         .filter(java.util.Objects::nonNull)
                         .distinct()
                         .toList())
@@ -124,6 +147,29 @@ public class StaffQueries {
                 .filter(byId::containsKey)
                 .map(id -> {
                     UserRepository.UserRecord user = byId.get(id);
+                    StaffAccount account = pinAccounts.get(id);
+                    if (account != null) {
+                        UserRepository.UserRecord creator =
+                                account.createdBy() == null ? null : inviters.get(account.createdBy());
+                        return new StaffRow(
+                                id.value().toString(),
+                                null,
+                                user.fullName(),
+                                account.status().name(),
+                                account.createdAt().toString(),
+                                creator == null
+                                        ? null
+                                        : (creator.fullName() != null ? creator.fullName() : creator.email()),
+                                null,
+                                null,
+                                events.getOrDefault(id, List.of()),
+                                "ACCOUNT",
+                                account.username(),
+                                user.phone(),
+                                account.accessUntil() == null
+                                        ? null
+                                        : account.accessUntil().toString());
+                    }
                     StaffInvitation invitation = refreshActivation(invited.get(id), user, now);
                     UserRepository.UserRecord inviter = invitation == null || invitation.invitedBy() == null
                             ? null
@@ -141,7 +187,11 @@ public class StaffQueries {
                             invitation == null || invitation.activatedAt() == null
                                     ? null
                                     : invitation.activatedAt().toString(),
-                            events.getOrDefault(id, List.of()));
+                            events.getOrDefault(id, List.of()),
+                            "INVITATION",
+                            null,
+                            user.phone(),
+                            null);
                 })
                 .toList();
     }

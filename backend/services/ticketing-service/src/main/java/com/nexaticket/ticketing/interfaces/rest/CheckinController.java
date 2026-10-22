@@ -88,8 +88,12 @@ public class CheckinController {
 
     static ScanResponse scan(
             CheckInHandler checkIn, CheckinAccess access, TenantId tenant, UUID eventSessionId, ScanRequest request) {
-        // Quyền soát vé VÀ (quản lý được sự kiện của tổ chức HOẶC được gán sự kiện này).
-        var scope = access.requireScanner(tenant, eventSessionId);
+        // Quyền soát vé VÀ (quản lý được sự kiện của tổ chức HOẶC được gán sự kiện này VÀ đang trong
+        // ca của suất này).
+        var onShift = access.requireScannerOnShift(tenant, eventSessionId, null);
+        var scope = onShift.scope();
+        // Nhân viên đang trong ca thì cổng là cổng của ca — máy không tự khai cổng khác được.
+        String gate = onShift.shiftGate() != null ? onShift.shiftGate() : request.gate();
         boolean override = Boolean.TRUE.equals(request.override());
         if (override) {
             // Ghi đè kết quả của máy là quyết định của người quản lý sự kiện, không phải của mọi
@@ -109,12 +113,17 @@ public class CheckinController {
                 tenant.value(),
                 request.deviceId(),
                 request.direction(),
-                request.gate(),
+                gate,
                 override,
                 request.reason()));
 
+        return response(result, request.direction() == null);
+    }
+
+    /** Một kết quả soát vé thành phản hồi cho máy soát vé. */
+    static ScanResponse response(CheckInHandler.Result result, boolean legacyClient) {
         return new ScanResponse(
-                request.direction() == null ? legacy(result.result()) : result.result(),
+                legacyClient ? legacy(result.result()) : result.result(),
                 result.seatCode(),
                 result.seatLabel(),
                 result.ticketTypeName(),

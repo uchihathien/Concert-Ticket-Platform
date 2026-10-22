@@ -3,8 +3,10 @@ package com.nexaticket.ticketing.infrastructure.persistence;
 
 import com.nexaticket.ticketing.domain.port.CheckinLogRepository;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -23,8 +25,10 @@ public class JdbcCheckinLogRepository implements CheckinLogRepository {
         jdbc.update(
                 """
                 INSERT INTO checkin_log (id, ticket_id, event_session_id, organization_id, scanned_by, device_id,
-                                         direction, gate, entry_method, result, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                         direction, gate, entry_method, result, note, scanned_at, offline,
+                                         client_scan_id, device_result, conflict, synced_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, now()), ?, ?, ?, ?,
+                        CASE WHEN ? THEN now() END)
                 """,
                 UUID.randomUUID(),
                 scan.ticketId(),
@@ -36,7 +40,89 @@ public class JdbcCheckinLogRepository implements CheckinLogRepository {
                 scan.gate(),
                 scan.method().name(),
                 scan.result().name(),
-                scan.note());
+                scan.note(),
+                scan.scannedAt() == null ? null : Timestamp.from(scan.scannedAt()),
+                scan.offline(),
+                scan.clientScanId(),
+                scan.deviceResult(),
+                scan.conflict(),
+                scan.offline());
+    }
+
+    @Override
+    public Optional<Previous> findByClientScanId(UUID clientScanId) {
+        return jdbc
+                .query(
+                        "SELECT ticket_id, result, note, conflict FROM checkin_log WHERE client_scan_id = ?",
+                        (rs, i) -> new Previous(
+                                rs.getObject("ticket_id", UUID.class),
+                                rs.getString("result"),
+                                rs.getString("note"),
+                                rs.getBoolean("conflict")),
+                        clientScanId)
+                .stream()
+                .findFirst();
+    }
+
+    @Override
+    public List<Entry> conflicts(UUID organizationId, UUID eventSessionId, int limit) {
+        return jdbc.query(
+                """
+                SELECT l.id, l.ticket_id, l.scanned_at, l.direction, l.result, l.entry_method, l.gate, l.note,
+                       l.scanned_by, t.holder_name, t.seat_code, t.seat_label, t.ticket_type_name
+                  FROM checkin_log l
+                  LEFT JOIN tickets t ON t.id = l.ticket_id
+                 WHERE l.conflict AND l.event_session_id = ? AND l.organization_id = ?
+                 ORDER BY l.scanned_at DESC
+                 LIMIT ?
+                """,
+                JdbcCheckinLogRepository::entry,
+                eventSessionId,
+                organizationId,
+                limit);
+    }
+
+    private static Entry entry(java.sql.ResultSet rs, int rowNum) throws java.sql.SQLException {
+        return new Entry(
+                rs.getObject("id", UUID.class),
+                rs.getObject("ticket_id", UUID.class),
+                rs.getTimestamp("scanned_at").toInstant(),
+                rs.getString("direction"),
+                rs.getString("result"),
+                rs.getString("entry_method"),
+                rs.getString("gate"),
+                rs.getString("note"),
+                rs.getObject("scanned_by", UUID.class),
+                rs.getString("holder_name"),
+                rs.getString("seat_code"),
+                rs.getString("seat_label"),
+                rs.getString("ticket_type_name"));
+    }
+
+    @Override
+    public ShiftTally tally(UUID staffId, UUID eventSessionId, Instant from, Instant to) {
+        return jdbc.queryForObject(
+                """
+                SELECT count(*) FILTER (WHERE direction = 'IN' AND result = 'ACCEPTED')         AS entries,
+                       count(*) FILTER (WHERE result = 'EXITED')                                AS exits,
+                       count(*) FILTER (WHERE result NOT IN ('ACCEPTED', 'EXITED'))             AS rejected,
+                       count(*) FILTER (WHERE entry_method = 'OVERRIDE' AND result = 'ACCEPTED') AS overrides,
+                       count(*) FILTER (WHERE offline)                                          AS offline,
+                       count(*) FILTER (WHERE entry_method = 'LOOKUP' AND result = 'ACCEPTED')   AS lookups
+                  FROM checkin_log
+                 WHERE scanned_by = ? AND event_session_id = ? AND scanned_at >= ? AND scanned_at <= ?
+                """,
+                (rs, i) -> new ShiftTally(
+                        rs.getInt("entries"),
+                        rs.getInt("exits"),
+                        rs.getInt("rejected"),
+                        rs.getInt("overrides"),
+                        rs.getInt("offline"),
+                        rs.getInt("lookups")),
+                staffId,
+                eventSessionId,
+                java.sql.Timestamp.from(from),
+                java.sql.Timestamp.from(to));
     }
 
     @Override

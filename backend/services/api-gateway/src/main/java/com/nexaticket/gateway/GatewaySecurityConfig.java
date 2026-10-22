@@ -31,6 +31,9 @@ public class GatewaySecurityConfig {
                         .permitAll()
                         .pathMatchers(HttpMethod.GET, "/v1/events/**", "/v1/sessions/*/seats")
                         .permitAll()
+                        // Màn đăng nhập nhân viên hỏi trạng thái tài khoản khi chưa có token.
+                        .pathMatchers(HttpMethod.GET, "/v1/staff-accounts/status")
+                        .permitAll()
                         .pathMatchers("/api/billing/bank/webhook/**")
                         .permitAll()
                         // /internal/** không bao giờ được route ra ngoài — xem RouteConfig.

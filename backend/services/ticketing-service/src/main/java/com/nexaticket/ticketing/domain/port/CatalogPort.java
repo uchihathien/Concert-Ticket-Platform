@@ -2,6 +2,8 @@
 package com.nexaticket.ticketing.domain.port;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,8 +26,18 @@ public interface CatalogPort {
     Optional<SessionInfo> sessionInfo(UUID eventSessionId);
 
     /**
+     * Mọi suất của những sự kiện này. {@link Optional#empty()} khi catalog không trả lời — khác
+     * {@link #sessionInfo}, người gọi ở đây (ca trực, hạn tài khoản nhân viên) cần biết "không hỏi
+     * được" để KHÔNG kết luận gì, thay vì coi như sự kiện không có suất nào.
+     */
+    Optional<List<SessionSlot>> sessionsOfEvents(Collection<UUID> eventIds);
+
+    /**
      * @param eventId sự kiện chứa suất này — thứ việc gán nhân viên soát vé được khai theo
      * @param endsAt {@code null} khi ban tổ chức không khai giờ kết thúc
      */
     record SessionInfo(UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
+
+    /** Một suất kèm id của chính nó — {@link SessionInfo} không mang id vì người hỏi đã biết. */
+    record SessionSlot(UUID eventSessionId, UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
 }

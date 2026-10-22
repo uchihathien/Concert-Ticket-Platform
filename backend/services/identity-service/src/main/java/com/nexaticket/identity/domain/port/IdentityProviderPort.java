@@ -72,6 +72,38 @@ public interface IdentityProviderPort {
      */
     void deleteUnactivatedAccount(String idpSubject);
 
+    /*
+     * --- Tài khoản nhân viên do hệ thống cấp (tên đăng nhập + mã PIN) ---
+     *
+     * Đây là chỗ DUY NHẤT cổng này đặt mật khẩu thay người dùng, và nó đi ngược nguyên tắc ở trên có
+     * chủ đích: cộng tác viên soát vé theo ca không có email để tự đặt mật khẩu, nên ban tổ chức phát
+     * tài khoản kèm PIN tại chỗ. Bù lại, PIN do HỆ THỐNG sinh ngẫu nhiên (người bấm nút không chọn
+     * được), chỉ trả về đúng một lần, không lưu ở đâu ngoài Keycloak, và mọi lần cấp đều vào nhật ký
+     * kiểm toán. Tài khoản email của ban tổ chức vẫn không có đường nào bị đặt mật khẩu hộ.
+     */
+
+    /**
+     * Tạo tài khoản đăng nhập được ngay bằng {@code pin}, không có hành động bắt buộc nào chờ.
+     *
+     * @param loginEmail email nội bộ dùng làm tên đăng nhập bên Keycloak (realm dùng email làm
+     *     username); miền {@code .invalid} nên không bao giờ nhận thư
+     * @return id của tài khoản bên Keycloak
+     * @throws AccountAlreadyExistsException nếu tên đăng nhập đã có người dùng
+     */
+    String createStaffAccount(String loginEmail, String fullName, String pin);
+
+    /** Đặt PIN mới (không tạm thời — nhân viên không phải đổi ở lần đăng nhập tới). */
+    void setStaffPin(String idpSubject, String pin);
+
+    /** Bật/tắt tài khoản bên Keycloak. Tắt rồi thì không đăng nhập và không làm mới token được. */
+    void setEnabled(String idpSubject, boolean enabled);
+
+    /** Đóng mọi phiên đăng nhập đang mở của tài khoản — refresh token cũ hết dùng ngay. */
+    void signOutEverywhere(String idpSubject);
+
+    /** Xoá hẳn tài khoản — chỉ dùng để dọn tài khoản vừa tạo khi phần còn lại của lệnh hỏng. */
+    void deleteAccount(String idpSubject);
+
     /**
      * @param activated đã đặt mật khẩu xong — tức là không còn hành động bắt buộc nào chờ
      */
@@ -82,6 +114,14 @@ public interface IdentityProviderPort {
 
         public AccountAlreadyActivatedException(String idpSubject) {
             super("Tài khoản " + idpSubject + " đã kích hoạt, không được xoá");
+        }
+    }
+
+    /** Tên đăng nhập đã có người dùng bên Keycloak. */
+    class AccountAlreadyExistsException extends RuntimeException {
+
+        public AccountAlreadyExistsException(String username) {
+            super("Tên đăng nhập " + username + " đã có người dùng");
         }
     }
 

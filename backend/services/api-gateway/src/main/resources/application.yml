@@ -61,6 +61,7 @@ spring:
             #   /v1/orders/*/tickets                <  /v1/orders/**                   (ticketing trước ordering)
             #   /v1/sessions/*/checkins             <  /v1/sessions/**                 (ticketing trước inventory)
             #   /v1/organizations/*/tickets         <  /v1/organizations/**            (ticketing trước identity)
+            #   /v1/organizations/*/checkin/**      <  /v1/organizations/**            (ticketing trước identity)
             #   /v1/organizations/*/uploads/**      <  /v1/organizations/**            (catalog trước identity)
             #   /v1/platform/organizations/*/balance <  /v1/platform/organizations/**  (ledger trước identity)
             #   POST /v1/sessions/*/holds           <  /v1/sessions/**                (hold-create trước inventory)
@@ -80,7 +81,7 @@ spring:
             - id: ticketing
               uri: ${TICKETING_URL:http://localhost:8097}
               predicates:
-                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets,/v1/organizations/*/sessions/*/checkins
+                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets,/v1/organizations/*/sessions/*/checkins,/v1/organizations/*/sessions/*/checkins/**,/v1/organizations/*/checkin/**
             - id: ordering
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:
@@ -179,7 +180,7 @@ spring:
             - id: identity
               uri: ${IDENTITY_URL:http://localhost:8090}
               predicates:
-                - Path=/v1/platform/organizations/**,/v1/platform/users/**,/v1/platform/audit-logs,/v1/organizations/**,/v1/roles,/v1/me,/v1/me/**,/v1/invitations/**
+                - Path=/v1/platform/organizations/**,/v1/platform/users/**,/v1/platform/audit-logs,/v1/organizations/**,/v1/roles,/v1/me,/v1/me/**,/v1/invitations/**,/v1/staff-accounts/**
             # Các service khác thêm vào đây khi tới giai đoạn của chúng (G1+).
             # /internal/** CỐ Ý không có route: Open Host Service chỉ gọi được trong mạng nội bộ.
             # Riêng với inventory điều đó là bắt buộc: /internal/reservations đổi trạng thái tồn kho

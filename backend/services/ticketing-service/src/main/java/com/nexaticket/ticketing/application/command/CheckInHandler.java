@@ -89,6 +89,13 @@ public class CheckInHandler {
      * @param override cho vào thủ công dù vé đang được ghi nhận là ở trong; người gọi phải đã kiểm
      *     quyền
      * @param reason lý do cho vào thủ công, bắt buộc khi {@code override}
+     * @param lookupTicketId vé nhân viên chọn sau khi tìm khách theo tên / email / SĐT và đối chiếu
+     *     giấy tờ — thay cho mã QR và mã gõ tay
+     * @param scannedAt lúc máy quét — chỉ có với lượt quét offline đồng bộ muộn; {@code null} là
+     *     "bây giờ". Mọi phép kiểm giờ (hạn mã, giờ mở cổng) và mốc vào/ra đều theo giá trị này
+     * @param offline lượt quét lúc máy mất mạng, gửi lên sau
+     * @param clientScanId id máy tự sinh cho lượt quét offline; gửi lại cùng id thì trả kết quả cũ
+     * @param deviceResult kết quả máy đã hiện cho khách lúc quét offline
      */
     public record Command(
             String qrToken,
@@ -100,7 +107,42 @@ public class CheckInHandler {
             String direction,
             String gate,
             boolean override,
-            String reason) {
+            String reason,
+            UUID lookupTicketId,
+            Instant scannedAt,
+            boolean offline,
+            UUID clientScanId,
+            String deviceResult) {
+
+        /** Lượt quét trực tuyến — mọi trường offline / tra cứu để trống. */
+        public Command(
+                String qrToken,
+                String ticketCode,
+                UUID eventSessionId,
+                UUID staffId,
+                UUID staffOrganizationId,
+                String deviceId,
+                String direction,
+                String gate,
+                boolean override,
+                String reason) {
+            this(
+                    qrToken,
+                    ticketCode,
+                    eventSessionId,
+                    staffId,
+                    staffOrganizationId,
+                    deviceId,
+                    direction,
+                    gate,
+                    override,
+                    reason,
+                    null,
+                    null,
+                    false,
+                    null,
+                    null);
+        }
 
         /** Quét Vào bằng mã QR — lượt quét của máy soát vé đời đầu. */
         public Command(String qrToken, UUID eventSessionId, UUID staffId, UUID staffOrganizationId, String deviceId) {
@@ -119,6 +161,36 @@ public class CheckInHandler {
     }
 
     /**
+     * Lượt quét offline đã được ghi trước đó với cùng {@code clientScanId}: trả lại đúng kết quả cũ,
+     * không chạy lại gì.
+     */
+    private Optional<Result> replayed(Command cmd, ScanDirection direction) {
+        if (cmd.clientScanId() == null) {
+            return Optional.empty();
+        }
+        return log.findByClientScanId(cmd.clientScanId()).map(previous -> {
+            Optional<Ticket> ticket =
+                    previous.ticketId() == null ? Optional.empty() : tickets.findById(previous.ticketId());
+            return new Result(
+                    previous.result(),
+                    direction.name(),
+                    ticket.map(Ticket::seatCode).orElse(null),
+                    ticket.map(Ticket::seatLabel).orElse(null),
+                    ticket.map(Ticket::ticketTypeName).orElse(null),
+                    previous.note(),
+                    previous.ticketId(),
+                    ticket.map(Ticket::holderName).orElse(null),
+                    ticket.map(Ticket::zoneCode).orElse(null),
+                    ticket.map(Ticket::entryCount).orElse(0),
+                    ticket.map(Ticket::lastEntryAt).orElse(null),
+                    ticket.map(Ticket::lastEntryGate).orElse(null),
+                    ticket.map(Ticket::eventSessionId).orElse(null),
+                    previous.conflict(),
+                    true);
+        });
+    }
+
+    /**
      * Mọi nhãn ở đây do SERVER trả về sau khi đã kiểm quyền, không phải đọc từ mã QR (mã QR cố ý
      * không chứa thông tin gì).
      *
@@ -128,6 +200,8 @@ public class CheckInHandler {
      * @param entryCount số lần vé đã vào cửa, tính cả lần này nếu được cho vào
      * @param lastEntryAt lần vào gần nhất — thứ nhân viên đọc cho khách khi vé "đang ở trong"
      * @param ticketSessionId suất diễn của vé; khác suất đang soát khi kết quả là WRONG_SESSION
+     * @param conflict lượt quét offline mà máy đã cho vào nhưng server không đồng ý
+     * @param duplicate lượt offline đã được ghi từ lần gửi trước — kết quả cũ, không ghi lại
      */
     public record Result(
             String result,
@@ -142,7 +216,9 @@ public class CheckInHandler {
             int entryCount,
             Instant lastEntryAt,
             String lastEntryGate,
-            UUID ticketSessionId) {
+            UUID ticketSessionId,
+            boolean conflict,
+            boolean duplicate) {
 
         public boolean accepted() {
             return CheckinResult.ACCEPTED.name().equals(result);
@@ -153,12 +229,22 @@ public class CheckInHandler {
     public Result handle(Command cmd) {
         ScanDirection direction =
                 ScanDirection.OUT.name().equals(cmd.direction()) ? ScanDirection.OUT : ScanDirection.IN;
-        boolean byCode = isBlank(cmd.qrToken()) && !isBlank(cmd.ticketCode());
-        EntryMethod method = cmd.override() ? EntryMethod.OVERRIDE : byCode ? EntryMethod.CODE : EntryMethod.QR;
-        Scan scan = new Scan(cmd, direction, method);
+        Optional<Result> again = replayed(cmd, direction);
+        if (again.isPresent()) {
+            return again.get();
+        }
+        boolean byLookup = cmd.lookupTicketId() != null;
+        boolean byCode = !byLookup && isBlank(cmd.qrToken()) && !isBlank(cmd.ticketCode());
+        EntryMethod method = cmd.override()
+                ? EntryMethod.OVERRIDE
+                : byLookup ? EntryMethod.LOOKUP : byCode ? EntryMethod.CODE : EntryMethod.QR;
+        Instant now = cmd.scannedAt() != null ? cmd.scannedAt() : clock.instant();
+        Scan scan = new Scan(cmd, direction, method, now);
 
         Optional<Ticket> found;
-        if (byCode) {
+        if (byLookup) {
+            found = tickets.findById(cmd.lookupTicketId());
+        } else if (byCode) {
             String code = cmd.ticketCode().trim();
             if (!TICKET_CODE.matcher(code).matches()) {
                 return scan.reject(null, CheckinResult.NOT_FOUND, "Mã vé gồm ít nhất 8 ký tự in trên vé");
@@ -169,7 +255,7 @@ public class CheckInHandler {
             }
             found = matches.stream().findFirst();
         } else {
-            Optional<QrToken> token = isBlank(cmd.qrToken()) ? Optional.empty() : signer.verify(cmd.qrToken());
+            Optional<QrToken> token = isBlank(cmd.qrToken()) ? Optional.empty() : signer.verify(cmd.qrToken(), now);
             if (token.isEmpty()) {
                 return scan.reject(null, CheckinResult.INVALID_TOKEN, "Mã không hợp lệ hoặc đã hết hạn");
             }
@@ -193,7 +279,6 @@ public class CheckInHandler {
             return scan.reject(ticket, verdict, noteFor(verdict));
         }
 
-        Instant now = clock.instant();
         Optional<CatalogPort.SessionInfo> session = catalog.sessionInfo(cmd.eventSessionId());
 
         // Chỉ lượt Vào bị giờ diễn chặn. Khách ra về sau khi suất kết thúc vẫn phải quét Ra được,
@@ -297,11 +382,23 @@ public class CheckInHandler {
         private final Command cmd;
         private final ScanDirection direction;
         private final EntryMethod method;
+        private final Instant at;
 
-        private Scan(Command cmd, ScanDirection direction, EntryMethod method) {
+        private Scan(Command cmd, ScanDirection direction, EntryMethod method, Instant at) {
             this.cmd = cmd;
             this.direction = direction;
             this.method = method;
+            this.at = at;
+        }
+
+        /**
+         * Xung đột offline: máy đã cho khách VÀO (khách đã ở trong rồi) mà server không đồng ý —
+         * máy khác vừa cho cùng vé vào, hoặc vé bị thu hồi lúc máy mất mạng.
+         */
+        private boolean conflicts(CheckinResult result) {
+            return cmd.offline()
+                    && CheckinResult.ACCEPTED.name().equals(cmd.deviceResult())
+                    && result != CheckinResult.ACCEPTED;
         }
 
         private CheckinLogRepository.Scan entry(UUID ticketId, CheckinResult result, String note) {
@@ -315,7 +412,12 @@ public class CheckInHandler {
                     cmd.gate(),
                     method,
                     result,
-                    note);
+                    note,
+                    cmd.scannedAt() == null ? null : at,
+                    cmd.offline(),
+                    cmd.clientScanId(),
+                    cmd.deviceResult(),
+                    conflicts(result));
         }
 
         /** Từ chối kèm nhãn vé (nếu đã xác định được vé và nhân viên có quyền xem). */
@@ -330,7 +432,21 @@ public class CheckInHandler {
         /** Kết quả không lộ bất kỳ thông tin nào của vé. */
         private Result anonymous(CheckinResult result, String note) {
             return new Result(
-                    result.name(), direction.name(), null, null, null, note, null, null, null, 0, null, null, null);
+                    result.name(),
+                    direction.name(),
+                    null,
+                    null,
+                    null,
+                    note,
+                    null,
+                    null,
+                    null,
+                    0,
+                    null,
+                    null,
+                    null,
+                    conflicts(result),
+                    false);
         }
 
         private Result result(
@@ -353,7 +469,9 @@ public class CheckInHandler {
                     entryCount,
                     lastEntryAt,
                     lastEntryGate,
-                    ticket.eventSessionId());
+                    ticket.eventSessionId(),
+                    conflicts(result),
+                    false);
         }
     }
 }

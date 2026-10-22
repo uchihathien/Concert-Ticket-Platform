@@ -5,6 +5,7 @@ import com.nexaticket.ticketing.application.CheckinAssignments;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +35,17 @@ public class InternalCheckinAssignmentController {
     public record AssignmentView(UUID userId, UUID eventId) {}
 
     public record ReplaceRequest(@NotNull @Size(max = 200) List<UUID> eventIds, UUID assignedBy) {}
+
+    /** Hợp đồng với {@code TicketingHttpAdapter.CoverageView} của identity-service. */
+    public record CoverageView(UUID userId, List<UUID> eventIds, Instant lastSessionEndsAt) {}
+
+    /** Suất cuối của từng nhân viên trong tổ chức — để identity tự khoá tài khoản đã hết việc. */
+    @GetMapping("/{organizationId}/coverage")
+    public List<CoverageView> coverage(@PathVariable UUID organizationId) {
+        return assignments.coverage(organizationId).stream()
+                .map(c -> new CoverageView(c.userId(), c.eventIds(), c.lastSessionEndsAt()))
+                .toList();
+    }
 
     /** Mọi việc gán của một tổ chức, hoặc của một nhân viên khi có {@code userId}. */
     @GetMapping("/{organizationId}")
