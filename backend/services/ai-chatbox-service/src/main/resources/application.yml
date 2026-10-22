@@ -101,6 +101,14 @@ nexaticket:
       # bỏ message cũ nhất khi vượt — có thể chính là câu hỏi của khách. Adapter log WARN khi
       # prompt_eval_count ≥ 90% con số này. Lớn hơn thì máy ít VRAM chậm thêm.
       num-ctx: ${OLLAMA_NUM_CTX:8192}
+      # Ollama giữ mô hình trong bộ nhớ bấy nhiêu lâu sau lời gọi cuối (mặc định của Ollama: 5 phút,
+      # và câu đầu tiên sau khoảng lặng trả thêm 10–60 giây nạp lại 4,7 GB).
+      keep-alive: ${OLLAMA_KEEP_ALIVE:30m}
+      # Số lớp của mô hình NHÚNG trên GPU: 0 = chạy hẳn trên CPU (mặc định), -1 = Ollama tự quyết.
+      # Trên máy 4 GB VRAM, mô hình chat và bge-m3 không cùng vừa: Ollama dỡ mô hình chat ở MỖI lượt
+      # chỉ để nhúng một câu hỏi rồi nạp lại — đo được 10–60 giây mỗi lượt. Nhúng trên CPU mất vài
+      # trăm mili-giây. Máy nhiều VRAM có thể đặt -1.
+      embedding-gpu-layers: ${OLLAMA_EMBEDDING_GPU_LAYERS:0}
     agent:
       # Mô hình mặc định. Đổi model là đổi cả hành vi lẫn giá — nên nó nằm ở cấu hình, không nằm
       # trong mã nguồn.

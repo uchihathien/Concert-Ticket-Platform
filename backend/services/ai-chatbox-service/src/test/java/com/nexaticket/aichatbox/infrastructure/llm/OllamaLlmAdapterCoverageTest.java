@@ -38,7 +38,8 @@ class OllamaLlmAdapterCoverageTest {
 
     private OllamaLlmAdapter adapterAt(String baseUrl, Duration timeout) {
         return new OllamaLlmAdapter(
-                RestClient.builder(), new OllamaProperties(baseUrl, "qwen-test", null, 0, timeout, null, 111, 0));
+                RestClient.builder(),
+                new OllamaProperties(baseUrl, "qwen-test", null, 0, timeout, null, 111, 0, null, 0));
     }
 
     private OllamaLlmAdapter adapter() {
@@ -324,7 +325,8 @@ class OllamaLlmAdapterCoverageTest {
         @Test
         @DisplayName("giá trị thiếu hoặc không hợp lệ rơi về mặc định")
         void mac_dinh() {
-            OllamaProperties p = new OllamaProperties(" ", null, "", -1, Duration.ZERO, Duration.ofSeconds(-1), 0, 0);
+            OllamaProperties p =
+                    new OllamaProperties(" ", null, "", -1, Duration.ZERO, Duration.ofSeconds(-1), 0, 0, null, 0);
 
             assertThat(p.baseUrl()).isEqualTo("http://localhost:11434");
             assertThat(p.chatModel()).isEqualTo("qwen2.5:7b-instruct");
@@ -340,7 +342,16 @@ class OllamaLlmAdapterCoverageTest {
         @DisplayName("giá trị khai tường minh được giữ nguyên")
         void giu_gia_tri() {
             OllamaProperties p = new OllamaProperties(
-                    "http://ollama:11434", "m", "e", 768, Duration.ofSeconds(9), Duration.ofSeconds(8), 50, 4096);
+                    "http://ollama:11434",
+                    "m",
+                    "e",
+                    768,
+                    Duration.ofSeconds(9),
+                    Duration.ofSeconds(8),
+                    50,
+                    4096,
+                    null,
+                    0);
 
             assertThat(p.baseUrl()).isEqualTo("http://ollama:11434");
             assertThat(p.chatModel()).isEqualTo("m");

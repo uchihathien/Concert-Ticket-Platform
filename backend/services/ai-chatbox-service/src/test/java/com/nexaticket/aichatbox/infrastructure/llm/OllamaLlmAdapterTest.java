@@ -37,7 +37,9 @@ class OllamaLlmAdapterTest {
                         Duration.ofSeconds(5),
                         Duration.ofSeconds(5),
                         320,
-                        8192));
+                        8192,
+                        null,
+                        0));
     }
 
     @AfterEach

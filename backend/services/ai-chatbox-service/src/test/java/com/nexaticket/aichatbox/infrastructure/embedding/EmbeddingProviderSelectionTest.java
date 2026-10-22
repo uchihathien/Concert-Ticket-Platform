@@ -91,7 +91,9 @@ class EmbeddingProviderSelectionTest {
                     Duration.ofSeconds(120),
                     Duration.ofSeconds(60),
                     1024,
-                    8192);
+                    8192,
+                    null,
+                    0);
         }
     }
 }

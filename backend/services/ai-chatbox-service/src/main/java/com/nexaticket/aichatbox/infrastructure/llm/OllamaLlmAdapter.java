@@ -84,6 +84,9 @@ public class OllamaLlmAdapter implements LlmProviderPort {
                             // đọc phức tạp hơn mà không sớm hơn một giây nào.
                             "stream",
                             false,
+                            // Giữ mô hình trong bộ nhớ qua những khoảng lặng — xem OllamaProperties.keepAlive.
+                            "keep_alive",
+                            properties.keepAliveSeconds(),
                             // `num_predict` là CHỐT CHẶN, không phải cách định hình câu trả lời —
                             // việc đó thuộc về luật "tối đa 120 từ" trong prompt hệ thống.
                             //

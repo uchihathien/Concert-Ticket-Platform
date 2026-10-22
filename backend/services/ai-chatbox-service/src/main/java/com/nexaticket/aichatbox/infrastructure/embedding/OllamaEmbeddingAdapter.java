@@ -6,6 +6,7 @@ import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
 import com.nexaticket.aichatbox.infrastructure.http.PooledHttpFactory;
 import com.nexaticket.aichatbox.infrastructure.llm.OllamaProperties;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
@@ -71,11 +72,8 @@ public class OllamaEmbeddingAdapter implements EmbeddingPort {
     }
 
     private float[] embed(String text) {
-        JsonNode response = client.post()
-                .uri("/api/embed")
-                .body(Map.of("model", properties.embeddingModel(), "input", text))
-                .retrieve()
-                .body(JsonNode.class);
+        JsonNode response =
+                client.post().uri("/api/embed").body(request(text)).retrieve().body(JsonNode.class);
 
         JsonNode vector = response == null ? null : response.path("embeddings").path(0);
         if (vector == null || !vector.isArray() || vector.isEmpty()) {
@@ -93,5 +91,21 @@ public class OllamaEmbeddingAdapter implements EmbeddingPort {
             embedding[i] = (float) vector.get(i).asDouble();
         }
         return embedding;
+    }
+
+    /**
+     * {@code keep_alive} để mô hình không bị dỡ sau 5 phút nghỉ; {@code num_gpu} để mô hình nhúng
+     * KHÔNG tranh GPU với mô hình chat — trên máy 4 GB VRAM hai mô hình không cùng vừa và Ollama dỡ
+     * mô hình chat ở mỗi lượt chỉ để nhúng một câu hỏi. Xem {@code OllamaProperties.embeddingGpuLayers}.
+     */
+    Map<String, Object> request(String text) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", properties.embeddingModel());
+        body.put("input", text);
+        body.put("keep_alive", properties.keepAliveSeconds());
+        if (properties.embeddingGpuLayers() >= 0) {
+            body.put("options", Map.of("num_gpu", properties.embeddingGpuLayers()));
+        }
+        return body;
     }
 }

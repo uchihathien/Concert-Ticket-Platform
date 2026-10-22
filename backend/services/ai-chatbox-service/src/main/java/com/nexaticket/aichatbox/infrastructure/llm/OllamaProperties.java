@@ -31,6 +31,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     thống tiếng Việt + 9 schema tool + 10 lượt + 5 đoạn RAG + kết quả tool dễ vượt mức đó, và từ
  *     vòng thứ hai thứ bị bỏ có thể chính là câu hỏi của khách. 8192 là thoả hiệp: lớn hơn thì máy 4 GB
  *     VRAM chậm thêm.
+ * @param keepAlive gửi kèm mỗi lời gọi ({@code keep_alive}): Ollama giữ mô hình trong bộ nhớ bấy nhiêu
+ *     lâu sau lời gọi cuối. Mặc định của Ollama là 5 phút — câu hỏi đầu tiên sau một khoảng lặng
+ *     ngắn phải trả thêm 10–60 giây nạp lại 4,7 GB. 30 phút là đủ cho một ca hỗ trợ có lúc vắng khách.
+ * @param embeddingGpuLayers số lớp của mô hình NHÚNG đưa lên GPU ({@code options.num_gpu}); {@code 0}
+ *     là chạy hẳn trên CPU, {@code -1} là để Ollama tự quyết. Mặc định 0, vì một con số đo được trên
+ *     máy 4 GB VRAM: mô hình chat (7B, 2,3 GB trên GPU) và bge-m3 (0,7 GB) KHÔNG cùng vừa, nên mỗi
+ *     lượt chat Ollama dỡ cái này để nạp cái kia — nhúng câu hỏi rồi nạp lại mô hình chat, 10–60 giây
+ *     mỗi lượt, chiếm phần lớn 80–110 giây một câu trả lời. Nhúng một câu hỏi trên CPU mất vài trăm
+ *     mili-giây; để mô hình chat nằm yên trên GPU đáng giá hơn nhiều.
  */
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.ollama")
 public record OllamaProperties(
@@ -41,7 +50,9 @@ public record OllamaProperties(
         Duration timeout,
         Duration embeddingTimeout,
         int maxOutputTokens,
-        int numCtx) {
+        int numCtx,
+        Duration keepAlive,
+        int embeddingGpuLayers) {
 
     public OllamaProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -68,5 +79,16 @@ public record OllamaProperties(
         if (numCtx <= 0) {
             numCtx = 8192;
         }
+        if (keepAlive == null || keepAlive.isZero() || keepAlive.isNegative()) {
+            keepAlive = Duration.ofMinutes(30);
+        }
+        if (embeddingGpuLayers < -1) {
+            embeddingGpuLayers = -1;
+        }
+    }
+
+    /** Dạng Ollama hiểu: số giây, hoặc chuỗi kiểu Go ("30m"). Dùng số để không phụ thuộc định dạng. */
+    public long keepAliveSeconds() {
+        return keepAlive.toSeconds();
     }
 }
