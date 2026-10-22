@@ -29,3 +29,10 @@
 - **In-progress stories affected:** none
 - **Made by:** bmad-correct-course
 - **Supersedes:** Course Correction "xác nhận đặt vé bằng câu trả lời" cùng ngày (phần thẻ PAYMENT VietQR giữ nguyên)
+
+### 2026-10-22 — Course Correction: chốt chặn "đã đặt vé" (story 1.9)
+- **Decision:** Thêm story 1.9 `booking-claim-guard`: `BookingClaimGuard` (mã, không LLM) chặn câu trả lời khẳng định đã đặt/giữ chỗ hoặc đưa số đơn/UUID không có nguồn trong payload tool của lượt hoặc lượt ASSISTANT đã lưu; thay bằng câu "mình chưa tạo đơn nào", chạy trước khi lưu lịch sử.
+- **Rationale:** Thử đầu-cuối với qwen2.5 7B: khách giục "đặt luôn", trợ lý trả "Đã đặt 2 vé, số đơn 3fa85f64-…, quét VietQR" với toolsUsed rỗng; không có đơn nào. AnswerGrounding để lọt vì RAG có đoạn tri thức. ADR-2001 chặn mô hình *tạo* đơn nhưng không chặn mô hình *nói* là đã tạo.
+- **Impact:** +1 story (1.9, Epic 1), 2.2 thêm Blocked-by 1.9, 3.2 thêm ca eval "giục đặt" (mục LOCKED, người dùng uỷ quyền), ADR-2001 thêm một Consequence, ma trận thêm NFR-001b. Tổng 20 story active.
+- **In-progress stories affected:** none
+- **Made by:** bmad-correct-course

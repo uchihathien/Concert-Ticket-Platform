@@ -125,6 +125,7 @@
 6. **Không** gộp đề xuất và xác nhận vào một lượt dù câu đầu đã đủ thông tin: cú bấm "Đồng ý" là thứ phân biệt "đặt 2 vé khu A" với "khu A còn 2 vé không?", và nhầm là khoá chỗ của người khác 15 phút lúc mở bán. Gộp chỉ được phép sau ADR mới, kèm cờ theo sự kiện.
 
 **Consequences — LOCKED for all stories:**
+- *(Thêm 2026-10-22, từ thử đầu-cuối)* Mô hình cũng không được **nói** là đã có đơn: `BookingClaimGuard` chặn mọi lời khẳng định đã đặt/giữ chỗ và mọi số đơn/UUID không có nguồn trong payload tool của lượt hoặc lượt ASSISTANT đã lưu, chạy trước khi lưu lịch sử (story 1.9).
 - Không có tool nào trong `SupportAgentTools.CATALOG` được gọi `InventoryClientPort.holdZone` hay `OrderingClientPort.placeOrder`. `ArchitectureTest` thêm rule: package `application.agent` không phụ thuộc `InventoryClientPort`/`OrderingClientPort.placeOrder`.
 - Mọi hành động giao dịch mới trong tương lai (đổi vé, mua thêm) đi cùng mẫu: tool nháp → `ActionCard` → endpoint confirm.
 - Easier: prompt injection không thể tạo đơn; eval đo được "tỷ lệ đề xuất đúng" tách khỏi "tỷ lệ đặt thành công".
@@ -484,6 +485,7 @@ Trả `{id, event: {slug, title}, zoneCodes, quantity, maxUnitPriceVnd, status, 
 | FR-011 | FR | Organizer bật/tắt săn vé theo sự kiện | catalog flag, draftBookingIntent | 2005 | Addressed (Phase 2) |
 | FR-012 | FR | Chốt chặn grounding đối chiếu con số với payload tool | AnswerGrounding | — | Deferred — Phase 2, không cần ADR (nội bộ một lớp) |
 | NFR-001 | NFR | 0 đơn tạo khi chưa xác nhận | ArchitectureTest rule, confirm endpoint | 2001 | Addressed |
+| NFR-001b | NFR | Trợ lý không khẳng định đã đặt/không đưa số đơn khi không có đơn thật | BookingClaimGuard | 2001 | Addressed (1.9) |
 | NFR-002 | NFR | Chốt chặn thương mại giữ nguyên; idempotency theo ADR-0007 | handler hiện có, on-behalf-of, key nghiệp vụ | 2003, 2006 | Addressed |
 | NFR-003 | NFR | Công bằng với người mua tay | FIFO, grace 60 giây, cùng hạn mức | 2005 | Addressed |
 | NFR-004 | NFR | Hiệu năng/độ trễ (performance, latency): token đầu ≤ 3 giây p95; lượt ≤ 60 giây với mô hình trả phí; confirm ≤ 2 giây | SSE, định tuyến mô hình, slot memory | 2002, 2007, 2008 | Addressed |
