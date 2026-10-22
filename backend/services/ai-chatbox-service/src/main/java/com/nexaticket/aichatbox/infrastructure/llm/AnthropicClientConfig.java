@@ -25,6 +25,9 @@ public class AnthropicClientConfig {
         return AnthropicOkHttpClient.builder()
                 .apiKey(properties.apiKey())
                 .timeout(properties.timeout())
+                // Tường minh: mặc định của SDK (2) nhân ba thời gian xấu nhất của mỗi lời gọi mà
+                // ngân sách của lượt chat không thấy.
+                .maxRetries(properties.maxRetries())
                 .build();
     }
 }

@@ -2,17 +2,22 @@
 package com.nexaticket.aichatbox.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
 import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase.BookingOutcome;
 import com.nexaticket.aichatbox.domain.model.PlacedOrder;
+import com.nexaticket.aichatbox.domain.model.TicketHold;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.domain.port.BookingRejectedException;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import com.nexaticket.aichatbox.support.FakeCommerce;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,11 +31,61 @@ import org.junit.jupiter.api.Test;
 class TicketBookingUseCaseTest {
 
     private final UUID sessionId = UUID.randomUUID();
-    private final FakeCommerce.Catalog catalog = new FakeCommerce.Catalog();
-    private final FakeCommerce.Inventory inventory = new FakeCommerce.Inventory();
-    private final FakeCommerce.Ordering ordering = new FakeCommerce.Ordering();
+    private final RecordingCatalog catalog = new RecordingCatalog();
+    private final RecordingInventory inventory = new RecordingInventory();
+    private final ScriptedOrdering ordering = new ScriptedOrdering();
     private final TicketBookingUseCase booking =
-            new TicketBookingUseCase(catalog, inventory, ordering, new FakeCommerce.Credentials());
+            new TicketBookingUseCase(catalog, inventory, ordering, new FakeCommerce.Credentials(), Duration.ZERO);
+
+    /** Ordering trả lần lượt từng kết cục trong hàng đợi; hết hàng đợi thì như hàng giả gốc. */
+    static class ScriptedOrdering extends FakeCommerce.Ordering {
+        final Deque<Object> outcomes = new ArrayDeque<>();
+
+        @Override
+        public PlacedOrder placeOrder(UUID holdId, String callerAccessToken, String idempotencyKey) {
+            Object next = outcomes.poll();
+            if (next == null) {
+                return super.placeOrder(holdId, callerAccessToken, idempotencyKey);
+            }
+            placeKeys.add(idempotencyKey);
+            placedHolds.add(holdId);
+            if (next instanceof RuntimeException e) {
+                throw e;
+            }
+            return (PlacedOrder) next;
+        }
+    }
+
+    /** Ghi lại mã khu inventory nhận được — hàng giả gốc không lưu. */
+    static class RecordingInventory extends FakeCommerce.Inventory {
+        final List<String> zones = new ArrayList<>();
+
+        @Override
+        public TicketHold holdZone(
+                UUID eventSessionId,
+                String zoneCode,
+                int quantity,
+                ZoneAdmission admission,
+                String callerAccessToken,
+                String idempotencyKey) {
+            zones.add(zoneCode);
+            return super.holdZone(eventSessionId, zoneCode, quantity, admission, callerAccessToken, idempotencyKey);
+        }
+    }
+
+    static class RecordingCatalog extends FakeCommerce.Catalog {
+        final List<String> admissionZones = new ArrayList<>();
+
+        @Override
+        public Optional<ZoneAdmission> findZoneAdmission(String slug, String zoneCode) {
+            admissionZones.add(zoneCode);
+            return super.findZoneAdmission(slug, zoneCode);
+        }
+    }
+
+    private static RemoteCallException timeout() {
+        return new RemoteCallException("ordering-service", "giả: quá hạn", null);
+    }
 
     @BeforeEach
     void seed() {
@@ -78,14 +133,86 @@ class TicketBookingUseCaseTest {
         assertThat(inventory.released).hasSize(1);
     }
 
+    /**
+     * Cập nhật theo 6.12 (R-25): bản cũ khẳng định "ordering không phản hồi thì nhả chỗ rồi ném lỗi"
+     * — đúng hành vi gây đơn trùng. Quá hạn cả hai lần thì GIỮ chỗ và trả lý do "chưa xác nhận".
+     */
     @Test
-    void ordering_khong_phan_hoi_thi_nha_cho_roi_bao_loi_len() {
-        ordering.placeFailure = new RemoteCallException("ordering-service", "giả: quá hạn", null);
+    void ordering_khong_phan_hoi_hai_lan_thi_giu_cho_va_dan_dung_dat_lai() {
+        ordering.placeFailure = timeout();
 
-        assertThatThrownBy(() -> booking.initiate("dem-nhac-trinh", sessionId, "A", 1, "call-10"))
-                .isInstanceOf(RemoteCallException.class);
+        BookingOutcome outcome = booking.initiate("dem-nhac-trinh", sessionId, "A", 1, "call-10");
 
-        assertThat(inventory.released).hasSize(1);
+        assertThat(outcome).isInstanceOf(BookingOutcome.Rejected.class);
+        String reason = ((BookingOutcome.Rejected) outcome).reason();
+        assertThat(reason).isEqualTo(TicketBookingUseCase.UNCONFIRMED_REASON);
+        assertThat(reason.toLowerCase(java.util.Locale.ROOT)).contains("đừng");
+        assertThat(ordering.placeKeys).containsExactly("chat-order-call-10", "chat-order-call-10");
+        assertThat(inventory.released).isEmpty();
+    }
+
+    @Test
+    void qua_han_roi_hoi_lai_thanh_cong_thi_co_don_va_giu_cho() {
+        ordering.outcomes.add(timeout());
+        ordering.outcomes.add(ordering.nextOrder);
+
+        BookingOutcome outcome = booking.initiate("dem-nhac-trinh", sessionId, "A", 2, "s1");
+
+        assertThat(outcome).isInstanceOf(BookingOutcome.Started.class);
+        assertThat(ordering.placeKeys).containsExactly("chat-order-s1", "chat-order-s1");
+        assertThat(ordering.placedHolds).hasSize(2).containsOnly(ordering.placedHolds.getFirst());
+        assertThat(inventory.released).isEmpty();
+    }
+
+    @Test
+    void qua_han_roi_hoi_lai_bi_tu_choi_thi_nha_cho() {
+        ordering.outcomes.add(timeout());
+        ordering.outcomes.add(new BookingRejectedException("Chỗ giữ đã hết hạn."));
+
+        BookingOutcome outcome = booking.initiate("dem-nhac-trinh", sessionId, "A", 1, "s2");
+
+        assertThat(((BookingOutcome.Rejected) outcome).reason()).isEqualTo("Chỗ giữ đã hết hạn.");
+        assertThat(inventory.released).containsExactly(ordering.placedHolds.getFirst());
+    }
+
+    @Test
+    void qua_han_roi_loi_la_thi_coi_nhu_chua_biet_va_giu_cho() {
+        ordering.outcomes.add(timeout());
+        ordering.outcomes.add(new IllegalStateException("lỗi lạ"));
+
+        BookingOutcome outcome = booking.initiate("dem-nhac-trinh", sessionId, "A", 1, "s3");
+
+        assertThat(((BookingOutcome.Rejected) outcome).reason()).isEqualTo(TicketBookingUseCase.UNCONFIRMED_REASON);
+        assertThat(inventory.released).isEmpty();
+    }
+
+    @Test
+    void bi_ngat_luc_cho_hoi_lai_thi_giu_cho_va_giu_co_ngat() {
+        TicketBookingUseCase slow = new TicketBookingUseCase(
+                catalog, inventory, ordering, new FakeCommerce.Credentials(), Duration.ofSeconds(30));
+        ordering.outcomes.add(timeout());
+        Thread.currentThread().interrupt();
+        try {
+            BookingOutcome outcome = slow.initiate("dem-nhac-trinh", sessionId, "A", 1, "s4");
+
+            assertThat(((BookingOutcome.Rejected) outcome).reason()).isEqualTo(TicketBookingUseCase.UNCONFIRMED_REASON);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            assertThat(inventory.released).isEmpty();
+            assertThat(ordering.placeKeys).hasSize(1);
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    /** R-26: mô hình viết "ga", catalog khai "GA" — mọi bên nhận giá trị chuẩn. */
+    @Test
+    void ma_khu_viet_thuong_thi_gui_ma_chuan_cua_catalog() {
+        BookingOutcome outcome = booking.initiate("dem-nhac-trinh", sessionId, "ga", 1, "s5");
+
+        assertThat(outcome).isInstanceOf(BookingOutcome.Started.class);
+        assertThat(inventory.zones).containsExactly("GA");
+        assertThat(catalog.admissionZones).containsExactly("GA");
+        assertThat(inventory.admissions).containsExactly(ZoneAdmission.STANDING);
     }
 
     @Test

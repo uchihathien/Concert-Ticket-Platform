@@ -5,7 +5,9 @@ import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffViews;
 import com.nexaticket.aichatbox.application.handoff.SupportDeskAccess;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
@@ -61,12 +63,12 @@ public class SupportDeskController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) @Size(max = 40) String intent,
             @RequestParam(required = false) @Size(max = 200) String q,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "0") @Max(MAX_PAGE) int page,
             @RequestParam(defaultValue = "50") int size) {
 
         UUID agentId = access.requireSupportAgent();
         int limit = Math.clamp(size, 1, MAX_QUEUE_SIZE);
-        int offset = Math.max(page, 0) * limit;
+        int offset = offsetOf(page, limit);
         UUID scope = mine ? agentId : null;
 
         // Không tham số lọc nào thì giữ NGUYÊN hành vi cũ: hàng đợi việc phải làm, cũ nhất trước.
@@ -80,6 +82,17 @@ public class SupportDeskController {
         // HandoffUseCase, nơi nó cũng thuộc về hơn — "phiếu chưa xong gồm những trạng thái nào" là
         // một quyết định nghiệp vụ, không phải một chi tiết của HTTP.
         return handoffs.search(scope, status, intent, q, limit, offset);
+    }
+
+    /**
+     * Trần trang. Không có trần thì {@code page * limit} nhân {@code int} tràn số, ra OFFSET âm và
+     * Postgres trả lỗi thành 500 (R-07). Mười nghìn trang × 100 là một triệu phiếu — quá đủ.
+     */
+    static final int MAX_PAGE = 10_000;
+
+    /** Nhân bằng {@code long} rồi mới ép — trang âm thành 0 như trước. */
+    static int offsetOf(int page, int limit) {
+        return (int) Math.min((long) Math.max(page, 0) * limit, Integer.MAX_VALUE);
     }
 
     private static boolean hasText(String value) {
@@ -132,5 +145,26 @@ public class SupportDeskController {
      * @param text giới hạn độ dài là chốt chặn thực tế, không phải kỹ thuật: một tin nhắn hỗ trợ
      *     dài 4.000 ký tự là một tài liệu, và nó thuộc về email chứ không thuộc về khung chat
      */
+    /**
+     * Nhả phiếu về hàng đợi — người trực nào cũng làm được, không riêng người đang giữ. Lối thoát cho
+     * phiếu bị bỏ rơi khi người nhận hết ca.
+     */
+    @PostMapping("/{handoffId}/release")
+    public HandoffViews.HandoffRow release(
+            @PathVariable UUID handoffId, @Valid @RequestBody(required = false) ReleaseRequest request) {
+        UUID actorId = access.requireSupportAgent();
+        return handoffs.release(handoffId, actorId, request == null ? null : request.reason());
+    }
+
+    @PostMapping("/{handoffId}/reassign")
+    public HandoffViews.HandoffRow reassign(@PathVariable UUID handoffId, @Valid @RequestBody ReassignRequest request) {
+        UUID actorId = access.requireSupportAgent();
+        return handoffs.reassign(handoffId, actorId, request.agentId(), request.reason());
+    }
+
     public record ReplyRequest(@NotBlank @Size(max = 4000) String text) {}
+
+    public record ReleaseRequest(@Size(max = 500) String reason) {}
+
+    public record ReassignRequest(@NotNull UUID agentId, @Size(max = 500) String reason) {}
 }

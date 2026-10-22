@@ -26,6 +26,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     tri thức nền chết ở {@code CancellationException} sau đúng 30 giây. Không gộp vào
  *     {@code timeout} của chat: 120 giây cho một lời gọi nhúng chỉ làm người soạn kho tri thức chờ
  *     hai phút để biết Ollama không chạy.
+ * @param numCtx cửa sổ ngữ cảnh gửi kèm mỗi lời gọi ({@code options.num_ctx}). Không khai thì
+ *     Ollama dùng mặc định 2048–4096 token và <b>lặng lẽ bỏ message cũ nhất</b> khi vượt — prompt hệ
+ *     thống tiếng Việt + 9 schema tool + 10 lượt + 5 đoạn RAG + kết quả tool dễ vượt mức đó, và từ
+ *     vòng thứ hai thứ bị bỏ có thể chính là câu hỏi của khách. 8192 là thoả hiệp: lớn hơn thì máy 4 GB
+ *     VRAM chậm thêm.
  */
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.ollama")
 public record OllamaProperties(
@@ -35,7 +40,8 @@ public record OllamaProperties(
         int dimensions,
         Duration timeout,
         Duration embeddingTimeout,
-        int maxOutputTokens) {
+        int maxOutputTokens,
+        int numCtx) {
 
     public OllamaProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -58,6 +64,9 @@ public record OllamaProperties(
         }
         if (maxOutputTokens <= 0) {
             maxOutputTokens = 320;
+        }
+        if (numCtx <= 0) {
+            numCtx = 8192;
         }
     }
 }

@@ -11,10 +11,12 @@ import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
 import com.nexaticket.aichatbox.domain.port.InventoryClientPort;
 import com.nexaticket.aichatbox.domain.port.OrderingClientPort;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -27,12 +29,18 @@ import org.springframework.stereotype.Service;
  * còn trống, suất đã đóng bán, chỗ giữ 10 phút tự nhả, hạn thanh toán 15 phút của đơn. Những con
  * số ấy không khai lại ở đây — chúng được đọc từ phản hồi của hai service và nói lại cho khách.
  *
- * <h2>Bước hai hỏng thì nhả bước một</h2>
+ * <h2>Bước hai nói "không" thì nhả bước một — "không biết" thì KHÔNG</h2>
  *
- * <p>Giữ chỗ xong mà đặt đơn không được (ordering quá hạn, mã khuyến mãi sai) thì chỗ ấy bị treo
- * tới 10 phút trong khi khách — vừa được báo "không đặt được" — thử lại và nhận "khu này hết
- * chỗ" do chính chỗ mình vừa giữ. Nhả ngay, và nhả theo kiểu cố gắng hết sức: nhả không được
- * thì chỗ vẫn tự hết hạn, còn lỗi thật của bước đặt đơn thì phải được báo lên.
+ * <p>Ordering từ chối (mã khuyến mãi sai, chỗ hết hạn) thì chỗ vừa giữ bị treo tới 10 phút trong
+ * khi khách — vừa được báo "không đặt được" — thử lại và nhận "khu này hết chỗ" do chính chỗ mình
+ * vừa giữ. Nhả ngay, theo kiểu cố gắng hết sức: nhả không được thì chỗ vẫn tự hết hạn.
+ *
+ * <p>Ordering <b>quá hạn</b> thì khác hẳn: saga đặt đơn có thể vẫn đang chạy và commit sau khi
+ * chat bỏ cuộc. Bản trước gom hai trường hợp làm một — nhả chỗ, báo lỗi, mô hình gọi đặt vé lại
+ * với khoá mới, và khách có hai đơn (R-25). Giờ hỏi lại đúng đơn đó bằng CÙNG khoá một lần: ordering
+ * phát lại phản hồi đã lưu (starter-idempotency), trả lại đơn cũ theo {@code hold_id}, và unique
+ * index {@code orders.hold_id} chặn đơn thứ hai. Vẫn không biết thì giữ nguyên chỗ và bảo mô hình
+ * đừng đặt lại.
  *
  * <h2>Khoá chống trùng sinh từ lời gọi tool</h2>
  *
@@ -54,20 +62,44 @@ public class TicketBookingUseCase {
      */
     static final int MAX_QUANTITY = 6;
 
+    /**
+     * Ordering không trả lời được cả hai lần: đơn có thể đã được tạo. Mô hình đọc câu này và nói lại
+     * — điều quan trọng nhất là nó KHÔNG gọi đặt vé lần nữa.
+     */
+    public static final String UNCONFIRMED_REASON = "Hệ thống đơn hàng phản hồi chậm nên chưa xác nhận được đơn đã "
+            + "được tạo hay chưa. Đừng gọi đặt vé lại — làm vậy có thể tạo đơn thứ hai. Mời khách chờ khoảng một "
+            + "phút rồi hỏi \"đơn của tôi\" (gọi getCustomerProfileAndHistory) hoặc xem trang Đơn hàng.";
+
+    /** Chờ trước lần hỏi lại — đủ để một saga chậm kịp commit. */
+    private static final Duration DEFAULT_RETRY_DELAY = Duration.ofSeconds(1);
+
     private final CatalogClientPort catalog;
     private final InventoryClientPort inventory;
     private final OrderingClientPort ordering;
     private final CallerCredentialsPort credentials;
+    private final Duration retryDelay;
 
+    @Autowired
     public TicketBookingUseCase(
             CatalogClientPort catalog,
             InventoryClientPort inventory,
             OrderingClientPort ordering,
             CallerCredentialsPort credentials) {
+        this(catalog, inventory, ordering, credentials, DEFAULT_RETRY_DELAY);
+    }
+
+    /** Cho test: {@code Duration.ZERO} để không ngủ. */
+    public TicketBookingUseCase(
+            CatalogClientPort catalog,
+            InventoryClientPort inventory,
+            OrderingClientPort ordering,
+            CallerCredentialsPort credentials,
+            Duration retryDelay) {
         this.catalog = catalog;
         this.inventory = inventory;
         this.ordering = ordering;
         this.credentials = credentials;
+        this.retryDelay = retryDelay;
     }
 
     /** Kết quả đặt vé — hoặc đã có đơn chờ thanh toán, hoặc một lý do để nói lại với khách. */
@@ -109,46 +141,95 @@ public class TicketBookingUseCase {
             return new BookingOutcome.Rejected("Suất diễn này không thuộc sự kiện " + event.title()
                     + ". Lấy lại sessionId từ getEventDetails của đúng sự kiện.");
         }
-        boolean zoneBelongs = event.sessions().stream()
+        // Mã khu CHUẨN của catalog, không phải chuỗi mô hình viết: so khớp ở đây không phân biệt hoa
+        // thường, nhưng inventory thì chưa chắc (R-26).
+        Optional<String> canonical = event.sessions().stream()
                 .filter(session -> eventSessionId.equals(session.id()))
                 .flatMap(session -> session.tiers().stream())
-                .anyMatch(tier -> zoneCode.equalsIgnoreCase(tier.zoneCode()));
-        if (!zoneBelongs) {
+                .map(tier -> tier.zoneCode())
+                .filter(zoneCode::equalsIgnoreCase)
+                .findFirst();
+        if (canonical.isEmpty()) {
             return new BookingOutcome.Rejected("Suất này không có khu " + zoneCode
                     + ". Chọn zoneCode trong danh sách hạng vé mà getEventDetails trả về.");
         }
+        String zone = canonical.get();
 
-        Optional<ZoneAdmission> admission = catalog.findZoneAdmission(slug, zoneCode);
+        Optional<ZoneAdmission> admission = catalog.findZoneAdmission(slug, zone);
         if (admission.isEmpty()) {
             return new BookingOutcome.Rejected(
-                    "Sơ đồ sự kiện không có khu " + zoneCode + " — mời khách chọn chỗ trên trang sự kiện.");
+                    "Sơ đồ sự kiện không có khu " + zone + " — mời khách chọn chỗ trên trang sự kiện.");
         }
 
         String token = credentials.currentAccessToken();
         TicketHold hold;
         try {
             hold = inventory.holdZone(
-                    eventSessionId, zoneCode, quantity, admission.get(), token, "chat-hold-" + idempotencySeed);
+                    eventSessionId, zone, quantity, admission.get(), token, "chat-hold-" + idempotencySeed);
         } catch (BookingRejectedException e) {
             return new BookingOutcome.Rejected(e.reason());
         }
 
+        return placeWithOneRetry(event, hold, zone, token, idempotencySeed);
+    }
+
+    /**
+     * Đặt đơn; quá hạn thì hỏi lại đúng một lần bằng CÙNG khoá.
+     *
+     * <table>
+     *   <caption>Kết cục</caption>
+     *   <tr><th>Lần đầu</th><th>Lần hỏi lại</th><th>Kết quả</th><th>Chỗ giữ</th></tr>
+     *   <tr><td>có đơn</td><td>—</td><td>Started</td><td>giữ</td></tr>
+     *   <tr><td>từ chối</td><td>—</td><td>Rejected(lý do)</td><td>nhả</td></tr>
+     *   <tr><td>quá hạn</td><td>có đơn</td><td>Started</td><td>giữ</td></tr>
+     *   <tr><td>quá hạn</td><td>từ chối</td><td>Rejected(lý do)</td><td>nhả</td></tr>
+     *   <tr><td>quá hạn</td><td>vẫn không biết</td><td>Rejected(UNCONFIRMED_REASON)</td><td>GIỮ</td></tr>
+     * </table>
+     */
+    private BookingOutcome placeWithOneRetry(
+            EventDetail event, TicketHold hold, String zone, String token, String idempotencySeed) {
+        String key = "chat-order-" + idempotencySeed;
         try {
-            PlacedOrder order = ordering.placeOrder(hold.holdId(), token, "chat-order-" + idempotencySeed);
-            log.info(
-                    "Agent đặt đơn {} ({} vé khu {} của {}) qua chat",
-                    order.orderNumber(),
-                    hold.quantity(),
-                    zoneCode,
-                    event.title());
-            return new BookingOutcome.Started(event, hold, order);
+            return started(event, hold, zone, ordering.placeOrder(hold.holdId(), token, key));
         } catch (BookingRejectedException e) {
             releaseQuietly(hold, token);
             return new BookingOutcome.Rejected(e.reason());
         } catch (RemoteCallException e) {
-            releaseQuietly(hold, token);
-            throw e;
+            log.info("Ordering quá hạn khi đặt đơn cho chỗ giữ {} — hỏi lại cùng khoá", hold.holdId());
         }
+
+        try {
+            Thread.sleep(retryDelay);
+            return started(event, hold, zone, ordering.placeOrder(hold.holdId(), token, key));
+        } catch (BookingRejectedException e) {
+            releaseQuietly(hold, token);
+            return new BookingOutcome.Rejected(e.reason());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return unconfirmed(hold, idempotencySeed, e);
+        } catch (RuntimeException e) {
+            // RemoteCallException hay bất cứ thứ gì khác: chưa biết đơn đã tạo chưa — KHÔNG nhả.
+            return unconfirmed(hold, idempotencySeed, e);
+        }
+    }
+
+    private BookingOutcome started(EventDetail event, TicketHold hold, String zone, PlacedOrder order) {
+        log.info(
+                "Agent đặt đơn {} ({} vé khu {} của {}) qua chat",
+                order.orderNumber(),
+                hold.quantity(),
+                zone,
+                event.title());
+        return new BookingOutcome.Started(event, hold, order);
+    }
+
+    private BookingOutcome unconfirmed(TicketHold hold, String idempotencySeed, Exception cause) {
+        log.warn(
+                "Chưa xác nhận được đơn của chỗ giữ {} (seed {}) sau khi hỏi lại — giữ nguyên chỗ: {}",
+                hold.holdId(),
+                idempotencySeed,
+                cause.toString());
+        return new BookingOutcome.Rejected(UNCONFIRMED_REASON);
     }
 
     private void releaseQuietly(TicketHold hold, String token) {

@@ -5,6 +5,7 @@ import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
 import com.nexaticket.aichatbox.domain.model.RefundPolicy;
 import com.nexaticket.aichatbox.domain.port.EmbeddingPort;
+import com.nexaticket.aichatbox.domain.port.KnowledgeTitleTakenException;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import com.nexaticket.platform.web.error.ApiException;
 import java.util.List;
@@ -74,7 +75,14 @@ public class KnowledgeBaseUseCase {
         // Và KHÔNG có @Transactional ở đây: phần ghi là đúng một câu INSERT, vốn đã nguyên tử tự
         // thân. Thêm transaction chỉ để bọc một câu lệnh là thêm đúng cái vòng giữ kết nối vừa nói.
         float[] embedding = embed(title + "\n\n" + content);
-        UUID id = knowledge.addChunk(eventId, title, content, embedding);
+        UUID id;
+        try {
+            id = knowledge.addChunk(eventId, title, content, embedding);
+        } catch (KnowledgeTitleTakenException e) {
+            throw new ApiException(
+                    AiChatboxErrorCode.KNOWLEDGE_TITLE_TAKEN,
+                    "Đã có đoạn tri thức chung mang tiêu đề này — sửa đoạn đó hoặc đặt tiêu đề khác");
+        }
         log.info("Thêm đoạn tri thức {} (sự kiện {}): {}", id, eventId, title);
         return id;
     }

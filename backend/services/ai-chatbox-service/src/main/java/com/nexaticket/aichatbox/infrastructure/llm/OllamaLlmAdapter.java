@@ -2,6 +2,7 @@
 package com.nexaticket.aichatbox.infrastructure.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.domain.model.Exchange;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ToolOutcome;
@@ -16,7 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -41,10 +42,17 @@ import org.springframework.web.client.RestClient;
  * </ol>
  */
 @Component
-@ConditionalOnProperty(name = LlmProvider.PROPERTY, havingValue = "local", matchIfMissing = true)
+// RỖNG PHẢI ĐƯỢC COI NHƯ THIẾU — cùng lý do và cùng cách với OllamaEmbeddingAdapter (17 lần restart
+// trên production): @ConditionalOnProperty thấy AI_PROVIDER="" là "có mặt nhưng không khớp", nên không
+// adapter nào được dựng. Tên property là LlmProvider.PROPERTY; annotation chỉ nhận hằng chuỗi.
+@ConditionalOnExpression(
+        "'${nexaticket.aichatbox.provider:local}'.isEmpty() or '${nexaticket.aichatbox.provider:local}' == 'local'")
 public class OllamaLlmAdapter implements LlmProviderPort {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaLlmAdapter.class);
+
+    /** Chỉ dùng để đổi object/array của tham số tool sang Map/List — không cấu hình gì thêm. */
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final RestClient client;
     private final OllamaProperties properties;
@@ -65,13 +73,17 @@ public class OllamaLlmAdapter implements LlmProviderPort {
             response = client.post()
                     .uri("/api/chat")
                     .body(Map.of(
-                            "model", properties.chatModel(),
-                            "messages", messages,
-                            "tools", toTools(request.tools()),
+                            "model",
+                            properties.chatModel(),
+                            "messages",
+                            messages,
+                            "tools",
+                            toTools(request.tools()),
                             // Bắt buộc: mặc định của Ollama là trả từng mẩu (stream). Vòng ReAct
                             // cần trọn một lượt mới quyết định được, nên stream ở đây chỉ làm phần
                             // đọc phức tạp hơn mà không sớm hơn một giây nào.
-                            "stream", false,
+                            "stream",
+                            false,
                             // `num_predict` là CHỐT CHẶN, không phải cách định hình câu trả lời —
                             // việc đó thuộc về luật "tối đa 120 từ" trong prompt hệ thống.
                             //
@@ -81,7 +93,17 @@ public class OllamaLlmAdapter implements LlmProviderPort {
                             // nhà cung cấp — và lúc đó khách nhận 503 sau hai phút chờ, không nhận
                             // được phần chữ đã sinh ra. Cắt ở 320 token thì trường hợp xấu nhất
                             // vẫn trả về một câu trả lời, dù cụt.
-                            "options", Map.of("temperature", 0.2, "num_predict", properties.maxOutputTokens())))
+                            //
+                            // `num_ctx`: thiếu thì Ollama dùng cửa sổ mặc định và cắt im lặng — xem
+                            // OllamaProperties.numCtx.
+                            "options",
+                            Map.of(
+                                    "temperature",
+                                    0.2,
+                                    "num_predict",
+                                    properties.maxOutputTokens(),
+                                    "num_ctx",
+                                    properties.numCtx())))
                     .retrieve()
                     .body(JsonNode.class);
         } catch (RuntimeException e) {
@@ -91,9 +113,21 @@ public class OllamaLlmAdapter implements LlmProviderPort {
             throw new LlmUnavailableException("Không gọi được Ollama tại " + properties.baseUrl(), e);
         }
 
+        // Phần đọc phản hồi cũng bọc: một hình dạng lạ không được thoát ra dưới dạng 500 không phiếu.
+        try {
+            return interpret(response, messages);
+        } catch (LlmUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new LlmUnavailableException("Không đọc được phản hồi của Ollama", e);
+        }
+    }
+
+    private LlmTurn interpret(JsonNode response, List<Map<String, Object>> messages) {
         if (response == null || !response.has("message")) {
             throw new LlmUnavailableException("Ollama trả phản hồi không có message", null);
         }
+        warnIfContextNearlyFull(response);
         JsonNode message = response.get("message");
 
         List<ToolInvocation> calls = toolCalls(message);
@@ -110,6 +144,21 @@ public class OllamaLlmAdapter implements LlmProviderPort {
         return new LlmTurn.Answer(text);
     }
 
+    /**
+     * Ollama không báo khi cắt ngữ cảnh. {@code prompt_eval_count} sát trần là dấu hiệu duy nhất —
+     * ghi lại để thấy được trước khi khách thấy câu trả lời không khớp câu hỏi. Không log nội dung.
+     */
+    private void warnIfContextNearlyFull(JsonNode response) {
+        long promptTokens = response.path("prompt_eval_count").asLong(0);
+        if (promptTokens >= properties.numCtx() * 9L / 10) {
+            log.warn(
+                    "Ngữ cảnh gần chạm trần: prompt_eval_count={} / num_ctx={} (model {}) — Ollama có thể đã cắt message cũ",
+                    promptTokens,
+                    properties.numCtx(),
+                    properties.chatModel());
+        }
+    }
+
     /** Ollama không có id lời gọi; ta sinh id để phần còn lại của hệ thống không phải biết. */
     private static List<ToolInvocation> toolCalls(JsonNode message) {
         JsonNode toolCalls = message.path("tool_calls");
@@ -121,16 +170,45 @@ public class OllamaLlmAdapter implements LlmProviderPort {
         for (JsonNode call : toolCalls) {
             JsonNode function = call.path("function");
             Map<String, Object> arguments = new LinkedHashMap<>();
-            function.path("arguments")
-                    .fields()
-                    .forEachRemaining(entry -> arguments.put(
-                            entry.getKey(),
-                            entry.getValue().isTextual() ? entry.getValue().asText() : entry.getValue()));
+            function.path("arguments").fields().forEachRemaining(entry -> {
+                Object value = plain(entry.getValue());
+                if (value != null) {
+                    arguments.put(entry.getKey(), value);
+                }
+            });
 
             calls.add(new ToolInvocation(
                     UUID.randomUUID().toString(), function.path("name").asText(""), arguments));
         }
         return calls;
+    }
+
+    /**
+     * Một tham số JSON sang kiểu Java thuần, hoặc {@code null} khi nó không mang giá trị.
+     *
+     * <p>Trước đây {@code NullNode} được giữ nguyên rồi {@code toString()} thành chuỗi {@code "null"}
+     * — {@code findEvents(city="null")} không ra gì và mô hình nói "chưa bán sự kiện này"; {@code
+     * reportIncident(description="null")} qua được kiểm "không rỗng". Số thực có phần lẻ bằng 0
+     * ({@code 2.0}) về {@code Long} vì Ollama trả số nguyên theo kiểu đó.
+     */
+    static Object plain(JsonNode value) {
+        if (value == null || value.isNull() || value.isMissingNode()) {
+            return null;
+        }
+        if (value.isTextual()) {
+            return value.asText();
+        }
+        if (value.isBoolean()) {
+            return value.asBoolean();
+        }
+        if (value.isIntegralNumber()) {
+            return value.asLong();
+        }
+        if (value.isNumber()) {
+            double number = value.asDouble();
+            return number == Math.rint(number) && !Double.isInfinite(number) ? (Object) (long) number : number;
+        }
+        return JSON.convertValue(value, Object.class);
     }
 
     /**
