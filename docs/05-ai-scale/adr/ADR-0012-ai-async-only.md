@@ -3,3 +3,5 @@
 **Status:** Accepted
 
 AI/recommendation/forecast chỉ tiêu thụ event đã commit qua pipeline analytics. Không có quyết định checkout, hold, payment hay ticket nào phụ thuộc AI. Bắt đầu bằng content-based recommendation và demand baseline sau khi có dữ liệu consented.
+
+**Superseded by:** ADR-2001 trong `bmad-output/architecture.md` (2026-10-22) — AI được *đề xuất* hành động giao dịch; chỉ người dùng xác nhận và mã tất định thực thi. Phần dự báo/recommendation vẫn chỉ đọc event bất đồng bộ.
