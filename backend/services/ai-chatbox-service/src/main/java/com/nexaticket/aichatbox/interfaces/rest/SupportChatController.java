@@ -12,12 +12,17 @@ import com.nexaticket.platform.web.error.ApiException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,18 +46,29 @@ public class SupportChatController {
     private final TurnAdmission admission;
     private final Executor agentExecutor;
     private final ChatIdempotency idempotency;
+    private final Duration maxQueueWait;
+    private final Clock clock;
 
+    /**
+     * @param maxQueueWait lượt chờ trong hàng đợi của pool lâu hơn thế này thì không chạy nữa. Hạn
+     *     async tính từ lúc request tới, nên một lượt xếp hàng lâu rồi mới chạy trọn ngân sách mô hình
+     *     sẽ bị Tomcat cắt giữa chừng — khách nhận lỗi trong khi lượt vẫn chạy tiếp ở phía sau.
+     */
     public SupportChatController(
             CustomerSupportAgentUseCase agent,
             HandoffUseCase handoffs,
             TurnAdmission admission,
             @Qualifier("agentExecutor") Executor agentExecutor,
-            ChatIdempotency idempotency) {
+            ChatIdempotency idempotency,
+            @Value("${nexaticket.aichatbox.agent.max-queue-wait:60s}") Duration maxQueueWait,
+            Clock clock) {
         this.agent = agent;
         this.handoffs = handoffs;
         this.admission = admission;
         this.agentExecutor = agentExecutor;
         this.idempotency = idempotency;
+        this.maxQueueWait = maxQueueWait;
+        this.clock = clock;
     }
 
     /**
@@ -100,26 +116,46 @@ public class SupportChatController {
         }
 
         // Kiểm khoá TRƯỚC khi giữ chỗ: một lần gửi lại được trả lời từ bản đã lưu thì không tiêu
-        // suất đồng thời của ai cả.
-        var replay = idempotency.beginOrReplay(userId, idempotencyKey, sessionId, request.message());
+        // suất đồng thời của ai cả. Chữ ký tính trên `sessionId` CLIENT gửi (có thể null), không
+        // trên UUID vừa sinh — xem ChatIdempotency.beginOrReplay.
+        var replay = idempotency.beginOrReplay(userId, idempotencyKey, request.sessionId(), request.message());
         if (replay.isPresent()) {
             return CompletableFuture.completedFuture(replay.get());
         }
 
+        CompletableFuture<AskResponse> turn;
         try {
-            return submit(sessionId, userId, request.message()).whenComplete((response, error) -> {
-                if (error == null) {
-                    idempotency.complete(userId, idempotencyKey, response);
-                } else {
-                    // Nhả khoá khi hỏng, nếu không một lần 503 tạm thời khoá cứng đúng câu hỏi ấy:
-                    // mọi lần thử lại sau đó đều rơi vào nhánh "đang xử lý" của một lượt đã chết.
-                    idempotency.release(userId, idempotencyKey);
-                }
-            });
+            turn = submit(sessionId, userId, request.message());
         } catch (RuntimeException e) {
             idempotency.release(userId, idempotencyKey);
             throw e;
         }
+        // `handle`, không phải `whenComplete`: với `whenComplete`, `complete()` ném lỗi thì future
+        // hỏng với chính lỗi ấy và khoá không được `complete` lẫn `release` — mọi lần gửi lại nhận
+        // 503 "đang xử lý" tới khi khoá hết hạn. Ở đây mọi nhánh kết thúc đều để khoá ở trạng thái
+        // rõ ràng.
+        return turn.handle((response, error) -> {
+            if (error != null) {
+                // Nhả khoá khi hỏng, nếu không một lần 503 tạm thời khoá cứng đúng câu hỏi ấy:
+                // mọi lần thử lại sau đó đều rơi vào nhánh "đang xử lý" của một lượt đã chết.
+                idempotency.release(userId, idempotencyKey);
+                throw rethrow(error);
+            }
+            try {
+                idempotency.complete(userId, idempotencyKey, response);
+                return response;
+            } catch (RuntimeException e) {
+                idempotency.release(userId, idempotencyKey);
+                throw new ApiException(
+                        AiChatboxErrorCode.ASSISTANT_BUSY, "Chưa lưu được câu trả lời, bạn gửi lại giúp mình nhé");
+            }
+        });
+    }
+
+    /** Bóc {@code CompletionException} để {@code GlobalExceptionHandler} thấy đúng {@code ApiException}. */
+    private static RuntimeException rethrow(Throwable error) {
+        Throwable cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+        return cause instanceof RuntimeException runtime ? runtime : new CompletionException(cause);
     }
 
     /** Giữ chỗ rồi đẩy sang pool của agent. Từ chối ở cả hai cửa đều là 503 tức thì. */
@@ -134,8 +170,10 @@ public class SupportChatController {
         // SecurityContextCallerCredentials ném ra "agent chỉ chạy trong request đã xác thực" —
         // một thông báo đúng nhưng trỏ sai chỗ, vì request vẫn đã xác thực đàng hoàng.
         SecurityContext security = SecurityContextHolder.getContext();
+        Instant acceptedAt = clock.instant();
         try {
-            return CompletableFuture.supplyAsync(() -> runTurn(security, sessionId, userId, message), agentExecutor);
+            return CompletableFuture.supplyAsync(
+                    () -> runTurn(security, acceptedAt, sessionId, userId, message), agentExecutor);
         } catch (RejectedExecutionException e) {
             // Pool đầy VÀ hàng đợi đầy. Nhả chỗ vừa giữ, nếu không người này mất suất vĩnh viễn.
             admission.release(userId);
@@ -143,9 +181,16 @@ public class SupportChatController {
         }
     }
 
-    private AskResponse runTurn(SecurityContext security, UUID sessionId, UUID userId, String message) {
+    private AskResponse runTurn(
+            SecurityContext security, Instant acceptedAt, UUID sessionId, UUID userId, String message) {
         SecurityContextHolder.setContext(security);
         try {
+            if (Duration.between(acceptedAt, clock.instant()).compareTo(maxQueueWait) > 0) {
+                // Chờ quá lâu trong hàng đợi: chạy bây giờ thì Tomcat cắt giữa chừng. Từ chối sạch —
+                // khoá idempotency được nhả ở `handle`, chỗ đồng thời được nhả ở `finally` dưới đây.
+                throw new ApiException(
+                        AiChatboxErrorCode.ASSISTANT_BUSY, "Trợ lý đang bận, bạn thử lại sau ít phút nhé");
+            }
             AgentReply reply = agent.executeAgentProcess(sessionId, userId, message);
             return new AskResponse(reply.sessionId(), reply.answer(), reply.toolsUsed());
         } finally {

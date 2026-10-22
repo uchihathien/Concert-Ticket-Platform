@@ -41,11 +41,21 @@ spring:
       # Hậu quả đã xảy ra thật: khách nhận 500 "Unexpected error" sau 30 giây trong khi lượt chat
       # vẫn đang chạy ở phía sau, và nó tiếp tục chiếm chỗ đồng thời của chính người ấy.
       #
-      # 600s là CHỐT CHẶN CUỐI, không phải hạn thực tế. Ngân sách thật của một lượt là
-      # 60s (nhúng) + max-tool-iterations × timeout của nhà cung cấp = 60 + 4×120 = 540s, và những
-      # hạn đó PHẢI nổ trước — chúng cho ra 503 "trợ lý đang bận" nói đúng chuyện, còn hạn async chỉ
-      # cho ra một lỗi nói về servlet. Nới hạn nhà cung cấp thì phải nới con số này theo.
-      request-timeout: ${AGENT_ASYNC_TIMEOUT:600s}
+      # Đây là CHỐT CHẶN CUỐI, không phải hạn thực tế — những hạn bên trong PHẢI nổ trước, vì chúng
+      # cho ra 503 "trợ lý đang bận" nói đúng chuyện, còn hạn async chỉ cho ra một lỗi về servlet.
+      # Hạn async tính từ lúc request TỚI, nên ngân sách xấu nhất của một lượt là:
+      #
+      #   max-queue-wait + embedding-timeout
+      #     + max-tool-iterations × (LLM-timeout × (1 + max-retries) + ngân sách tool mỗi vòng)
+      #
+      #   Ollama:    60 + 60 + 4 × (120 × 1 + 20) = 680s   (Ollama không tự thử lại)
+      #   Anthropic: 60 + 10 + 4 × ( 60 × 2 + 20) = 630s   (max-retries = 1)
+      #
+      # "Ngân sách tool mỗi vòng" 20s: một vòng đặt vé gọi tới 5 service × hạn 3s. Bản trước tính
+      # 60 + 4×120 = 540s và bỏ sót cả thời gian chờ hàng đợi lẫn retry của SDK (mặc định 2), nên hạn
+      # 600s có thể nổ trong khi lượt vẫn chạy và còn đặt đơn ở phía sau. Đổi bất kỳ hạn nào ở trên
+      # thì tính lại; ApplicationYamlBudgetTest đỏ nếu con số dưới đây nhỏ hơn ngân sách.
+      request-timeout: ${AGENT_ASYNC_TIMEOUT:720s}
 
 server:
   port: ${PORT:8101}
@@ -112,6 +122,9 @@ nexaticket:
       # Ngưỡng khoảng cách cosine. pgvector luôn trả đủ top-k kể cả khi không có gì liên quan;
       # không cắt thì đoạn lạc đề đi thẳng vào prompt.
       max-retrieval-distance: ${AGENT_MAX_RETRIEVAL_DISTANCE:0.55}
+      # Lượt chờ trong hàng đợi của pool lâu hơn thế này thì từ chối 503 thay vì chạy — chạy muộn thì
+      # hạn async cắt giữa chừng. Là một số hạng của ngân sách ở spring.mvc.async.
+      max-queue-wait: ${AGENT_MAX_QUEUE_WAIT:60s}
     anthropic:
       # KHÔNG có mặc định, và service từ chối khởi động nếu thiếu — nhưng CHỈ khi provider =
       # anthropic. Với provider mặc định (local) thì cả khối này không được dựng, nên máy chưa có
@@ -124,6 +137,9 @@ nexaticket:
       # Mặc định của SDK là 10 phút — quá dài cho người đang nhìn màn hình chat, và đủ để một sự
       # cố phía nhà cung cấp chiếm hết luồng của Tomcat.
       timeout: ${ANTHROPIC_TIMEOUT:60s}
+      # SDK tự thử lại bao nhiêu lần. Mặc định của SDK là 2, tức mỗi lời gọi tới 3 × timeout — con
+      # số đó phải nằm trong ngân sách ở spring.mvc.async.
+      max-retries: ${ANTHROPIC_MAX_RETRIES:1}
     embedding:
       # local | anthropic | none — TÁCH khỏi `provider` ở trên. Xem EmbeddingProvider.
       #

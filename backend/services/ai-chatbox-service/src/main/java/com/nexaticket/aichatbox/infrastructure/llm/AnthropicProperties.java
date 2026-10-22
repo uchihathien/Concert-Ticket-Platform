@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.infrastructure.llm;
 
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 /**
  * Cấu hình nhà cung cấp mô hình.
@@ -15,11 +16,24 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *     thấp thường đủ, và mỗi nấc cao hơn là thêm token suy luận phải trả tiền cho mỗi câu hỏi.
  * @param timeout hạn cho một lời gọi. Mặc định của SDK là 10 phút — quá dài cho một người đang
  *     nhìn màn hình chat, và đủ để một sự cố phía nhà cung cấp giữ hết luồng của service.
+ * @param maxRetries số lần SDK tự thử lại. Mặc định của SDK là 2 — mỗi lời gọi thành tới 3 × {@code
+ *     timeout}, và ngân sách thời gian của một lượt (xem {@code spring.mvc.async} trong
+ *     application.yml) phải tính cả nó. Khai tường minh để con số đó là của ta, không phải của SDK.
  */
 @ConfigurationProperties(prefix = "nexaticket.aichatbox.anthropic")
-public record AnthropicProperties(String apiKey, Long maxTokens, String effort, Duration timeout) {
+public record AnthropicProperties(String apiKey, Long maxTokens, String effort, Duration timeout, Integer maxRetries) {
 
+    /** Bốn tham số như trước khi có {@code maxRetries} — giữ cho chỗ dựng tay (test) không phải đổi. */
+    public AnthropicProperties(String apiKey, Long maxTokens, String effort, Duration timeout) {
+        this(apiKey, maxTokens, effort, timeout, null);
+    }
+
+    // Hai hàm dựng ⇒ phải chỉ cho binder hàm nào, nếu không cấu hình không được nạp.
+    @ConstructorBinding
     public AnthropicProperties {
+        if (maxRetries == null || maxRetries < 0) {
+            maxRetries = 1;
+        }
         if (maxTokens == null || maxTokens <= 0) {
             maxTokens = 8000L;
         }
