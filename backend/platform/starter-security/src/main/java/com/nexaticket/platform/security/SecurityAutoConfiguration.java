@@ -134,6 +134,10 @@ public class SecurityAutoConfiguration {
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/events/**", "/v1/sessions/*/seats")
                         .permitAll() // catalog and seat maps are public; hold operations remain authenticated
+                        .requestMatchers(HttpMethod.GET, "/v1/staff-accounts/status")
+                        // Màn đăng nhập của app nhân viên hỏi "bị khoá hay hết hạn" ngay SAU khi Keycloak
+                        // từ chối — tức là lúc chưa có token. Chỉ trả LOCKED / EXPIRED / UNKNOWN.
+                        .permitAll()
                         .requestMatchers("/api/billing/bank/webhook/**")
                         // Webhook payOS tự xác thực bằng chữ ký HMAC-SHA256 trên payload (ADR-0016).
                         // payOS không có JWT của ta, nên không có cách nào khác — và nghĩa là toàn bộ

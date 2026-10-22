@@ -39,4 +39,10 @@ public class CheckinSessionQuery {
         return queries.sessionInfo(eventSessionId)
                 .orElseThrow(() -> new ApiException(CatalogErrorCode.SESSION_NOT_FOUND, "Session not found"));
     }
+
+    /** Mọi suất của những sự kiện này — cho lời gọi nội bộ từ ticketing-service, không kiểm quyền. */
+    @Transactional(readOnly = true)
+    public List<CatalogViews.SessionInfo> ofEvents(java.util.Collection<UUID> eventIds) {
+        return queries.sessionsOfEvents(eventIds);
+    }
 }

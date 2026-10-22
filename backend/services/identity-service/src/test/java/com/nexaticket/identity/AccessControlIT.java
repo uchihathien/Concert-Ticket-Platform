@@ -112,6 +112,31 @@ class AccessControlIT extends PostgresTestBase {
                 public void deleteUnactivatedAccount(String idpSubject) {
                     throw new UnsupportedOperationException();
                 }
+
+                @Override
+                public String createStaffAccount(String loginEmail, String fullName, String pin) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void setStaffPin(String idpSubject, String pin) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void setEnabled(String idpSubject, boolean enabled) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void signOutEverywhere(String idpSubject) {
+                    throw new UnsupportedOperationException();
+                }
+
+                @Override
+                public void deleteAccount(String idpSubject) {
+                    throw new UnsupportedOperationException();
+                }
             };
         }
     }

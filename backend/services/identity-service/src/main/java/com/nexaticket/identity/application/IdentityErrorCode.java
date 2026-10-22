@@ -46,7 +46,16 @@ public enum IdentityErrorCode implements ErrorCode {
     /** Keycloak hoặc ticketing-service không trả lời. Người gọi thử lại được. */
     STAFF_INVITE_UNAVAILABLE(503),
     SCANNER_CODE_INVALID(400),
-    SCANNER_CODE_EXHAUSTED(409);
+    SCANNER_CODE_EXHAUSTED(409),
+
+    /** Không có tài khoản nhân viên (tên đăng nhập + PIN) này trong tổ chức. */
+    STAFF_ACCOUNT_NOT_FOUND(404),
+
+    /** Tài khoản nhân viên đã hết hạn theo lịch suất diễn: gia hạn chứ không mở khoá. */
+    STAFF_ACCOUNT_EXPIRED(409),
+
+    /** Mốc gia hạn không ở tương lai. */
+    STAFF_EXTENSION_INVALID(400);
 
     private final int status;
 
