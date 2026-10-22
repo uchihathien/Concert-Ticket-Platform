@@ -72,7 +72,25 @@ public interface HandoffRepository {
      */
     Optional<Handoff> claim(UUID handoffId, UUID agentId, java.time.Instant now);
 
-    void save(Handoff handoff);
+    /**
+     * Ghi trạng thái mới, <b>chỉ khi</b> trạng thái trong database vẫn đúng như lúc người gọi đọc.
+     *
+     * <p>Thay cho {@code save} mù: nó đọc phiếu, rồi {@code UPDATE ... WHERE id = :id} — một nhân
+     * viên bấm Đóng đúng lúc người khác bấm Nhận thì lệnh của người thứ nhất ghi đè, xoá
+     * {@code assigned_agent_id} của người thứ hai (R-01).
+     *
+     * @return {@code false} khi trạng thái đã đổi — người gọi đọc lại và quyết định
+     */
+    boolean transition(UUID handoffId, HandoffStatus expectedStatus, UUID expectedAgentId, Handoff next);
+
+    /**
+     * Đọc và KHOÁ dòng phiếu tới hết transaction hiện tại ({@code SELECT ... FOR UPDATE}).
+     *
+     * <p>Chỉ có nghĩa bên trong một transaction: ngoài transaction thì khoá nhả ngay sau câu lệnh.
+     * Dùng khi phải kiểm-rồi-ghi một thứ KHÔNG nằm trên dòng phiếu (tin nhắn của nhân viên) mà vẫn
+     * cần phiếu không bị đóng xen giữa.
+     */
+    Optional<Handoff> lockById(UUID handoffId);
 
     /**
      * Đóng những phiếu chờ quá lâu mà chưa ai nhận.

@@ -63,6 +63,16 @@ public enum AiChatboxErrorCode implements ErrorCode {
      */
     HANDOFF_ALREADY_RESOLVED(409),
 
+    /**
+     * Phiếu đổi trạng thái giữa lúc đọc và lúc ghi — thường là người khác vừa nhận nó.
+     *
+     * <p>Khác {@link #HANDOFF_ALREADY_TAKEN}: cái kia trả cho người bấm NHẬN chậm hơn; cái này trả cho
+     * thao tác khác (đóng phiếu) mà người gọi đã quyết dựa trên một trạng thái giờ không còn đúng.
+     * Kèm trạng thái hiện tại để màn hình làm mới thay vì đoán. Trước đây trường hợp này không có:
+     * lệnh ghi đè mù và xoá mất lượt nhận của người kia.
+     */
+    HANDOFF_STATE_CHANGED(409),
+
     // --- Kho tri thức ------------------------------------------------------
 
     KNOWLEDGE_CHUNK_NOT_FOUND(404),

@@ -87,9 +87,24 @@ public class InMemoryHandoffRepository implements HandoffRepository {
         return Optional.of(assigned);
     }
 
+    /** Cùng điều kiện với bản Jdbc: chỉ ghi khi trạng thái và người nhận vẫn như lúc người gọi đọc. */
     @Override
-    public void save(Handoff handoff) {
-        rows.put(handoff.id(), handoff);
+    public synchronized boolean transition(
+            UUID handoffId, HandoffStatus expectedStatus, UUID expectedAgentId, Handoff next) {
+        Handoff current = rows.get(handoffId);
+        if (current == null
+                || current.status() != expectedStatus
+                || !java.util.Objects.equals(current.assignedAgentId(), expectedAgentId)) {
+            return false;
+        }
+        rows.put(handoffId, next);
+        return true;
+    }
+
+    /** Không có khoá trong bộ nhớ — test đơn luồng; khoá thật được kiểm ở HandoffTransitionRaceIT. */
+    @Override
+    public Optional<Handoff> lockById(UUID handoffId) {
+        return findById(handoffId);
     }
 
     @Override

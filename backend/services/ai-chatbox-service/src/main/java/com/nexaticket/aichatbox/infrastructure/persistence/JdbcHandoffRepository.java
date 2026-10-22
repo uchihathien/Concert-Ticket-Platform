@@ -46,6 +46,21 @@ public class JdbcHandoffRepository implements HandoffRepository {
      */
     @Override
     public Handoff openOrExisting(Handoff candidate) {
+        // Thử lại vài lần: INSERT bị bỏ vì đụng phiếu mở, rồi phiếu ấy bị đóng (người trực, reaper)
+        // TRƯỚC câu SELECT — lần sau INSERT sẽ vào được. Trước đây trường hợp này ném thẳng và khách
+        // bấm "gặp nhân viên" nhận 500 (R-04).
+        for (int attempt = 1; attempt <= OPEN_ATTEMPTS; attempt++) {
+            Optional<Handoff> opened = tryOpen(candidate);
+            if (opened.isPresent()) {
+                return opened.get();
+            }
+        }
+        throw new IllegalStateException("Không mở được phiếu cho phiên " + candidate.sessionId());
+    }
+
+    private static final int OPEN_ATTEMPTS = 3;
+
+    private Optional<Handoff> tryOpen(Handoff candidate) {
         int inserted = db.sql(
                         """
                         insert into chat_handoffs
@@ -67,13 +82,9 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 .param("requestedAt", Timestamp.from(candidate.requestedAt()))
                 .update();
 
-        return inserted > 0
-                ? candidate
-                : openBySession(candidate.sessionId())
-                        .orElseThrow(() ->
-                                // Không chèn được mà cũng không có phiếu mở: chỉ xảy ra nếu có ai
-                                // vừa đóng phiếu giữa hai lệnh. Ném để nó lộ ra thay vì trả null.
-                                new IllegalStateException("Không mở được phiếu cho phiên " + candidate.sessionId()));
+        // Không chèn được mà cũng không có phiếu mở: có ai vừa đóng phiếu giữa hai lệnh — vòng ngoài
+        // thử lại.
+        return inserted > 0 ? Optional.of(candidate) : openBySession(candidate.sessionId());
     }
 
     @Override
@@ -201,21 +212,41 @@ public class JdbcHandoffRepository implements HandoffRepository {
         return updated == 0 ? Optional.empty() : findById(handoffId);
     }
 
+    /**
+     * {@code where status = :expected and assigned_agent_id is not distinct from :expectedAgent} —
+     * cùng nguyên tắc với {@link #claim}: chốt chặn tranh chấp nằm trong chính câu UPDATE.
+     *
+     * <p>{@code is not distinct from} chứ không {@code =}: phiếu WAITING có {@code assigned_agent_id}
+     * null, và {@code null = null} là null chứ không phải true — lệnh sẽ không bao giờ khớp.
+     */
     @Override
-    public void save(Handoff handoff) {
-        db.sql(
+    public boolean transition(UUID handoffId, HandoffStatus expectedStatus, UUID expectedAgentId, Handoff next) {
+        int updated = db.sql(
                         """
                         update chat_handoffs
                            set status = :status, assigned_agent_id = :agentId,
                                assigned_at = :assignedAt, resolved_at = :resolvedAt
                          where id = :id
+                           and status = :expected
+                           and assigned_agent_id is not distinct from cast(:expectedAgent as uuid)
                         """)
-                .param("status", handoff.status().name())
-                .param("agentId", handoff.assignedAgentId())
-                .param("assignedAt", handoff.assignedAt() == null ? null : Timestamp.from(handoff.assignedAt()))
-                .param("resolvedAt", handoff.resolvedAt() == null ? null : Timestamp.from(handoff.resolvedAt()))
-                .param("id", handoff.id())
+                .param("status", next.status().name())
+                .param("agentId", next.assignedAgentId())
+                .param("assignedAt", next.assignedAt() == null ? null : Timestamp.from(next.assignedAt()))
+                .param("resolvedAt", next.resolvedAt() == null ? null : Timestamp.from(next.resolvedAt()))
+                .param("id", handoffId)
+                .param("expected", expectedStatus.name())
+                .param("expectedAgent", expectedAgentId == null ? null : expectedAgentId.toString())
                 .update();
+        return updated == 1;
+    }
+
+    @Override
+    public Optional<Handoff> lockById(UUID handoffId) {
+        return db.sql("select " + COLUMNS + " from chat_handoffs where id = :id for update")
+                .param("id", handoffId)
+                .query(JdbcHandoffRepository::map)
+                .optional();
     }
 
     /**

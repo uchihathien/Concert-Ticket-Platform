@@ -273,7 +273,6 @@ class HandoffFlowIT extends AiChatboxTestBase {
         UUID conNguoiCho = openHandoff();
         UUID daBoDi = openHandoff();
         // Đẩy một phiếu về quá khứ — cách duy nhất kiểm được ngưỡng mà không phải chờ 24 giờ.
-        repository.save(repository.findById(daBoDi).orElseThrow());
         jdbc.sql("update chat_handoffs set requested_at = now() - interval '48 hours' where id = :id")
                 .param("id", daBoDi)
                 .update();

@@ -274,7 +274,11 @@ public class HandoffUseCase {
      */
     @Transactional
     public void reply(UUID handoffId, UUID agentId, String text) {
-        Handoff handoff = require(handoffId);
+        // KHOÁ dòng phiếu tới hết transaction: kiểm "phiếu còn mở" rồi ghi tin nhắn là hai bước, và
+        // không khoá thì phiếu có thể bị đóng ngay giữa chúng — tin của nhân viên rơi vào sau mốc
+        // đóng, đúng cảnh hai phía cùng trả lời (R-03). Có khoá thì `resolve` chờ tin này ghi xong.
+        Handoff handoff = handoffs.lockById(handoffId)
+                .orElseThrow(() -> new ApiException(AiChatboxErrorCode.HANDOFF_NOT_FOUND, "Không tìm thấy phiếu"));
 
         // Phiếu đã đóng thì trợ lý AI đã trả lời trở lại từ lượt kế tiếp. Thêm một câu của người
         // trực vào lúc này là dựng lại đúng cảnh mà cả tính năng này tồn tại để tránh: hai phía
@@ -306,8 +310,24 @@ public class HandoffUseCase {
             throw new ApiException(AiChatboxErrorCode.HANDOFF_NOT_ASSIGNED, "Phiếu này do người khác phụ trách");
         }
         Handoff resolved = handoff.resolve(clock.instant());
-        handoffs.save(resolved);
-        return rowOf(resolved);
+        // Ghi CÓ ĐIỀU KIỆN trạng thái vừa đọc. Bản cũ ghi đè mù: người khác bấm Nhận xen giữa thì
+        // lệnh này xoá `assigned_agent_id` của họ (R-01).
+        if (handoffs.transition(handoffId, handoff.status(), handoff.assignedAgentId(), resolved)) {
+            return rowOf(resolved);
+        }
+        Handoff current = require(handoffId);
+        if (!current.isOpen()) {
+            // Ai đó vừa đóng trước — kết quả người gọi muốn đã có; giữ hợp đồng "đóng hai lần trả
+            // lại chính phiếu đó", không dịch `resolved_at`.
+            return rowOf(current);
+        }
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("status", current.status().name());
+        meta.put("assignedAgentId", current.assignedAgentId());
+        throw new ApiException(
+                AiChatboxErrorCode.HANDOFF_STATE_CHANGED,
+                "Phiếu vừa đổi trạng thái — tải lại để xem ai đang phụ trách",
+                meta);
     }
 
     /**
