@@ -9,5 +9,11 @@ public enum EntryMethod {
     CODE,
 
     /** Cho vào thủ công dù vé đang được ghi nhận là ở trong. Luôn kèm lý do. */
-    OVERRIDE
+    OVERRIDE,
+
+    /**
+     * Khách quên vé: nhân viên tìm theo tên / email / SĐT, đối chiếu giấy tờ rồi cho vào. Đi qua đủ
+     * các kiểm tra như quét QR (đang ở trong, sai suất, thu hồi, ngoài ca) — khác hẳn OVERRIDE.
+     */
+    LOOKUP
 }

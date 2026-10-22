@@ -151,6 +151,39 @@ cũ hết dùng được.
 Việc gán nhân viên vào sự kiện chỉ lưu ở ticketing-service (`checkin_assignments`), nơi kiểm quyền
 ở mỗi lượt quét. identity-service đọc và ghi qua `/internal/checkin-assignments`, không giữ bản sao.
 
+## Nhân viên bằng PIN, ca trực, soát vé offline
+
+Luồng mặc định cho cộng tác viên theo ca (không cần email). Chi tiết thao tác: phần "Quy trình nhân
+viên soát vé" trong README của frontend.
+
+- **Tài khoản PIN** (identity-service, `StaffAccountHandler`, migration `V0103__staff_accounts.sql`):
+  `POST /v1/organizations/{id}/staff/accounts` cấp `<mã tổ chức>-nvNN` + PIN 6 số (trả MỘT lần, không
+  lưu). Bên Keycloak tài khoản là `nexa-nv01@staff.nexaticket.invalid` — realm dùng email làm tên đăng
+  nhập, và `.invalid` không bao giờ nhận thư. Cấp lại PIN / khoá / mở khoá / gia hạn:
+  `POST .../staff/{userId}/pin|lock|unlock|extend`. Tự khoá 6 giờ sau suất cuối của các sự kiện được
+  gán (`@Scheduled` mỗi 10 phút). Màn đăng nhập hỏi `GET /v1/staff-accounts/status?username=` (không
+  cần token) để phân biệt bị khoá / hết hạn.
+- **Ca trực** (ticketing-service, `CheckinShifts`, migration `V0104__checkin_shifts.sql`):
+  cổng + ca theo suất + phiên ca của từng nhân viên, dưới `/v1/organizations/{id}/checkin/...`. Nhân
+  viên chỉ có vai soát vé chỉ quét được khi đang có ca mở của đúng suất (sớm tối đa 30 phút); cổng ghi
+  vào lượt quét lấy theo ca.
+- **Soát vé offline + tìm khách** (ticketing-service, `OfflineCheckin`, migration
+  `V0105__offline_checkin.sql`): `GET .../sessions/{id}/checkins/bundle` (khoá công khai + vé, email/SĐT
+  đã che), `POST .../checkins/sync` (lô ≤ 500, idempotent theo `clientScanId`, đánh dấu `conflict`),
+  `GET|POST .../checkins/lookup` (tìm khách / cho vào bằng tra cứu, `entry_method = LOOKUP`).
+
+Client Keycloak `mobile-staff` (PKCE + grant `password` cho PIN) đã có trong
+`deploy/keycloak/nexaticket-realm.json`, nhưng realm ĐANG CHẠY không đọc lại file đó — thêm bằng:
+
+```bash
+KC=nexaticket-infra-keycloak-1 bash deploy/scripts/keycloak-mobile-client.sh mobile-staff 'exp://*' \
+  --name "NexaTicket Staff — Mobile" --direct-grants on --brute-force on
+```
+
+Scheme `nexaticket-staff://auth` được script tự thêm; `KC=` trỏ vào container Keycloak dev (trên máy
+chủ bỏ đi — mặc định là `nexaticket-prod-keycloak-1`). `--brute-force on` bật khoá tạm sau 10 lần sai
+cho cả realm — cần thiết khi có tài khoản PIN 6 số.
+
 ## Thử luồng G0
 
 Chỉ superadmin tạo được tổ chức ([ADR-1010](docs/architecture-v2/adr/ADR-1010-superadmin-tenancy-and-finance-visibility.md)).

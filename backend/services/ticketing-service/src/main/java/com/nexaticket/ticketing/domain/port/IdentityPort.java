@@ -26,4 +26,13 @@ public interface IdentityPort {
      * rồi mà không có vé" — đánh đổi ngược hoàn toàn.
      */
     Optional<String> displayNameOf(UUID userId);
+
+    /**
+     * Liên lạc của nhiều người mua một lần — để chụp vào {@code ticket_holder_contacts} cho việc tìm
+     * khách quên vé và soát vé offline. {@link Optional#empty()} khi identity không trả lời: người gọi
+     * dùng bản chụp cũ thay vì chặn việc soát vé.
+     */
+    Optional<java.util.List<Contact>> contactsOf(java.util.Collection<UUID> userIds);
+
+    record Contact(UUID userId, String email, String fullName, String phone) {}
 }

@@ -4,9 +4,11 @@
   "displayName": "NexaTicket",
   "sslRequired": "none",
   "attributes": {
-    "frontendUrl": "https://challenging-widescreen-composed-edwards.trycloudflare.com"
+    "frontendUrl": "https://focus-iii-rugby-independence.trycloudflare.com"
   },
   "registrationAllowed": true,
+  "bruteForceProtected": true,
+  "failureFactor": 10,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
@@ -75,6 +77,24 @@
         "exp://192.168.1.18:8082/--/auth",
         "exp://myzfi0k-hanhphamthi-8082.exp.direct/--/auth",
         "exp://172.27.108.74:8082/--/auth"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
+      "clientId": "mobile-staff",
+      "name": "NexaTicket Staff — Mobile",
+      "description": "App NexaTicket Staff: PKCE cho tài khoản email của ban tổ chức, grant password cho nhân viên đăng nhập bằng mã PIN.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "nexaticket-staff://auth",
+        "exp://*"
       ],
       "webOrigins": [],
       "attributes": {

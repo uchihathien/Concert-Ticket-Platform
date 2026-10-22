@@ -76,6 +76,11 @@ public class Ed25519TicketSigner implements TicketSigner {
 
     @Override
     public Optional<QrToken> verify(String compactToken) {
+        return verify(compactToken, clock.instant());
+    }
+
+    @Override
+    public Optional<QrToken> verify(String compactToken, java.time.Instant at) {
         // Mọi đường hỏng đều trả rỗng, không ném và không log chi tiết: đầu vào ở đây là thứ ai
         // cũng gửi được, và một thông báo lỗi chi tiết chỉ giúp người làm vé giả dò dần.
         if (compactToken == null) {
@@ -110,11 +115,29 @@ public class Ed25519TicketSigner implements TicketSigner {
             QrToken token = new QrToken(
                     UUID.fromString(payload.get("jti").toString()),
                     Long.parseLong(payload.get("exp").toString()));
-            return token.isExpiredAt(clock.instant().getEpochSecond()) ? Optional.empty() : Optional.of(token);
+            return token.isExpiredAt(at.getEpochSecond()) ? Optional.empty() : Optional.of(token);
         } catch (Exception e) {
             log.debug("Token QR không hợp lệ", e);
             return Optional.empty();
         }
+    }
+
+    @Override
+    public java.util.List<VerificationKey> verificationKeys() {
+        return keys.verificationKeys().stream()
+                .map(key -> new VerificationKey(key.kid(), rawPublicKey(key.publicKey())))
+                .toList();
+    }
+
+    /**
+     * Khoá công khai Ed25519 dạng THÔ (32 byte, base64url) — dạng máy soát vé dùng để kiểm chữ ký QR
+     * khi mất mạng. Kho lưu dạng X.509 SubjectPublicKeyInfo: 12 byte tiền tố ASN.1 cố định rồi tới
+     * đúng 32 byte khoá.
+     */
+    public static String rawPublicKey(String x509Base64) {
+        byte[] der = Base64.getDecoder().decode(x509Base64);
+        byte[] raw = java.util.Arrays.copyOfRange(der, der.length - 32, der.length);
+        return URL_ENCODER.encodeToString(raw);
     }
 
     /** Sinh cặp khoá mới. Dùng khi khởi tạo môi trường và khi xoay khoá. */
