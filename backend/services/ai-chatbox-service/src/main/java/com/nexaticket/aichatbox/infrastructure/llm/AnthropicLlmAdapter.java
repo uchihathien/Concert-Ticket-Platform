@@ -104,7 +104,15 @@ public class AnthropicLlmAdapter implements LlmProviderPort {
             throw new LlmUnavailableException("Không gọi được nhà cung cấp mô hình", e);
         }
 
-        return interpret(response);
+        try {
+            return interpret(response);
+        } catch (LlmUnavailableException e) {
+            throw e; // đã đúng loại (lượt rỗng...), giữ nguyên thông điệp
+        } catch (RuntimeException e) {
+            // Phản hồi sai khuôn (tool_use thiếu id, nội dung SDK không đọc được). Để lọt ra thì khách nhận 500;
+            // coi nó như nhà cung cấp hỏng để agent chuyển sang người thật như mọi lỗi mô hình khác.
+            throw new LlmUnavailableException("Mô hình trả lời sai khuôn", e);
+        }
     }
 
     /**
