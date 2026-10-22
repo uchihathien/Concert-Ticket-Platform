@@ -31,14 +31,45 @@ Suất được chọn tự động: sơ đồ vòng chung kết có **16.796 gh
 
 **Đọc kết quả:** cả ba ngưỡng độ trễ đều vượt. Không có lỗi chức năng và không số liệu nào sai, nhưng:
 
-1. **Sơ đồ ghế không được nén.** Gửi `Accept-Encoding: gzip` vẫn nhận đúng 5.312.821 byte. JSON gồm
-   16.796 phần tử lặp cấu trúc nén được rất tốt; thiếu nén là thủ phạm chính của 64 MB/s và là thứ
-   điện thoại sẽ trả giá bằng mạng di động.
-2. **Mỗi request dựng cả bản đồ trong bộ nhớ** (≈ 16 nghìn đối tượng + chuỗi JSON 5 MB). Với 50 request
-   đồng thời, heap 384 MB không đủ — và 384 MB chính là giá trị `JVM_OPTS` mà `scripts/dev-up.sh --jar`
-   (kể cả `--demo`) đặt cho mọi service. Ai demo bằng `--demo` trên suất lớn rồi mở nhiều tab sẽ gặp lỗi này.
-3. Ngưỡng 300–500 ms được đặt cho đường đọc nhẹ; với payload 5 MB nó không thể đạt dù hệ thống nhanh.
+1. **Sơ đồ ghế không được nén — dù `server.compression.enabled: true` đã có trong `application.yml`.** Gửi
+   `Accept-Encoding: gzip` thẳng vào inventory vẫn nhận 5.312.781 byte, không có `Content-Encoding`. Nguyên nhân:
+   controller trả **ETag mạnh** (`"301-anon"`), và Tomcat **không nén** phản hồi có ETag mạnh (mặc định
+   `noCompressionStrongETag=true`) — im lặng, không log. Cấu hình đúng, mọi test đúng, và nén không bao giờ chạy.
+   Test MockMvc không bắt được vì nó không có Tomcat.
+2. **Mỗi request dựng cả bản đồ rồi mới so ETag.** Kể cả khi client gửi đúng `If-None-Match` và nhận 304, server vẫn
+   đọc và dựng 16.796 ghế để rồi vứt đi. Cùng chỗ đó đọc version SAU khi đọc ghế, nên một lần giữ chỗ chen giữa làm
+   version mới đi kèm dữ liệu cũ — client giữ dữ liệu cũ dưới ETag mới và nhận 304 mãi tới lần đổi sau.
+3. **Hết bộ nhớ ở heap 384 MB** (`JVM_OPTS` của `dev-up.sh --jar` / `--demo`).
+4. Ngưỡng 300–500 ms được đặt cho đường đọc nhẹ; với payload 5 MB nó không thể đạt dù hệ thống nhanh.
    Nên tách ngưỡng (`seat_map` theo kích thước suất) hoặc trả bản đồ dạng gọn / phân trang theo khu.
+
+### Đã sửa, và đo lại
+
+- `SeatMapController`: ETag **yếu** (`W/"…"`) để Tomcat nén; so sánh `If-None-Match` theo RFC 9110 (bỏ `W/`, chấp nhận
+  danh sách và `*`, nên client còn giữ ETag mạnh cũ vẫn khớp); **304 sớm** — chỉ đọc version (một câu truy vấn nhẹ), không
+  dựng sơ đồ.
+- `SeatQueries.seatMap`: đọc version **trước** dữ liệu.
+- `dev-up.sh`: inventory chạy với heap 768 MB (các service còn lại giữ 384 MB).
+- `discovery.js`: gửi `Accept-Encoding: gzip` như trình duyệt (k6 không tự gửi — các lần đo trước đó vô tình đo bản
+  KHÔNG nén) và kiểm `Content-Encoding: gzip`.
+
+| | Trước (heap 1 GB, không nén) | Sau (heap 768 MB, nén) |
+| --- | ---: | ---: |
+| Một sơ đồ qua gateway | 5.312.781 B | **674.165 B** (−87%) |
+| 304 khi gửi đúng `If-None-Match` | dựng cả sơ đồ rồi vứt | **29 ms, thân rỗng** |
+| Dữ liệu k6 nhận (90 s, 50 VU) | 6,8 GB | **1,1 GB** |
+| `seat_map` p95 | 2,82 s | **1,74 s** (ngưỡng 500 ms vẫn ✗) |
+| `events_list` p95 / `event_detail` p95 | 465 / 320 ms | **349 / 206 ms** (`event_detail` đạt 300 ms) |
+| Request / giây | 36 | **43** |
+| Lỗi / checks / `OutOfMemoryError` | 0% / 100% / 0 | 0% / **100% (12.280/12.280, gồm "được nén")** / 0 |
+
+Test giữ lại: `SeatMapCompressionIT` (Tomcat thật qua `HttpClient` của JDK: có `Content-Encoding: gzip`, nhỏ hơn 1/5, giải
+nén ra đúng nội dung; ETag yếu; 304 không thân) — **đỏ khi đặt lại ETag mạnh** (đã thử), xanh khi có bản sửa — và
+`SeatMapControllerTest` (304 sớm không gọi `seatMap`, ETag mạnh cũ vẫn khớp, danh sách / `*`).
+
+**Còn lại:** `seat_map` vẫn vượt 500 ms ở 50 người dùng đồng thời trên một laptop dùng chung. Mỗi request không có
+`If-None-Match` vẫn đọc 16.796 dòng và tuần tự hoá 5 MB JSON. Bước tiếp theo đáng làm: nhớ bản sơ đồ đã dựng theo
+(suất, version) — với khách ẩn danh nội dung giống hệt nhau tới lần version nhảy — và đo lại trên staging.
 
 ## 2. `hold-contention.js` — 4 người cùng giữ đúng một nhóm 4 ghế
 
@@ -108,9 +139,7 @@ publish lại) sau khi triển khai bản sửa.
 | Điều kiện 10.000 VU, p95 hold ≤ 300 ms | Cần staging; một laptop không dựng nổi |
 | Kill Redis giữa lúc giữ chỗ → 503 retryable; webhook trùng; worker khởi động lại | Cần phá hạ tầng có chủ đích (mục "Chaotic cases" của kế hoạch) |
 
-## 5. Việc nên làm tiếp
+## 5. Việc nên làm tiếp (còn lại)
 
-- Bật nén cho `GET /v1/sessions/*/seats` (`server.compression.enabled`, hoặc ở gateway/nginx) rồi đo lại.
-- Nâng `JVM_OPTS` của `dev-up.sh --jar` cho inventory (≥ 768 MB), hoặc giảm payload.
-- Thêm `ETag` / `If-None-Match` (CORS đã cho phép header này) để client không tải lại bản đồ không đổi.
-- Đặt ngưỡng `seat_map` riêng, và chạy lại trên staging với đủ người dùng để có số cho cổng M03.
+- Nhớ bản sơ đồ đã dựng theo (suất, version) để request không có `If-None-Match` không phải đọc lại hàng chục nghìn ghế.
+- Đặt ngưỡng `seat_map` riêng theo kích thước suất; chạy lại trên staging với đủ người dùng để có số cho cổng M03.

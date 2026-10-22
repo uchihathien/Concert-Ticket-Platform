@@ -169,7 +169,7 @@ Các thay đổi này nằm ở `src/main` và tách khỏi thay đổi test; m�
 | E2E đăng nhập Keycloak thật, Google IdP, trang payOS | Chặn | Cần Keycloak / payOS thật (payOS không có sandbox) |
 | E2E thời gian thực (ghế đổi trạng thái) | Chặn | Cần realtime-gateway + RabbitMQ |
 | 4 app mobile | Ngoài phạm vi | Xem known-testing-gaps §4 |
-| `NotificationIT.mot_thu_hong_khong_chan_ca_lo` | Chập chờn (có sẵn từ trước) | Job `@Scheduled` chen vào; đỏ một lần trong một lượt, xanh khi chạy lại và ở lượt cuối |
+| `NotificationIT.mot_thu_hong_khong_chan_ca_lo` | Đỏ một lần, không tái hiện (6/6 lần chạy riêng đều xanh) | Nghi chạy chồng với tiến trình khác dùng chung database container tái dùng; chưa chứng minh — xem known-testing-gaps §3 |
 
 ## 7. Thiết lập thủ công còn lại
 

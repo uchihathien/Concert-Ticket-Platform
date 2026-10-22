@@ -228,7 +228,7 @@ def frontend_results():
     rows = []
     if not FRONTEND_JSON_DIR or not FRONTEND_JSON_DIR.exists():
         return rows
-    for pkg in ("ts-sdk", "ui", "auth", "web-customer", "web-admin"):
+    for pkg in ("ts-sdk", "ui", "auth", "web-customer", "web-admin", "web-scanner", "web-platform"):
         f = FRONTEND_JSON_DIR / f"fe-{pkg}.json"
         if not f.exists():
             continue
@@ -311,6 +311,8 @@ def frontend_coverage():
         ("auth", "packages/auth"),
         ("web-customer", "apps/web-customer"),
         ("web-admin", "apps/web-admin"),
+        ("web-scanner", "apps/web-scanner"),
+        ("web-platform", "apps/web-platform"),
     ):
         f = REPO / "frontend" / path / "coverage" / "coverage-summary.json"
         if not f.exists():

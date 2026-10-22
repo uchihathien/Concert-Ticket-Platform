@@ -57,10 +57,12 @@ và tách khỏi thay đổi test.
 - **Frontend**: `ts-sdk/src/http/client.ts` ném `SyntaxError` trần khi phản hồi 200 không phải JSON
   (nhánh lỗi thì bọc đúng `ApiError`); trang chi tiết sự kiện với slug lạ trả HTTP 200 kèm giao diện
   404 (soft 404, có `noindex`).
-- **`NotificationIT.mot_thu_hong_khong_chan_ca_lo` chập chờn** (có sẵn từ trước): job gửi thư
-  `@Scheduled` mỗi 10 giây có thể chạy chen giữa `queue.handle` và `dispatch.runOnce()` của test
-  rồi lấy mất thư. Đỏ 1 lần trong một lượt chạy đầy đủ, xanh khi chạy lại và khi chạy trên nhánh gốc.
-  Cách sửa: tắt worker trong IT như `OrderingTestBase` đã làm (`workers.enabled=false`).
+- **`NotificationIT.mot_thu_hong_khong_chan_ca_lo` đỏ một lần, không tái hiện được** (có sẵn từ trước): `runOnce()` trả 1
+  thay vì 3 trong một lượt chạy đầy đủ; xanh ở nhánh gốc, ở lượt cuối và ở **6/6 lần chạy riêng** sau đó. Chẩn đoán
+  ban đầu "job `@Scheduled` chạy chen vào" là SAI — IT đã đặt `nexaticket.notification.workers.enabled=false`. Nghi
+  vấn còn lại: lúc đó có tiến trình Maven khác dùng chung database `notification_db` của container Testcontainers được
+  tái dùng (`withReuse`), và `TRUNCATE notifications` ở `@BeforeEach` của một bên xoá dữ liệu của bên kia. Chưa chứng
+  minh được. Nếu gặp lại: chạy IT một mình, và xem log có dòng `Gửi thư ... hỏng` hay không.
 
 ## 4. Chưa kiểm được ở mức nào
 
@@ -108,13 +110,13 @@ adapter HTTP / repository JDBC thống kê của `catalog`, `ordering`, `ticketi
   hơn mức đó có thể bị chạy lần hai; đã có lưới thứ hai (tra theo `holdId`) và thứ ba (unique `orders.hold_id`).
 - **Mở rộng**: route khác muốn bảo vệ chỉ cần thêm vào `required-paths` của service đó.
 
-## 8. Phát hiện từ lần chạy k6 đầu tiên (chưa sửa)
+## 8. Phát hiện từ lần chạy k6 đầu tiên
 
-Chi tiết số liệu ở [load-test-report.md](../03-seat-checkout/load-test-report.md).
+Chi tiết số liệu, và phần đã sửa, ở [load-test-report.md](../03-seat-checkout/load-test-report.md).
 
-- **Sơ đồ ghế không được nén**: `GET /v1/sessions/{id}/seats` của suất 16.796 ghế trả 5,3 MB và vẫn
-  5,3 MB khi gửi `Accept-Encoding: gzip`.
-- **Hết bộ nhớ ở heap 384 MB**: 50 request đồng thời vào sơ đồ ghế lớn làm inventory ném
-  `OutOfMemoryError`; 384 MB là `JVM_OPTS` của `scripts/dev-up.sh --jar` / `--demo`.
-- **Độ trễ vượt ngưỡng đã đặt** ở cả `seat_map`, `events_list`, `event_detail` (trên một laptop dùng
-  chung với k6 và toàn bộ hạ tầng; số tuyệt đối bi quan hơn thực tế).
+**Đã sửa:** sơ đồ ghế không nén được (ETag mạnh làm Tomcat im lặng bỏ nén dù `server.compression` đã bật) — giờ ETag yếu,
+nén −87%; 304 sớm không dựng sơ đồ; đọc version trước dữ liệu; inventory 768 MB trong `dev-up.sh`. Chẩn đoán ban đầu "chưa
+bật nén" là SAI: cấu hình có sẵn nhưng vô hiệu. `SeatMapCompressionIT` giữ cho nó không quay lại.
+
+**Còn lại:** `seat_map` p95 1,74 s ở 50 người dùng (ngưỡng 500 ms) trên một laptop dùng chung; cần nhớ bản sơ đồ theo
+(suất, version). Giá catalog ≠ giá tồn kho đã sửa (xem §2).

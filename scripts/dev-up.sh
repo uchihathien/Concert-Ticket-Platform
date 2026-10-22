@@ -51,6 +51,10 @@ EXTRA=(
 # Next cũng vậy: một dev server phình tới ~4 GB commit sau vài chục lần hot-reload. Đo được hai app
 # giữ 8,4 GB; chặn heap xuống còn 3,9 GB.
 JVM_OPTS="-Xmx384m -XX:MaxMetaspaceSize=192m"
+# Ngoại lệ có số đo: inventory dựng cả sơ đồ ghế của suất trong bộ nhớ mỗi lần phục vụ (16.796 ghế ≈ 5,3 MB JSON
+# ở suất vòng chung kết demo). Với 50 request đồng thời, 384 MB không đủ — k6 làm nó ném OutOfMemoryError
+# (docs/03-seat-checkout/load-test-report.md); 768 MB chạy ổn với 304 sớm + nén. Các service còn lại vẫn 384 MB.
+INVENTORY_JVM_OPTS="-Xmx768m -XX:MaxMetaspaceSize=192m"
 NEXT_HEAP_MB=1024
 
 SKIP_INSTALL=0; WITH_FRONTEND=0; WITH_INFRA=1; SERVICES=("${CORE[@]}"); FRONTEND_APPS=""
@@ -263,7 +267,7 @@ for entry in "${SERVICES[@]}"; do
       continue
     fi
     (cd "$ROOT/backend/services/$svc" \
-        && env "${env_prefix[@]}" java $JVM_OPTS -jar "$jar" > "$LOGS/$svc.log" 2>&1) &
+        && env "${env_prefix[@]}" java $([ "$svc" = "inventory-service" ] && echo "$INVENTORY_JVM_OPTS" || echo "$JVM_OPTS") -jar "$jar" > "$LOGS/$svc.log" 2>&1) &
   else
     (cd "$ROOT/backend" && env "${env_prefix[@]}" ./mvnw -q -pl "services/$svc" spring-boot:run \
         > "$LOGS/$svc.log" 2>&1) &
