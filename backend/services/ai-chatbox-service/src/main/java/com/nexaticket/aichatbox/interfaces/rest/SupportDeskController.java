@@ -6,6 +6,7 @@ import com.nexaticket.aichatbox.application.handoff.HandoffViews;
 import com.nexaticket.aichatbox.application.handoff.SupportDeskAccess;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.util.List;
 import java.util.UUID;
@@ -132,5 +133,26 @@ public class SupportDeskController {
      * @param text giới hạn độ dài là chốt chặn thực tế, không phải kỹ thuật: một tin nhắn hỗ trợ
      *     dài 4.000 ký tự là một tài liệu, và nó thuộc về email chứ không thuộc về khung chat
      */
+    /**
+     * Nhả phiếu về hàng đợi — người trực nào cũng làm được, không riêng người đang giữ. Lối thoát cho
+     * phiếu bị bỏ rơi khi người nhận hết ca.
+     */
+    @PostMapping("/{handoffId}/release")
+    public HandoffViews.HandoffRow release(
+            @PathVariable UUID handoffId, @Valid @RequestBody(required = false) ReleaseRequest request) {
+        UUID actorId = access.requireSupportAgent();
+        return handoffs.release(handoffId, actorId, request == null ? null : request.reason());
+    }
+
+    @PostMapping("/{handoffId}/reassign")
+    public HandoffViews.HandoffRow reassign(@PathVariable UUID handoffId, @Valid @RequestBody ReassignRequest request) {
+        UUID actorId = access.requireSupportAgent();
+        return handoffs.reassign(handoffId, actorId, request.agentId(), request.reason());
+    }
+
     public record ReplyRequest(@NotBlank @Size(max = 4000) String text) {}
+
+    public record ReleaseRequest(@Size(max = 500) String reason) {}
+
+    public record ReassignRequest(@NotNull UUID agentId, @Size(max = 500) String reason) {}
 }

@@ -172,6 +172,10 @@ nexaticket:
       # 24 giờ, không phải 30 phút: bàn hỗ trợ làm theo giờ hành chính, và một phiếu mở lúc 22h
       # đêm phải sống qua đêm để ca sáng còn thấy.
       abandoned-after: ${HANDOFF_ABANDONED_AFTER:24h}
+      # Phiếu đã có người nhận mà không có tin nhân viên nào lâu hơn thế này thì TRẢ VỀ HÀNG ĐỢI —
+      # không đóng, vì đóng là mất việc của khách. Phiếu mở là công tắc tắt trợ lý: thiếu bước này,
+      # người nhận hết ca là khách bị kẹt ở "đang chờ nhân viên" vô thời hạn.
+      assigned-stale-after: ${HANDOFF_ASSIGNED_STALE_AFTER:2h}
       reaper:
         enabled: ${HANDOFF_REAPER_ENABLED:true}
         interval: ${HANDOFF_REAPER_INTERVAL:1h}

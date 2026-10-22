@@ -73,6 +73,15 @@ public enum AiChatboxErrorCode implements ErrorCode {
      */
     HANDOFF_STATE_CHANGED(409),
 
+    /**
+     * Chuyển phiếu cho một tài khoản không tồn tại.
+     *
+     * <p>422 chứ không 404: phiếu có thật, chỉ là người nhận mới không có. Chỉ kiểm được "tài khoản
+     * tồn tại", chưa kiểm được người đó có quyền hỗ trợ — identity-service chưa có hợp đồng cho việc
+     * này.
+     */
+    HANDOFF_TARGET_AGENT_NOT_FOUND(422),
+
     // --- Kho tri thức ------------------------------------------------------
 
     KNOWLEDGE_CHUNK_NOT_FOUND(404),

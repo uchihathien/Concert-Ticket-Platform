@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.domain.port;
 
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
+import com.nexaticket.aichatbox.domain.model.HandoverNote;
 import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import java.util.List;
 import java.util.Optional;
@@ -91,6 +92,35 @@ public interface HandoffRepository {
      * cần phiếu không bị đóng xen giữa.
      */
     Optional<Handoff> lockById(UUID handoffId);
+
+    /**
+     * Đổi người giữ phiếu không qua "Nhận": nhả về hàng đợi ({@code newAgent = null}) hoặc chuyển
+     * cho người khác — có điều kiện trạng thái và người giữ đã đọc, như {@link #transition}.
+     *
+     * <p>Ghi {@code details.lastHandover} trong cùng câu lệnh và giữ mọi khoá cũ của {@code details}.
+     *
+     * @return {@code false} khi phiếu đã đổi trạng thái hoặc người giữ
+     */
+    boolean handover(
+            UUID handoffId,
+            HandoffStatus expectedStatus,
+            UUID expectedAgent,
+            UUID newAgent,
+            java.time.Instant now,
+            HandoverNote note);
+
+    /**
+     * Trả về hàng đợi những phiếu ASSIGNED bị bỏ rơi: nhận trước {@code before} và không có tin
+     * AGENT nào kể từ đó.
+     *
+     * <p>Không đóng — đóng là mất việc của khách; trả về hàng đợi để người khác nhận. Giới hạn đã
+     * biết: tin nhân viên gửi đúng giây job chạy có thể không được thấy (truy vấn con dùng snapshot
+     * đầu lệnh) và phiếu vẫn bị nhả — chấp nhận được với ngưỡng tính bằng giờ, người đó nhận lại
+     * được ngay.
+     *
+     * @return số phiếu đã nhả
+     */
+    int releaseStaleAssigned(java.time.Instant before, java.time.Instant now);
 
     /**
      * Đóng những phiếu chờ quá lâu mà chưa ai nhận.

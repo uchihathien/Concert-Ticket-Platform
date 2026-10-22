@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.infrastructure.persistence;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
+import com.nexaticket.aichatbox.domain.model.HandoverNote;
 import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import java.sql.ResultSet;
@@ -241,6 +242,93 @@ public class JdbcHandoffRepository implements HandoffRepository {
         return updated == 1;
     }
 
+    /**
+     * Biểu thức ghi {@code details.lastHandover}, dùng chung cho nhả/chuyển tay và nhả tự động.
+     *
+     * <p>{@code details} là TEXT; ép {@code ::jsonb} để nối {@code ||} — giữ mọi khoá cũ (mã đơn,
+     * loại sự cố…), chỉ ghi đè {@code lastHandover} — rồi trả về {@code ::text}. Mọi tham số đều ép
+     * kiểu tường minh: {@code jsonb_build_object} nhận kiểu "any", và một tham số null không kiểu làm
+     * Postgres báo "could not determine data type".
+     */
+    private static final String WITH_HANDOVER_NOTE =
+            """
+            (coalesce(details::jsonb, '{}'::jsonb) || jsonb_build_object('lastHandover', jsonb_build_object(
+                'action', cast(:action as text),
+                'by', cast(:by as text),
+                'from', %s,
+                'to', cast(:to as text),
+                'reason', cast(:reason as text),
+                'at', cast(:now as timestamptz))))::text""";
+
+    @Override
+    public boolean handover(
+            UUID handoffId,
+            HandoffStatus expectedStatus,
+            UUID expectedAgent,
+            UUID newAgent,
+            Instant now,
+            HandoverNote note) {
+        int updated = db.sql(
+                        """
+                        update chat_handoffs
+                           set status = :status,
+                               assigned_agent_id = cast(:newAgent as uuid),
+                               assigned_at = :assignedAt,
+                               details = %s
+                         where id = :id
+                           and status = :expected
+                           and assigned_agent_id is not distinct from cast(:expectedAgent as uuid)
+                        """
+                                .formatted(WITH_HANDOVER_NOTE.formatted("cast(:from as text)")))
+                .param("status", newAgent == null ? HandoffStatus.WAITING.name() : HandoffStatus.ASSIGNED.name())
+                .param("newAgent", newAgent == null ? null : newAgent.toString())
+                // ck_handoff_assigned: người giữ và mốc nhận cùng có hoặc cùng không.
+                .param("assignedAt", newAgent == null ? null : Timestamp.from(now))
+                .param("action", note.action())
+                .param("by", note.by() == null ? null : note.by().toString())
+                .param("from", note.from() == null ? null : note.from().toString())
+                .param("to", note.to() == null ? null : note.to().toString())
+                .param("reason", note.reason())
+                .param("now", Timestamp.from(now))
+                .param("id", handoffId)
+                .param("expected", expectedStatus.name())
+                .param("expectedAgent", expectedAgent == null ? null : expectedAgent.toString())
+                .update();
+        return updated == 1;
+    }
+
+    /**
+     * Một UPDATE, có điều kiện {@code status = 'ASSIGNED'} — nhiều instance chạy cùng lúc vẫn an toàn
+     * như {@link #closeAbandoned}. "Còn hoạt động" = có tin AGENT kể từ {@code before}; index
+     * {@code idx_chat_messages_session (session_id, created_at desc, id desc)} phục vụ truy vấn con.
+     */
+    @Override
+    public int releaseStaleAssigned(Instant before, Instant now) {
+        return db.sql(
+                        """
+                        update chat_handoffs h
+                           set status = 'WAITING',
+                               assigned_agent_id = null,
+                               assigned_at = null,
+                               details = %s
+                         where h.status = 'ASSIGNED'
+                           and h.assigned_at < :before
+                           and not exists (
+                               select 1 from chat_messages m
+                                where m.session_id = h.session_id
+                                  and m.role = 'AGENT'
+                                  and m.created_at >= :before)
+                        """
+                                .formatted(WITH_HANDOVER_NOTE.formatted("h.assigned_agent_id::text")))
+                .param("action", HandoverNote.AUTO_RELEASE)
+                .param("by", null)
+                .param("to", null)
+                .param("reason", null)
+                .param("now", Timestamp.from(now))
+                .param("before", Timestamp.from(before))
+                .update();
+    }
+
     @Override
     public Optional<Handoff> lockById(UUID handoffId) {
         return db.sql("select " + COLUMNS + " from chat_handoffs where id = :id for update")
@@ -256,6 +344,11 @@ public class JdbcHandoffRepository implements HandoffRepository {
      * người trực vừa bấm Nhận đúng lúc job chạy thì phiếu đã sang ASSIGNED và lệnh này không đụng
      * tới nó. Ghi thêm lý do vào `reason` chứ không xoá dấu vết — "phiếu này tự đóng vì quá hạn"
      * là dữ liệu cần để biết hàng đợi đang bỏ rơi bao nhiêu người.
+     *
+     * <p>Mốc tính quá hạn là lần cuối phiếu về hàng đợi ({@code lastHandover.at}) nếu có, không phải
+     * lúc khách yêu cầu: nhả phiếu xoá {@code assigned_at}, và một phiếu yêu cầu từ 30 giờ trước vừa
+     * được nhả lúc này mà tính theo {@code requested_at} thì bị đóng ngay ở lần chạy kế tiếp — đúng
+     * điều việc "nhả, không đóng" muốn tránh.
      */
     @Override
     public int closeAbandoned(Instant before, Instant now) {
@@ -265,7 +358,8 @@ public class JdbcHandoffRepository implements HandoffRepository {
                            set status = 'RESOLVED',
                                resolved_at = :now,
                                reason = reason || ' [tự đóng: quá hạn chờ]'
-                         where status = 'WAITING' and requested_at < :before
+                         where status = 'WAITING'
+                           and coalesce((details::jsonb #>> '{lastHandover,at}')::timestamptz, requested_at) < :before
                         """)
                 .param("now", Timestamp.from(now))
                 .param("before", Timestamp.from(before))

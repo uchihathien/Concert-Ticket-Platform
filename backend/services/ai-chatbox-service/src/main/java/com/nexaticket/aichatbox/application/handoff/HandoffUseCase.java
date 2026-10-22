@@ -7,6 +7,7 @@ import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
+import com.nexaticket.aichatbox.domain.model.HandoverNote;
 import com.nexaticket.aichatbox.domain.model.IncidentKind;
 import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
@@ -321,13 +322,84 @@ public class HandoffUseCase {
             // lại chính phiếu đó", không dịch `resolved_at`.
             return rowOf(current);
         }
+        throw stateChanged(current);
+    }
+
+    /**
+     * Nhả phiếu về hàng đợi — bất kỳ người trực nào cũng làm được, không riêng người đang giữ.
+     *
+     * <p>Lối thoát cho phiếu ASSIGNED bị bỏ rơi (người nhận hết ca, nghỉ việc): trước đây không có
+     * đường nào gỡ nó, và vì phiếu mở là công tắc tắt trợ lý, khách nhận "đang chờ nhân viên" vô thời
+     * hạn (R-02).
+     *
+     * <p>Không {@code @Transactional}: phần ghi là MỘT câu UPDATE có điều kiện, nguyên tử tự thân;
+     * để ngoài transaction thì lời gọi sang identity khi dựng {@code rowOf} không giữ kết nối DB.
+     */
+    public HandoffViews.HandoffRow release(UUID handoffId, UUID actorId, String reason) {
+        Handoff handoff = require(handoffId);
+        if (!handoff.isOpen()) {
+            throw alreadyResolved();
+        }
+        if (handoff.status() == HandoffStatus.WAITING) {
+            return rowOf(handoff);
+        }
+        HandoverNote note =
+                new HandoverNote(HandoverNote.RELEASE, actorId, handoff.assignedAgentId(), null, blankToNull(reason));
+        if (handoffs.handover(handoffId, handoff.status(), handoff.assignedAgentId(), null, clock.instant(), note)) {
+            return rowOf(require(handoffId));
+        }
+        throw afterLostHandover(handoffId);
+    }
+
+    /**
+     * Chuyển phiếu cho một người trực khác.
+     *
+     * <p>Chỉ kiểm được tài khoản đích tồn tại (422 nếu không) — chưa kiểm được người đó có quyền hỗ
+     * trợ: {@code IdentityLookupPort} chưa có hợp đồng cho việc ấy.
+     */
+    public HandoffViews.HandoffRow reassign(UUID handoffId, UUID actorId, UUID targetAgentId, String reason) {
+        Handoff handoff = require(handoffId);
+        if (!handoff.isOpen()) {
+            throw alreadyResolved();
+        }
+        if (targetAgentId.equals(handoff.assignedAgentId())) {
+            return rowOf(handoff);
+        }
+        if (identities.displayNameOf(targetAgentId).isEmpty()) {
+            throw new ApiException(
+                    AiChatboxErrorCode.HANDOFF_TARGET_AGENT_NOT_FOUND, "Không tìm thấy tài khoản người nhận phiếu");
+        }
+        HandoverNote note = new HandoverNote(
+                HandoverNote.REASSIGN, actorId, handoff.assignedAgentId(), targetAgentId, blankToNull(reason));
+        if (handoffs.handover(
+                handoffId, handoff.status(), handoff.assignedAgentId(), targetAgentId, clock.instant(), note)) {
+            return rowOf(require(handoffId));
+        }
+        throw afterLostHandover(handoffId);
+    }
+
+    /** Thua race khi đổi người giữ: đã đóng thì nói đã đóng, còn mở thì trả trạng thái mới. */
+    private ApiException afterLostHandover(UUID handoffId) {
+        Handoff current = require(handoffId);
+        return current.isOpen() ? stateChanged(current) : alreadyResolved();
+    }
+
+    private static ApiException alreadyResolved() {
+        return new ApiException(AiChatboxErrorCode.HANDOFF_ALREADY_RESOLVED, "Phiếu này đã được đóng");
+    }
+
+    private static ApiException stateChanged(Handoff current) {
         Map<String, Object> meta = new HashMap<>();
         meta.put("status", current.status().name());
         meta.put("assignedAgentId", current.assignedAgentId());
-        throw new ApiException(
+        return new ApiException(
                 AiChatboxErrorCode.HANDOFF_STATE_CHANGED,
                 "Phiếu vừa đổi trạng thái — tải lại để xem ai đang phụ trách",
                 meta);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     /**
