@@ -13,3 +13,7 @@ spring:
 nexaticket:
   outbox:
     publish-interval-ms: 999999   # publisher không tự chạy trong test
+  identity:
+    staff-accounts:
+      expiry:
+        enabled: false   # test gọi thẳng StaffAccountHandler.expireDue(), không chờ đồng hồ thật

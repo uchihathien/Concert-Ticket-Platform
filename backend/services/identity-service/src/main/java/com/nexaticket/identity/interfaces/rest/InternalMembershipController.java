@@ -11,6 +11,8 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -91,6 +93,18 @@ public class InternalMembershipController {
     public UserContactView contact(@PathVariable UUID userId) {
         return queries.contactOf(UserId.of(userId));
     }
+
+    /**
+     * Liên lạc của nhiều người mua — ticketing-service gọi để dựng dữ liệu soát vé offline và tìm
+     * khách theo email / SĐT. Ra khỏi ticketing chỉ ở dạng đã che một phần.
+     */
+    @PostMapping("/users/contacts")
+    @PublicEndpoint(reason = "Open Host Service, chỉ truy cập được trong mạng nội bộ")
+    public java.util.List<OrganizationQueries.BuyerContactView> contacts(@RequestBody ContactsRequest request) {
+        return queries.contactsOf(request.userIds().stream().map(UserId::of).toList());
+    }
+
+    public record ContactsRequest(java.util.List<UUID> userIds) {}
 
     public record PrincipalView(String userId, Map<String, String> memberships, boolean superAdmin) {}
 }

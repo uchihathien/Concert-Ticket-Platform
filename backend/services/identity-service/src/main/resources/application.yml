@@ -57,6 +57,19 @@ nexaticket:
       # Hạn của liên kết đặt mật khẩu trong thư mời nhân viên soát vé.
       link-lifetime: ${STAFF_INVITE_LINK_LIFETIME:PT72H}
 
+    # Tài khoản nhân viên do hệ thống cấp (tên đăng nhập + PIN) — StaffAccountHandler.
+    staff-accounts:
+      # Miền email nội bộ bên Keycloak (realm dùng email làm tên đăng nhập). `.invalid` không bao giờ
+      # nhận thư. PHẢI khớp EXPO_PUBLIC_STAFF_LOGIN_DOMAIN của app NexaTicket Staff.
+      login-domain: ${STAFF_LOGIN_DOMAIN:staff.nexaticket.invalid}
+      # Tài khoản tự khoá khi suất cuối của mọi sự kiện được gán đã kết thúc quá khoảng này.
+      expire-after-last-session: ${STAFF_EXPIRE_AFTER_LAST_SESSION:PT6H}
+      # "Gia hạn" không kèm mốc thì thêm chừng này kể từ lúc bấm.
+      default-extension: ${STAFF_DEFAULT_EXTENSION:PT24H}
+      expiry:
+        enabled: ${STAFF_EXPIRY_ENABLED:true}
+        interval: ${STAFF_EXPIRY_INTERVAL:PT10M}
+
     keycloak:
       # Admin API — CHỈ dùng cho một việc: nhờ Keycloak gửi thư đặt lại mật khẩu khi quản trị viên
       # bấm hộ. Người dùng tự bấm "Quên mật khẩu?" trên trang đăng nhập thì KHÔNG đi qua đây.

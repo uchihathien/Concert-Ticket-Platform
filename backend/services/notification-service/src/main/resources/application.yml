@@ -32,9 +32,21 @@ spring:
         jwt:
           issuer-uri: ${OIDC_ISSUER:http://localhost:8081/realms/nexaticket}
 
+  # Mặc định là Mailpit ở dev (không xác thực, không TLS). Gửi qua máy chủ thật như Gmail thì khai
+  # SMTP_* trong .env — xem .env.example.
   mail:
     host: ${SMTP_HOST:localhost}
     port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:false}
+      mail.smtp.starttls.required: ${SMTP_STARTTLS:false}
+      # Không đặt thì JavaMail chờ vô hạn: một máy chủ thư treo sẽ giữ luồng gửi mãi mãi.
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
 
 nexaticket:
   # TenantFilter của starter-security hỏi identity-service xem người gọi là ai và thuộc tổ chức nào.
