@@ -45,6 +45,11 @@
     <surefire.version>3.5.2</surefire.version>
     <failsafe.version>3.5.2</failsafe.version>
     <jacoco.version>0.8.12</jacoco.version>
+    <!--
+      Rỗng khi build thường. Profile `coverage` để JaCoCo ghi agent của nó vào đây, và surefire /
+      failsafe nối thêm bằng late replacement (@-ngoặc-nhọn) — thiếu profile cũng không vỡ.
+    -->
+    <argLine></argLine>
   </properties>
 
   <dependencyManagement>
@@ -160,7 +165,7 @@
               Truyền classpath trực tiếp thay vì qua manifest-JAR để tránh hẳn.
             -->
             <useSystemClassLoader>false</useSystemClassLoader>
-            <argLine>-Dapi.version=${docker.api.version}</argLine>
+            <argLine>@{argLine} -Dapi.version=${docker.api.version}</argLine>
           </configuration>
         </plugin>
         <plugin>
@@ -169,7 +174,7 @@
           <version>${failsafe.version}</version>
           <configuration>
             <useSystemClassLoader>false</useSystemClassLoader>
-            <argLine>-Dapi.version=${docker.api.version}</argLine>
+            <argLine>@{argLine} -Dapi.version=${docker.api.version}</argLine>
             <!--
               spring-boot-maven-plugin:repackage biến jar thành fat jar, class ứng dụng nằm dưới
               BOOT-INF/classes. Failsafe mặc định đặt jar đó lên classpath nên không thấy class
@@ -227,4 +232,68 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!--
+      Đo coverage: ./mvnw -B verify -Pcoverage
+      Unit (surefire) ghi jacoco.exec, integration (failsafe) ghi jacoco-it.exec, rồi gộp thành
+      target/site/jacoco-merged/ cho từng module. Tách hai file để vẫn đọc riêng được "unit phủ bao
+      nhiêu"; báo cáo gộp là con số so với mục tiêu. Tổng hợp toàn repo: scripts/coverage-summary.py.
+
+      Loại trừ, và vì sao:
+        *Application         chỉ có main(), không có logic
+        infrastructure/seed  dữ liệu demo cho môi trường dev, không chạy ở production
+    -->
+    <profile>
+      <id>coverage</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>${jacoco.version}</version>
+            <configuration>
+              <excludes>
+                <exclude>**/*Application.class</exclude>
+                <exclude>**/infrastructure/seed/**</exclude>
+              </excludes>
+            </configuration>
+            <executions>
+              <execution>
+                <id>agent-unit</id>
+                <goals><goal>prepare-agent</goal></goals>
+              </execution>
+              <execution>
+                <id>agent-it</id>
+                <goals><goal>prepare-agent-integration</goal></goals>
+              </execution>
+              <execution>
+                <id>merge</id>
+                <phase>verify</phase>
+                <goals><goal>merge</goal></goals>
+                <configuration>
+                  <fileSets>
+                    <fileSet>
+                      <directory>${project.build.directory}</directory>
+                      <includes><include>jacoco.exec</include><include>jacoco-it.exec</include></includes>
+                    </fileSet>
+                  </fileSets>
+                  <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+                </configuration>
+              </execution>
+              <execution>
+                <id>report-merged</id>
+                <phase>verify</phase>
+                <goals><goal>report</goal></goals>
+                <configuration>
+                  <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+                  <outputDirectory>${project.reporting.outputDirectory}/jacoco-merged</outputDirectory>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
