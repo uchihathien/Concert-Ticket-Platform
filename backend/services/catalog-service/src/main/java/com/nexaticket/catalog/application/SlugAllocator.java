@@ -38,20 +38,21 @@ public class SlugAllocator {
      */
     public Slug allocate(String requested, String title) {
         if (requested != null && !requested.isBlank()) {
-            Slug slug = new Slug(requested.trim());
+            Slug slug = InputRules.validated(() -> new Slug(requested.trim()));
             if (events.slugExists(slug)) {
                 throw new ApiException(CatalogErrorCode.SLUG_ALREADY_TAKEN, "Slug đã có người dùng: " + slug);
             }
             return slug;
         }
 
-        Slug base = Slug.from(title);
+        Slug base = InputRules.validated(() -> Slug.from(title));
         Slug candidate = base;
         for (int n = 2; events.slugExists(candidate); n++) {
             if (n > MAX_SLUG_ATTEMPTS) {
                 throw new ApiException(CatalogErrorCode.SLUG_ALREADY_TAKEN, "Không sinh được slug trống từ: " + title);
             }
-            candidate = base.withSuffix(n);
+            final int suffix = n;
+            candidate = InputRules.validated(() -> base.withSuffix(suffix));
         }
         return candidate;
     }

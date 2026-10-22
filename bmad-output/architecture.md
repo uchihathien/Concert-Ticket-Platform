@@ -123,8 +123,10 @@
 4. Confirm chạy `TicketBookingUseCase.initiate` với idempotency key = `proposalId` (ADR-2006) bằng token của chính khách; trả thẻ `PAYMENT` kèm **VietQR** để khách quét ngay trong chat; ghi lượt `ASSISTANT` "đã tạo đơn X, thanh toán trước HH:mm" vào `chat_messages` để lượt sau mô hình biết. `vietQrPayload`/`paymentReference` đi **chỉ** qua thẻ — không bao giờ vào JSON cho mô hình (một mô hình chép sai một ký tự là tiền đi lạc).
 5. Thanh toán **không bao giờ** tự động; thanh toán là bước xác nhận cuối: đơn chưa trả hết hạn sau 15 phút (ADR-0015) và chỗ tự nhả. `checkoutUrl` được trả nguyên làm đường dự phòng. Giao diện poll `GET /v1/orders/{id}` 5 giây một lần khi thẻ `PAYMENT` đang mở, đổi thẻ sang "đã thanh toán"/"hết hạn" — cùng cách trang checkout đang làm.
 6. **Không** gộp đề xuất và xác nhận vào một lượt dù câu đầu đã đủ thông tin: cú bấm "Đồng ý" là thứ phân biệt "đặt 2 vé khu A" với "khu A còn 2 vé không?", và nhầm là khoá chỗ của người khác 15 phút lúc mở bán. Gộp chỉ được phép sau ADR mới, kèm cờ theo sự kiện.
+7. **Khách tự chọn số ghế** *(thêm 2026-10-22)*. Thẻ `BOOKING_PROPOSAL` của khu ngồi có nút "Chọn ghế" mở **lưới hàng × số ghế** của đúng suất + khu (dữ liệu `GET /v1/sessions/{id}/seats` của inventory — công khai, có `rowLabel`/`seatLabel`/`seatCode`/`status`; không cần toạ độ nên chạy cho mọi suất, khác sơ đồ của trang web). Khách chọn đúng `quantity` ghế → `PUT /v1/chat/agent/proposals/{id}/seats {seatIds}`: chủ sở hữu, `PROPOSED`, còn hạn, đủ số, mọi ghế thuộc đúng suất + khu và đang `AVAILABLE` → lưu `seat_ids`/`seat_labels`, trả thẻ cập nhật. Không chọn → hệ thống chọn hộ như cũ. Xác nhận khi có `seat_ids` giữ **đúng** những ghế đó (`POST /v1/sessions/{id}/holds {seatIds}` — endpoint đã hỗ trợ); ghế vừa bị người khác giữ → `409 SEATS_UNAVAILABLE`, đề xuất giữ `PROPOSED`, `seat_ids` xoá để khách chọn lại. **Mô hình không bao giờ nhận, đọc hay điền mã ghế** — khách nói "cho mình ghế A12" thì trợ lý chỉ nhắc bấm "Chọn ghế" trên thẻ (mô hình không thấy sơ đồ; một mã ghế từ câu chữ là mã nó tự nghĩ ra). Khu đứng không có nút chọn ghế. Trang đặt vé web giữ nguyên chọn theo khu.
 
 **Consequences — LOCKED for all stories:**
+- *(Thêm 2026-10-22, từ thử đầu-cuối)* Mô hình cũng không được **nói** là đã có đơn: `BookingClaimGuard` chặn mọi lời khẳng định đã đặt/giữ chỗ và mọi số đơn/UUID không có nguồn trong payload tool của lượt hoặc lượt ASSISTANT đã lưu, chạy trước khi lưu lịch sử (story 1.9).
 - Không có tool nào trong `SupportAgentTools.CATALOG` được gọi `InventoryClientPort.holdZone` hay `OrderingClientPort.placeOrder`. `ArchitectureTest` thêm rule: package `application.agent` không phụ thuộc `InventoryClientPort`/`OrderingClientPort.placeOrder`.
 - Mọi hành động giao dịch mới trong tương lai (đổi vé, mua thêm) đi cùng mẫu: tool nháp → `ActionCard` → endpoint confirm.
 - Easier: prompt injection không thể tạo đơn; eval đo được "tỷ lệ đề xuất đúng" tách khỏi "tỷ lệ đặt thành công".
@@ -430,7 +432,7 @@ ai-chatbox-service ────────────────────�
 - Index: `(event_id, snapshot_date)`, `(organization_id, snapshot_date)`.
 
 ### Storage Strategy
-- **Primary store:** PostgreSQL, database-per-service (ADR-1002); migration Flyway `V0104__booking_proposals`, `V0105__session_context`, `V0106__booking_intents` (ai-chatbox); `V01xx` tương ứng ở ordering/inventory/analytics.
+- **Primary store:** PostgreSQL, database-per-service (ADR-1002); migration Flyway `V0104__booking_proposals`, `V0105__session_context`, `V0106__booking_proposal_seats` (Phase 1, story chọn ghế), `V0107__booking_intents` (ai-chatbox); `V01xx` tương ứng ở ordering/inventory/analytics.
 - **Cache:** không thêm Redis cho phần này; slot memory nằm trong Postgres (một dòng/phiên). Prompt cache ở phía nhà cung cấp mô hình nhờ system prompt bất biến.
 - **Retention:** ADR-2011. **Backup:** theo cụm Postgres hiện có.
 
@@ -473,6 +475,7 @@ Trả `{id, event: {slug, title}, zoneCodes, quantity, maxUnitPriceVnd, status, 
 |----|------|-------------|--------------|--------|--------|
 | FR-001 | FR | Mô hình lập đề xuất đặt vé; không tạo đơn | Agent, BookingProposalUseCase | 2001 | Addressed |
 | FR-002 | FR | Khách xác nhận/huỷ đề xuất bằng thẻ; xác nhận tạo hold+order | BookingActionController, TicketBookingUseCase | 2001, 2006 | Addressed |
+| FR-002b | FR | Khách tự chọn số ghế (lưới hàng × số) trước khi bấm Đồng ý; ghế mất → chọn lại | 1.10–1.12: BookingProposalUseCase, InventoryClientPort, SeatGrid | 2001, 2006 | Addressed |
 | FR-003 | FR | Lượt sau không phải tra lại sự kiện/suất/khu | SessionContextPort, Agent | 2002 | Addressed |
 | FR-004 | FR | Không đặt trùng khi khách nhắn lại | BookingProposalUseCase | 2002, 2006 | Addressed |
 | FR-005 | FR | Khách để lệnh săn vé (mở bán / vé nhả); worker thực thi | BookingIntentUseCase, IntentExecutionJob, IntentWakeupListener | 2003, 2004 | Addressed (Phase 2) |
@@ -484,6 +487,7 @@ Trả `{id, event: {slug, title}, zoneCodes, quantity, maxUnitPriceVnd, status, 
 | FR-011 | FR | Organizer bật/tắt săn vé theo sự kiện | catalog flag, draftBookingIntent | 2005 | Addressed (Phase 2) |
 | FR-012 | FR | Chốt chặn grounding đối chiếu con số với payload tool | AnswerGrounding | — | Deferred — Phase 2, không cần ADR (nội bộ một lớp) |
 | NFR-001 | NFR | 0 đơn tạo khi chưa xác nhận | ArchitectureTest rule, confirm endpoint | 2001 | Addressed |
+| NFR-001b | NFR | Trợ lý không khẳng định đã đặt/không đưa số đơn khi không có đơn thật | BookingClaimGuard | 2001 | Addressed (1.9) |
 | NFR-002 | NFR | Chốt chặn thương mại giữ nguyên; idempotency theo ADR-0007 | handler hiện có, on-behalf-of, key nghiệp vụ | 2003, 2006 | Addressed |
 | NFR-003 | NFR | Công bằng với người mua tay | FIFO, grace 60 giây, cùng hạn mức | 2005 | Addressed |
 | NFR-004 | NFR | Hiệu năng/độ trễ (performance, latency): token đầu ≤ 3 giây p95; lượt ≤ 60 giây với mô hình trả phí; confirm ≤ 2 giây | SSE, định tuyến mô hình, slot memory | 2002, 2007, 2008 | Addressed |

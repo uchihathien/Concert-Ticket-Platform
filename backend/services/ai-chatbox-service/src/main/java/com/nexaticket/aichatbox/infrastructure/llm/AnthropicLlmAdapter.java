@@ -12,6 +12,7 @@ import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.OutputConfig;
 import com.anthropic.models.messages.RedactedThinkingBlockParam;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.ThinkingBlockParam;
 import com.anthropic.models.messages.ThinkingConfigAdaptive;
@@ -104,7 +105,16 @@ public class AnthropicLlmAdapter implements LlmProviderPort {
             throw new LlmUnavailableException("Không gọi được nhà cung cấp mô hình", e);
         }
 
-        return interpret(response);
+        // Phần dịch phản hồi cũng bọc. Trước đây nó nằm ngoài try: một tham số null làm NPE ở đây và
+        // khách nhận 500 không phiếu, không lịch sử — nhánh "chuyển cho nhân viên" chỉ bắt
+        // LlmUnavailableException.
+        try {
+            return interpret(response);
+        } catch (LlmUnavailableException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new LlmUnavailableException("Không đọc được phản hồi của nhà cung cấp mô hình", e);
+        }
     }
 
     /**
@@ -143,8 +153,24 @@ public class AnthropicLlmAdapter implements LlmProviderPort {
             });
         }
 
+        boolean truncated =
+                response.stopReason().filter(StopReason.MAX_TOKENS::equals).isPresent();
         if (!calls.isEmpty()) {
+            if (truncated) {
+                log.warn(
+                        "Lượt gọi tool chạm trần token (stopReason=max_tokens, outputTokens={})",
+                        response.usage().outputTokens());
+            }
             return new LlmTurn.ToolRequest(calls, echo);
+        }
+        if (truncated) {
+            // Câu bị cắt giữa chừng KHÔNG được thành câu trả lời: nó sẽ được lưu vào lịch sử và khách
+            // đọc một câu cụt. Trả rỗng — vòng ReAct coi rỗng là "chưa có câu trả lời", thử vòng sau,
+            // hết vòng thì chuyển người thật.
+            log.warn(
+                    "Câu trả lời bị cắt vì chạm trần token (stopReason=max_tokens, outputTokens={}) — bỏ",
+                    response.usage().outputTokens());
+            return new LlmTurn.Answer("");
         }
         if (text.isEmpty()) {
             // Không lời, không tool. Xảy ra khi mô hình từ chối trả lời, hoặc khi lượt bị cắt vì
@@ -244,7 +270,12 @@ public class AnthropicLlmAdapter implements LlmProviderPort {
         Object converted = input.convert(Object.class);
         if (converted instanceof Map<?, ?> map) {
             Map<String, Object> out = new LinkedHashMap<>();
-            map.forEach((k, v) -> out.put(String.valueOf(k), v));
+            map.forEach((k, v) -> {
+                // `{"city": null}` là "không khai", không phải giá trị — xem ToolInvocation.
+                if (k != null && v != null) {
+                    out.put(String.valueOf(k), v);
+                }
+            });
             return out;
         }
         return Map.of();

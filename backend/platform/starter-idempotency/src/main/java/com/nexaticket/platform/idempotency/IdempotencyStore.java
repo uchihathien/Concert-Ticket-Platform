@@ -38,6 +38,54 @@ public class IdempotencyStore {
                 == 1;
     }
 
+    /**
+     * Nhận lại bản ghi "đang xử lý" đã bỏ dở.
+     *
+     * <p>Tiến trình đã chết giữa {@link #tryBegin} và {@link #complete} để lại một bản ghi không bao
+     * giờ hoàn tất; không nhận lại thì khoá đó trả 409 mãi mãi. Chỉ nhận lại bản ghi CHƯA có câu trả
+     * lời và đã cũ hơn {@code staleAfter}.
+     *
+     * @return true nếu giành được quyền xử lý lại
+     */
+    public boolean takeOverIfStale(UUID userId, String key, String requestHash, java.time.Duration staleAfter) {
+        return jdbc.update(
+                        """
+                        UPDATE idempotency_records
+                           SET request_hash = ?, created_at = now()
+                         WHERE user_id IS NOT DISTINCT FROM ? AND idem_key = ?
+                           AND response_status IS NULL
+                           AND created_at < now() - (? * interval '1 second')
+                        """,
+                        requestHash,
+                        userId,
+                        key,
+                        staleAfter.toSeconds())
+                == 1;
+    }
+
+    /**
+     * Xoá bản ghi cũ hơn {@code retention}, tối đa {@code batch} dòng một lần.
+     *
+     * <p>Không phân biệt đã hoàn tất hay đang dở: bản ghi dở quá {@code retention} (hàng chục giờ) chắc chắn là của
+     * một tiến trình đã chết và đã được {@link #takeOverIfStale} bỏ qua từ lâu. Chia lô bằng {@code LIMIT} để một
+     * lần dọn bảng lớn không giữ khoá dòng lâu; chỉ số {@code idx_idempotency_cleanup} phục vụ đúng câu này.
+     *
+     * @return số dòng đã xoá; nhỏ hơn {@code batch} nghĩa là đã hết việc
+     */
+    public int purgeOlderThan(java.time.Duration retention, int batch) {
+        return jdbc.update(
+                """
+                DELETE FROM idempotency_records
+                 WHERE id IN (
+                       SELECT id FROM idempotency_records
+                        WHERE created_at < now() - (? * interval '1 second')
+                        ORDER BY created_at
+                        LIMIT ?)
+                """,
+                retention.toSeconds(),
+                batch);
+    }
+
     public Optional<Existing> find(UUID userId, String key) {
         try {
             return Optional.ofNullable(jdbc.queryForObject(

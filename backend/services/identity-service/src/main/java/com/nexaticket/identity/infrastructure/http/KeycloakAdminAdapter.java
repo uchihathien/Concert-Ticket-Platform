@@ -222,11 +222,13 @@ public class KeycloakAdminAdapter implements IdentityProviderPort {
         try {
             UserRepresentation[] found = client.get()
                     .uri(uri -> uri.path("/admin/realms/{realm}/users")
-                            .queryParam("email", email)
+                            .queryParam("email", "{email}")
                             // exact: không có nó Keycloak tìm theo chuỗi con, và "an@x.vn" khớp cả
                             // "lan@x.vn".
                             .queryParam("exact", true)
-                            .build(properties.realm()))
+                            // Biến mẫu chứ không nối chuỗi: "+" trong email ("an+vip@x.vn") phải thành
+                            // %2B, nếu không Keycloak đọc nó là dấu cách và không tìm thấy ai.
+                            .build(properties.realm(), email))
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken())
                     .retrieve()
                     .body(UserRepresentation[].class);

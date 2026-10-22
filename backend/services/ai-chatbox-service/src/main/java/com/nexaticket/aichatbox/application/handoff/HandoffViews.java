@@ -132,5 +132,17 @@ public final class HandoffViews {
      * @param handoff {@code null} nghĩa là trợ lý AI đang trả lời. Khác {@code null} thì giao diện
      *     phải đổi hẳn: ẩn gợi ý của bot, hiện "đang chờ nhân viên", và KHÔNG hứa trả lời tức thì.
      */
-    public record ChatThread(UUID sessionId, HandoffRow handoff, List<MessageRow> messages) {}
+    public record ChatThread(UUID sessionId, CustomerHandoffView handoff, List<MessageRow> messages) {}
+
+    /**
+     * Phiếu, phía KHÁCH — chỉ những gì giao diện của khách cần.
+     *
+     * <p>Kiểu riêng chứ không dùng chung {@link HandoffRow} với bàn hỗ trợ: dòng của người trực có lý
+     * do nội bộ ("[tự đóng: quá hạn chờ]"), JSON xét chính sách hoàn vé, cách mở phiếu, UUID tài khoản
+     * nhân viên — không thứ nào dành cho khách (R-09). Giữ tên trường {@code assignedAgentName} vì
+     * {@code SupportChat.tsx} đang đọc đúng tên ấy.
+     *
+     * @param assignedAgentName tên hiển thị người đang hỗ trợ; {@code null} khi chưa ai nhận
+     */
+    public record CustomerHandoffView(String status, Instant requestedAt, String assignedAgentName) {}
 }

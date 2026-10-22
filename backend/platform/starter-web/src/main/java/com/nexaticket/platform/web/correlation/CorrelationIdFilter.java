@@ -29,6 +29,8 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     public static final String HEADER = "X-Correlation-Id";
     public static final String MDC_KEY = "correlationId";
 
+    private static final java.util.regex.Pattern SAFE = java.util.regex.Pattern.compile("[A-Za-z0-9._:-]{1,64}");
+
     /**
      * @deprecated dùng {@link CorrelationContext#current()} — nó không kéo theo Spring Web.
      */
@@ -41,7 +43,9 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         String incoming = request.getHeader(HEADER);
-        String correlationId = (incoming == null || incoming.isBlank() || incoming.length() > 64)
+        // Chỉ nhận mã "trông như mã": giá trị có CR/LF đi thẳng vào MDC và vào header phản hồi sẽ giả
+        // được một dòng log hoàn chỉnh (CWE-117) — chứng cứ giả đúng chỗ người vận hành tra sự cố.
+        String correlationId = (incoming == null || !SAFE.matcher(incoming).matches())
                 ? CorrelationId.generate().value()
                 : incoming;
 

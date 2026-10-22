@@ -30,6 +30,23 @@ Chúng tạo hold và đơn **thật** trên hệ thống đích, nên chỉ ch�
 4. Rate limit giữ chỗ của gateway là 5 rps / người (`RATE_LIMIT_HOLD_RPS`). Kịch bản tranh chấp
    dùng mỗi VU một người nên không đụng trần này; nếu thấy cảnh báo 429, tăng biến đó ở môi trường thử.
 
+## payOS giả — chạy `checkout.js` mà không chạm payOS thật
+
+payOS không có sandbox: mọi lần payment-service gọi payOS là gọi hệ thống thật, mỗi đơn mở một link thanh toán
+thật. `checkout.js` tạo hàng chục đơn mỗi phút, nên chạy nó với payOS giả:
+
+```bash
+node load-tests/fake-payos/server.mjs        # cổng 9999, checksum key "test-checksum-key"
+
+# payment-service: KHÔNG nạp .env (khoá thật không được có trong tiến trình)
+PAYOS_BASE_URL=http://localhost:9999 PAYOS_CLIENT_ID=test PAYOS_API_KEY=test PAYOS_CHECKSUM_KEY=test-checksum-key PAYMENT_SANDBOX=true  <chạy payment-service>
+```
+
+Server giả ký phản hồi đúng thuật toán payOS (nên `PayosHttpGateway` kiểm chữ ký thật sự chạy) và kiểm chữ ký
+request. `curl http://localhost:9999/_stats` cho biết số link đã tạo / huỷ. Tiền không bao giờ vào: dùng
+`-e PAYMENT_INTERNAL_URL=http://localhost:8095` (cổng ứng dụng, không phải cổng quản trị 9095) để script gọi
+`simulate-transfer`. Số nên chạy: `RATE` thấp và token của nhiều người dùng, vì hạn mức mua là theo người dùng.
+
 ## Chạy
 
 ```bash

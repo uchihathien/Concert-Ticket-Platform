@@ -10,10 +10,18 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestTimeoutException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -147,7 +155,9 @@ public class GlobalExceptionHandler {
 
         // KHÔNG dùng `ex.getReason()` làm thông điệp: với WebFlux nó là "No static resource
         // internal/reservations", một câu nói ra cấu trúc đường dẫn nội bộ cho bất kỳ ai gõ thử.
-        return ResponseEntity.status(status).body(ApiError.of(code, messageFor(status), correlationId, Map.of()));
+        return ResponseEntity.status(status)
+                .body(ApiError.of(code, messageFor(status), correlationId, Map.of())
+                        .withStatus(status.value()));
     }
 
     private static String messageFor(HttpStatusCode status) {
@@ -155,6 +165,69 @@ public class GlobalExceptionHandler {
             return "No handler for this path";
         }
         return status.is4xxClientError() ? "Request rejected" : "Unexpected error";
+    }
+
+    /**
+     * Request sai ở tầng HTTP mà Spring đã phân loại sẵn: sai method (405), sai content-type (415),
+     * không có media type phù hợp (406), thiếu tham số bắt buộc (400).
+     *
+     * <p>Không có handler này, tất cả rơi xuống {@link #handleUnexpected}: client nhận 500 cho lỗi của
+     * chính họ, và mỗi lần dò đường để lại một dòng ERROR kèm stack trace trong log — chỗ người vận
+     * hành tìm lỗi thật. Mã trạng thái lấy từ chính ngoại lệ ({@link ErrorResponse}); thông điệp thì
+     * cố định, không trả lại chi tiết của Spring.
+     */
+    @ExceptionHandler({
+        HttpRequestMethodNotSupportedException.class,
+        HttpMediaTypeNotSupportedException.class,
+        HttpMediaTypeNotAcceptableException.class,
+        MissingServletRequestParameterException.class,
+        ServletRequestBindingException.class
+    })
+    public ResponseEntity<ApiError> handleRejectedRequest(Exception ex) {
+        HttpStatusCode status = ((ErrorResponse) ex).getStatusCode();
+        log.debug("{} cho request [{}]: {}", status.value(), CorrelationContext.current(), ex.getMessage());
+        return ResponseEntity.status(status)
+                .body(ApiError.of(
+                                ErrorCode.Common.VALIDATION_FAILED,
+                                "Request rejected",
+                                CorrelationContext.current(),
+                                Map.of())
+                        .withStatus(status.value()));
+    }
+
+    /**
+     * {@code @Size}/{@code @Min}… trực tiếp trên tham số controller không có {@code @Validated} ở
+     * lớp — Spring 6.1+ ném {@link HandlerMethodValidationException} (một {@code ResponseStatusException}).
+     * Trả cùng hình dạng {@code meta.fields} như hai handler validation kia, để frontend biết trường nào sai.
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<ApiError> handleMethodValidation(HandlerMethodValidationException ex) {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        ex.getParameterValidationResults().forEach(result -> {
+            String name = result.getMethodParameter().getParameterName();
+            String message = result.getResolvableErrors().isEmpty()
+                    ? "invalid value"
+                    : result.getResolvableErrors().get(0).getDefaultMessage();
+            fields.putIfAbsent(
+                    name == null ? "arg" + result.getMethodParameter().getParameterIndex() : name, message);
+        });
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(
+                        ErrorCode.Common.VALIDATION_FAILED,
+                        "Request validation failed",
+                        CorrelationContext.current(),
+                        Map.of("fields", fields)));
+    }
+
+    /** Tham số đường dẫn / query sai kiểu — {@code GET /v1/orders/khong-phai-uuid}. Lỗi của client, không phải 500. */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(
+                        ErrorCode.Common.VALIDATION_FAILED,
+                        "Invalid value for parameter '" + ex.getName() + "'",
+                        CorrelationContext.current(),
+                        Map.of("fields", Map.of(ex.getName(), "invalid value"))));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

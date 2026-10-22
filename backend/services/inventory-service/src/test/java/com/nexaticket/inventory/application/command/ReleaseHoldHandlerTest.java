@@ -61,6 +61,7 @@ class ReleaseHoldHandlerTest {
     void setUp() {
         TransactionSynchronizationManager.initSynchronization();
         when(sessions.bumpAvailabilityVersion(SESSION)).thenReturn(7L);
+        when(holds.updateStatus(any(), any(), any())).thenReturn(true);
     }
 
     @AfterEach
@@ -166,6 +167,20 @@ class ReleaseHoldHandlerTest {
             handler.handle(HOLD, OWNER);
 
             verify(holds, never()).updateStatus(any(), any(), any());
+            verify(seats, never()).release(anyList());
+            verifyNoInteractions(sessions, gate, publisher);
+            assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("Hồi quy: đọc thấy ACTIVE nhưng đặt chỗ đã chuyển nó đi trước khi ghi — không nhả ghế")
+        void thua_cuoc_dua_voi_dat_cho() {
+            givenHold(HoldStatus.ACTIVE, NOW.plusSeconds(300));
+            when(holds.updateStatus(HOLD, HoldStatus.RELEASED, NOW)).thenReturn(false);
+
+            handler.handle(HOLD, OWNER);
+
+            // Ghế giờ là RESERVED của một đơn; nhả chúng là bán lần hai (ReleaseReserveRaceIT).
             verify(seats, never()).release(anyList());
             verifyNoInteractions(sessions, gate, publisher);
             assertThat(TransactionSynchronizationManager.getSynchronizations()).isEmpty();

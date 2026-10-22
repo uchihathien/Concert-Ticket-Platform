@@ -43,6 +43,11 @@ nexaticket:
   # danh tính trả 401 trong khi service vẫn healthy. Cùng mẫu với catalog-service.
   identity:
     base-url: ${IDENTITY_URL:http://localhost:8090}
+  # Idempotency-Key bắt buộc trên route này (starter-idempotency, ADR-0007): thiếu khoá là 400, gửi lại
+  # cùng khoá + cùng nội dung được phát lại câu trả lời cũ thay vì chạy handler lần hai.
+  idempotency:
+    required-paths:
+      - /v1/orders
   ordering:
     # Khach co bao lau de chuyen khoan. Cung la luoi an toan cuoi cung cua saga:
     # het han nay thi ghe duoc nha du moi co che bu tru khac da hong (sagas.md §2).

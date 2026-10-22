@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.support;
 
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
+import com.nexaticket.aichatbox.domain.model.HandoverNote;
 import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import java.time.Instant;
@@ -39,6 +40,17 @@ public class InMemoryHandoffRepository implements HandoffRepository {
         return rows.values().stream()
                 .filter(h -> h.sessionId().equals(sessionId) && h.isOpen())
                 .findFirst();
+    }
+
+    @Override
+    public Optional<Handoff> findOpenRefund(UUID userId, UUID orderId) {
+        return rows.values().stream()
+                .filter(h -> h.userId().equals(userId)
+                        && h.intent() == SupportIntent.REFUND
+                        && h.isOpen()
+                        && h.details() != null
+                        && h.details().contains("\"orderId\":\"" + orderId + "\""))
+                .min(Comparator.comparing(Handoff::requestedAt));
     }
 
     @Override
@@ -87,9 +99,76 @@ public class InMemoryHandoffRepository implements HandoffRepository {
         return Optional.of(assigned);
     }
 
+    /** Cùng điều kiện với bản Jdbc: chỉ ghi khi trạng thái và người nhận vẫn như lúc người gọi đọc. */
     @Override
-    public void save(Handoff handoff) {
-        rows.put(handoff.id(), handoff);
+    public synchronized boolean transition(
+            UUID handoffId, HandoffStatus expectedStatus, UUID expectedAgentId, Handoff next) {
+        Handoff current = rows.get(handoffId);
+        if (current == null
+                || current.status() != expectedStatus
+                || !java.util.Objects.equals(current.assignedAgentId(), expectedAgentId)) {
+            return false;
+        }
+        rows.put(handoffId, next);
+        return true;
+    }
+
+    /** Không có khoá trong bộ nhớ — test đơn luồng; khoá thật được kiểm ở HandoffTransitionRaceIT. */
+    @Override
+    public Optional<Handoff> lockById(UUID handoffId) {
+        return findById(handoffId);
+    }
+
+    /** Ghi chú bàn giao không lưu ở bản in-memory — {@code details} JSON được kiểm ở StaleHandoffReleaseIT. */
+    @Override
+    public synchronized boolean handover(
+            UUID handoffId,
+            HandoffStatus expectedStatus,
+            UUID expectedAgent,
+            UUID newAgent,
+            Instant now,
+            HandoverNote note) {
+        Handoff current = rows.get(handoffId);
+        if (current == null
+                || current.status() != expectedStatus
+                || !java.util.Objects.equals(current.assignedAgentId(), expectedAgent)) {
+            return false;
+        }
+        rows.put(handoffId, withHolder(current, newAgent, now));
+        return true;
+    }
+
+    /**
+     * Bản in-memory không có {@code chat_messages} nên chỉ xét {@code assignedAt}; điều kiện "có tin
+     * AGENT gần đây" được kiểm ở StaleHandoffReleaseIT.
+     */
+    @Override
+    public synchronized int releaseStaleAssigned(Instant before, Instant now) {
+        int released = 0;
+        for (Handoff h : List.copyOf(rows.values())) {
+            if (h.status() == HandoffStatus.ASSIGNED && h.assignedAt().isBefore(before)) {
+                rows.put(h.id(), withHolder(h, null, now));
+                released++;
+            }
+        }
+        return released;
+    }
+
+    private static Handoff withHolder(Handoff h, UUID agent, Instant now) {
+        return new Handoff(
+                h.id(),
+                h.sessionId(),
+                h.userId(),
+                agent == null ? HandoffStatus.WAITING : HandoffStatus.ASSIGNED,
+                h.trigger(),
+                h.intent(),
+                h.reason(),
+                h.details(),
+                h.lastQuestion(),
+                agent,
+                h.requestedAt(),
+                agent == null ? null : now,
+                null);
     }
 
     @Override

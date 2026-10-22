@@ -3,6 +3,7 @@ package com.nexaticket.catalog.application.command;
 
 import com.nexaticket.catalog.application.CatalogErrorCode;
 import com.nexaticket.catalog.application.EditableEvent;
+import com.nexaticket.catalog.application.InputRules;
 import com.nexaticket.catalog.domain.model.Event;
 import com.nexaticket.catalog.domain.model.EventSession;
 import com.nexaticket.catalog.domain.port.EventRepository;
@@ -52,6 +53,9 @@ public class EditSessionHandler {
         // các trần mua vé — vì null CHÍNH LÀ giá trị hợp lệ của những cột đó. Không phân biệt được
         // hai nghĩa ấy trong một hàm PATCH là chuyện đã biết; ở đây chọn cách để trần luôn ghi đè,
         // nên form phải gửi lại giá trị hiện có nếu không muốn đổi.
+        InputRules.requireSalesWindow(
+                salesOpenAt == null ? existing.salesOpenAt() : salesOpenAt,
+                salesCloseAt == null ? existing.salesCloseAt() : salesCloseAt);
         events.updateSession(new EventSession(
                 existing.id(),
                 existing.eventId(),

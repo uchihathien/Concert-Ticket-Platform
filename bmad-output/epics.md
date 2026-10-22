@@ -3,7 +3,7 @@
 > Bản đồ epic. Chi tiết nằm trong `bmad-output/stories/{epic}.{story}.{slug}.story.md`.
 >
 > Track: BMad Method (brownfield)
-> Sources: `bmad-output/architecture.md` (ADR-2001…2011, ma trận mục 7), `bmad-output/product-brief-ai-chatbox-2026-10-22.md`
+> Sources: `bmad-output/tech-spec.md` (Epic 6), `bmad-output/architecture.md` (ADR-2001…2011, ma trận mục 7), `bmad-output/product-brief-ai-chatbox-2026-10-22.md`
 > Phạm vi: **Phase 1** theo architecture.md §1 Scope. Booking Intent, SSE, realtime-gateway, grounding đối chiếu số (FR-012) thuộc Phase 2 — không có ở đây.
 
 ---
@@ -13,6 +13,8 @@
 **Goal:** Mô hình không còn tạo được đơn; nó lập đề xuất, giao diện vẽ thẻ, khách bấm xác nhận qua endpoint không đi qua mô hình.
 
 **In scope (cited):**
+- FR-002b — khách tự chọn số ghế trong thẻ đề xuất (1.10–1.12) [Source: architecture.md#ADR-2001]
+- NFR-001b — trợ lý không khẳng định có đơn khi không có đơn thật (1.9) [Source: architecture.md#ADR-2001]
 - FR-001 — mô hình lập đề xuất đặt vé, không tạo đơn [Source: architecture.md#7-fr--nfr-coverage-matrix]
 - FR-002 — khách xác nhận/huỷ bằng thẻ; xác nhận tạo hold + order [Source: architecture.md#7-fr--nfr-coverage-matrix]
 - NFR-001 — 0 đơn khi chưa xác nhận [Source: architecture.md#ADR-2001]
@@ -36,11 +38,15 @@
 | 1.6 | proposal-expiry-and-metrics | Job đánh dấu EXPIRED sau 10 phút; metric `aichatbox_proposals_total` | ready-for-dev |
 | 1.7 | payment-card-in-chat | `# COURSE-CORRECTION 2026-10-22` — thẻ PAYMENT trong SupportChat: VietQR (tái dùng mã QR của `PaymentPanel`), đếm ngược, link dự phòng, poll `GET /v1/orders/{id}` tới PAID/EXPIRED, vẽ lại từ `ChatThread.action` khi tải lại | ready-for-dev |
 | 1.8 | confirm-by-reply | **cancelled 2026-10-22** — thay bằng nút Đồng ý trên thẻ (ADR-2001 điểm 3). Nội dung cũ: `BookingConfirmIntent` (từ khoá, không LLM) + bước 1d trong `runAgent`: "ok" khi có đúng một đề xuất mở → confirm, trả PAYMENT; "thôi" → cancel | cancelled |
+| 1.9 | booking-claim-guard | `# COURSE-CORRECTION 2026-10-22` — `BookingClaimGuard`: trợ lý không được nói "đã đặt"/đưa số đơn khi lượt không có đơn thật (số đơn phải có nguồn trong payload tool hoặc lượt ASSISTANT đã lưu); chặn trước khi lưu lịch sử | ready-for-dev |
+| 1.10 | proposal-seat-selection-api | `# COURSE-CORRECTION 2026-10-22` — khách tự chọn ghế: V0106 `seat_ids`/`seat_labels`/`seat_version`/`zone_admission`; `InventoryClientPort.listSeats`; `PUT /proposals/{id}/seats`; thẻ thêm `seatSelectable`, `seatLabels` | ready-for-dev |
+| 1.11 | confirm-with-chosen-seats | `# COURSE-CORRECTION 2026-10-22` — xác nhận giữ đúng ghế đã chọn (`holdSeats`); ghế mất → 409 `SEATS_UNAVAILABLE`, đề xuất giữ PROPOSED, xoá ghế; khoá `proposalId-s{seat_version}` | ready-for-dev |
+| 1.12 | chat-seat-grid | `# COURSE-CORRECTION 2026-10-22` — lưới hàng × số ghế trong thẻ đề xuất (`useSeatMap`, không toạ độ), chọn đúng `quantity` ghế, 409 tô đỏ ghế mất | ready-for-dev |
 
 **Cross-epic dependencies:**
 - Blocked by: none
 - Blocks: Epic 2 (2.2 sau 1.3/1.4; 2.4 sửa `BookingProposalUseCase`), Epic 3 (eval cần tool `proposeBooking`), Epic 5 (5.2 sửa ToolDispatcher)
-- Thứ tự trong epic: 1.1 → 1.2 → (1.3 ∥ 1.4 ∥ 1.6) → 1.5 → 1.7
+- Thứ tự trong epic: 1.1 → 1.2 → (1.3 ∥ 1.4 ∥ 1.6) → 1.5 → 1.7; 1.9 sau 1.3, trước 2.2; chọn ghế: 1.4 → 1.10 → 1.11, 1.7 + 1.10 → 1.12; Epic 2 (2.2, 2.4) sau 1.11
 
 ---
 
@@ -148,12 +154,47 @@
 
 ---
 
+## Epic 6: Review hardening — sửa lỗi từ review mã 2026-10-22
+
+**Goal:** Bàn hỗ trợ không còn race mất dữ liệu hay phiếu kẹt; chốt chặn không chặn nhầm câu đúng; mọi lỗi phía mô hình kết thúc có kiểm soát; truy vấn mỗi lượt chat dùng index.
+
+**In scope (cited):**
+- FR-001…FR-013, R-01…R-29 còn mở [Source: tech-spec.md#requirements]
+- NFR Performance/Security của tech-spec [Source: tech-spec.md#non-functional-requirements]
+
+**Architecture touchpoints:** `application/handoff/*`, `infrastructure/persistence/*`, `infrastructure/seed/*`, `application/agent/{AnswerGrounding, CustomerSupportAgentUseCase, SupportAgentPrompts, AgentMetrics, ToolDispatcher}`, `infrastructure/llm/*`, `interfaces/rest/{SupportChatController, ChatIdempotency, SupportDeskController, SupportKnowledgeController}`, `application/booking/TicketBookingUseCase`, migration `V0108` [Source: tech-spec.md#technical-approach]
+
+**Out of scope:** nút nhả/chuyển phiếu trên web-platform (story frontend sau); đổi model; streaming.
+
+**Stories (ordered):**
+
+| ID | Slug | Intent | Status |
+|------|------|--------|--------|
+| 6.1 | handoff-atomic-transitions | `transition` có điều kiện thay `save` mù; `reply` không ghi vào phiếu đã đóng; `openOrExisting` thử lại thay vì 500 (R-01, R-03, R-04) · MUST | ready-for-dev |
+| 6.2 | release-stale-handoffs | `release`/`reassign` cho phiếu ASSIGNED; reaper trả phiếu ASSIGNED quá hạn về WAITING (R-02) · MUST | ready-for-dev |
+| 6.3 | handoff-index-and-input-hardening | vị từ `IN ('WAITING','ASSIGNED')`, index `session_id`, thoát `%`/`_`, chặn tràn phân trang; migration V0108 phần handoff (R-05–R-07) | ready-for-dev |
+| 6.4 | identity-calls-outside-tx | tách gọi identity ra ngoài transaction; view phiếu phía khách thu gọn (R-08, R-09) | ready-for-dev |
+| 6.5 | knowledge-seeder-idempotent | seeder theo từng đoạn, advisory lock, unique `(title) where event_id is null` (V0108 phần tri thức), `ef_search` khi lọc sự kiện (R-10, R-11, R-29) | ready-for-dev |
+| 6.6 | verified-support-cases | phiếu sự cố chỉ ghi đơn đã xác minh (`orderVerified`); hoàn vé kiểm trạng thái và chống trùng (R-12, R-13) | ready-for-dev |
+| 6.7 | grounding-ignores-system-text | `AnswerGrounding` bỏ văn bản cố định của hệ thống, hiểu mọi loại payload, câu thay thế theo ngữ cảnh (R-14, R-28) · MUST | ready-for-dev |
+| 6.8 | llm-adapter-robustness | lọc tham số null, chuẩn hoá số, `num_ctx`, `stop_reason`, `AI_PROVIDER` rỗng, metric cardinality (R-17–R-21) · MUST | ready-for-dev |
+| 6.9 | chat-idempotency-and-time-budget | fingerprint theo request client, `handle` thay `whenComplete`, `maxRetries` + ngân sách thời gian, MDC sang luồng agent (R-15, R-16, R-22, R-27) · MUST | ready-for-dev |
+| 6.10 | one-turn-per-session | `SessionTurnLock` + 409 `TURN_IN_PROGRESS` (R-23) | ready-for-dev |
+| 6.11 | escape-rag-context | bọc câu hỏi trong thẻ riêng, escape `<`/`>` trong câu hỏi và đoạn RAG (R-24) | ready-for-dev |
+| 6.12 | place-order-timeout-safe | hết hạn `placeOrder` không nhả hold mà thử lại cùng khoá; `zoneCode` chuẩn từ catalog (R-25, R-26) | ready-for-dev |
+
+**Cross-epic dependencies:**
+- Blocks (theo tệp tranh chấp, tech-spec.md § Story List): 1.2 (sau 6.7, 6.10, 6.11), 1.4 (sau 6.4), 1.11 (sau 6.12), 1.6 (sau 6.9 — `application.yml`); các story Phase 1 khác kế thừa thứ tự bắc cầu.
+- Blocked by: none — Epic 6 sửa trên mã `main` hiện tại, chạy trước phần Phase 1 cùng tệp.
+
+---
+
 ## Delivery Tracking (count-based)
 
-- Total stories: 19 (+1 cancelled: 1.8)
+- Total stories: 35 (+1 cancelled: 1.8) — Phase 1: 23, Epic 6: 12
 - Done: 0
-- Remaining: 19
-- Completion rate: 0/19
+- Remaining: 35
+- Completion rate: 0/35
 
 ## Notes
 

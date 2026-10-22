@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.aichatbox.application.agent;
 
+import com.nexaticket.aichatbox.domain.model.ToolSpec;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
@@ -36,7 +39,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class AgentMetrics {
 
+    /**
+     * Tag {@code tool} chỉ nhận tên có trong danh mục; tên khác gom về {@code unknown}.
+     *
+     * <p>Tên tool do MÔ HÌNH sinh. Dùng thẳng làm tag thì mỗi tên bịa (mô hình nhỏ, hoặc khách dụ
+     * mô hình) là một series Prometheus mới — số series không giới hạn là cách làm sập bộ giám sát.
+     */
+    private static final Set<String> KNOWN_TOOLS =
+            SupportAgentTools.all().stream().map(ToolSpec::name).collect(Collectors.toUnmodifiableSet());
+
     private final Timer llmLatency;
+    private final Counter llmCalls;
     private final Counter llmFailures;
     private final DistributionSummary rounds;
     private final MeterRegistry registry;
@@ -46,6 +59,12 @@ public class AgentMetrics {
         this.llmLatency = Timer.builder("aichatbox.llm.latency")
                 .description("Thời gian một lần gọi mô hình")
                 .publishPercentiles(0.5, 0.95)
+                .register(registry);
+        // Cả hai kết cục. Bản trước chỉ đếm `failed`, nên "đơn vị tính tiền thật" không đếm đúng thứ
+        // được tính tiền.
+        this.llmCalls = Counter.builder("aichatbox.llm.calls")
+                .description("Số lần gọi mô hình — đơn vị tính tiền thật")
+                .tag("outcome", "ok")
                 .register(registry);
         this.llmFailures = Counter.builder("aichatbox.llm.calls")
                 .description("Số lần gọi mô hình — đơn vị tính tiền thật")
@@ -63,6 +82,7 @@ public class AgentMetrics {
         try {
             T result = call.get();
             sample.stop(llmLatency);
+            llmCalls.increment();
             return result;
         } catch (RuntimeException e) {
             sample.stop(llmLatency);
@@ -94,7 +114,7 @@ public class AgentMetrics {
     public void recordTool(String toolName, String outcome) {
         Counter.builder("aichatbox.tool.calls")
                 .description("Số lần agent gọi tool")
-                .tag("tool", toolName)
+                .tag("tool", KNOWN_TOOLS.contains(toolName) ? toolName : "unknown")
                 .tag("outcome", outcome)
                 .register(registry)
                 .increment();

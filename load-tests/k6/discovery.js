@@ -61,10 +61,16 @@ export default function (target) {
   }
 
   group('sơ đồ ghế', () => {
-    const res = http.get(`${BASE_URL}/v1/sessions/${target.sessionId}/seats`, { tags: { name: 'seat_map' } });
+    // Trình duyệt luôn gửi Accept-Encoding; k6 thì KHÔNG tự gửi. Thiếu dòng này, mọi lần chạy đo sơ đồ ghế
+    // KHÔNG NÉN — 5,3 MB mỗi lần với suất 16.796 ghế — và kết quả không phản ánh người dùng thật.
+    const res = http.get(`${BASE_URL}/v1/sessions/${target.sessionId}/seats`, {
+      headers: { 'Accept-Encoding': 'gzip' },
+      tags: { name: 'seat_map' },
+    });
     check(res, {
       'sơ đồ ghế 200': (r) => r.status === 200,
       'có availabilityVersion': (r) => typeof r.json('availabilityVersion') === 'number',
+      'sơ đồ ghế được nén gzip': (r) => r.headers['Content-Encoding'] === 'gzip',
       // Bất biến: số còn lại của khu đứng không bao giờ âm và không vượt sức chứa.
       'khu đứng không âm, không vượt sức chứa': (r) =>
         (r.json('standingZones') || []).every((z) => z.available >= 0 && z.available <= z.capacity),

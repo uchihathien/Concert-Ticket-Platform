@@ -10,9 +10,9 @@ import java.util.UUID;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.JwtException;
 
 /**
  * Nền cho test lát cắt web ({@code @WebMvcTest}) của payment.
@@ -37,7 +37,7 @@ public class WebSlice {
     JwtDecoder stubJwtDecoder() {
         return token -> {
             if (!VALID_TOKEN.equals(token)) {
-                throw new JwtException("token hỏng");
+                throw new BadJwtException("token hỏng");
             }
             Instant now = Instant.parse("2026-09-09T03:00:00Z");
             return Jwt.withTokenValue(token)

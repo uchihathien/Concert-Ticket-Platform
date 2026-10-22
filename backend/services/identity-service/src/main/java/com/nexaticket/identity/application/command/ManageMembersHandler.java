@@ -56,12 +56,18 @@ public class ManageMembersHandler {
         if (newRole == Role.ORG_OWNER && !actor.superAdmin() && actor.roleIn(organizationId) != Role.ORG_OWNER) {
             throw ApiException.forbidden("Chỉ chủ sở hữu mới phong được chủ sở hữu");
         }
+        if (newRole == Role.SUPER_ADMIN || newRole == Role.CUSTOMER) {
+            throw new ApiException(
+                    com.nexaticket.platform.web.error.ErrorCode.Common.VALIDATION_FAILED,
+                    "Vai trò không thuộc phạm vi tổ chức: " + newRole);
+        }
 
         Organization organization = load(organizationId);
         Role before = organization
                 .findMember(memberId)
                 .orElseThrow(() -> new ApiException(IdentityErrorCode.NOT_A_MEMBER, "Not a member"))
                 .role();
+        requireOwnerToTouchOwner(actor, organizationId, before);
 
         try {
             organization.changeRole(memberId, newRole);
@@ -92,6 +98,7 @@ public class ManageMembersHandler {
                 .findMember(memberId)
                 .orElseThrow(() -> new ApiException(IdentityErrorCode.NOT_A_MEMBER, "Not a member"))
                 .role();
+        requireOwnerToTouchOwner(actor, organizationId, before);
 
         try {
             organization.removeMember(memberId);
@@ -101,6 +108,16 @@ public class ManageMembersHandler {
         organizations.save(organization);
 
         audit.record("MEMBER_REMOVED", "membership", memberId.value(), Map.of("role", before.name()), null);
+    }
+
+    /**
+     * Mặt kia của luật "chỉ OWNER phong OWNER": ORG_ADMIN cũng không được hạ hay gỡ một OWNER. Hạ hết
+     * những người đứng trên mình là cùng một kiểu chiếm tổ chức, chỉ đi theo chiều ngược lại.
+     */
+    private static void requireOwnerToTouchOwner(TenantScope actor, TenantId organizationId, Role targetRole) {
+        if (targetRole == Role.ORG_OWNER && !actor.superAdmin() && actor.roleIn(organizationId) != Role.ORG_OWNER) {
+            throw ApiException.forbidden("Chỉ chủ sở hữu mới đổi hoặc gỡ được chủ sở hữu");
+        }
     }
 
     private Organization load(TenantId organizationId) {

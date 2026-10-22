@@ -43,7 +43,9 @@ public class PricingQuery {
 
     public Pricing resolve(UUID eventSessionId, String promotionCode, long subtotalVnd) {
         if (subtotalVnd < 0) {
-            throw new IllegalArgumentException("Tạm tính không được âm: " + subtotalVnd);
+            throw new ApiException(
+                    com.nexaticket.platform.web.error.ErrorCode.Common.VALIDATION_FAILED,
+                    "Tạm tính không được âm: " + subtotalVnd);
         }
         if (!queries.sessionExists(eventSessionId)) {
             throw new ApiException(CatalogErrorCode.SESSION_NOT_FOUND, "Event session not found");

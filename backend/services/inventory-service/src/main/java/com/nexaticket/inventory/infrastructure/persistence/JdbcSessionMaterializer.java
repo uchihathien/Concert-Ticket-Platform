@@ -79,10 +79,13 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
 
         if (!Boolean.TRUE.equals(inserted)) {
             int moved = syncSeatPositions(manifest);
+            int repriced = syncUnsoldPrices(manifest);
             log.info(
-                    "Suất {} đã có tồn kho: đã đồng bộ lại cửa bán, trần mua vé và toạ độ {} chỗ, không dựng lại chỗ",
+                    "Suất {} đã có tồn kho: đã đồng bộ lại cửa bán, trần mua vé, toạ độ {} chỗ và giá {} chỗ chưa bán, "
+                            + "không dựng lại chỗ",
                     manifest.eventSessionId(),
-                    moved);
+                    moved,
+                    repriced);
             return 0;
         }
 
@@ -136,9 +139,9 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
      * mọi khu chồng lên nhau, nên giao diện phải phát hiện rồi từ chối vẽ
      * ({@code seatPositionsFitFloorPlan}). Đây là đường chữa: publish lại thì toạ độ đúng theo.
      *
-     * <p>Chỉ toạ độ, cố ý. Giá, trạng thái, người đang giữ đều KHÔNG đụng tới: một suất đã bán vé
-     * mà bị đồng bộ lại giá là hoá đơn nói một đằng, tồn kho một nẻo; còn ghi đè trạng thái thì
-     * xoá sạch mọi lần giữ chỗ đang chạy. Toạ độ thì an toàn — nó chỉ quyết định chỗ ấy được vẽ ở
+     * <p>Chỉ toạ độ, cố ý. Trạng thái, người đang giữ KHÔNG đụng tới (ghi đè trạng thái xoá sạch mọi lần
+     * giữ chỗ đang chạy), và giá của chỗ đã bán / đang giữ cũng không — giá của chỗ CHƯA bán được đồng bộ
+     * riêng ở {@link #syncUnsoldPrices}. Toạ độ thì an toàn — nó chỉ quyết định chỗ ấy được vẽ ở
      * đâu, và thứ tự cấp phát "gần sân khấu trước".
      *
      * @return số chỗ thật sự đổi vị trí; 0 là trường hợp thường, nghĩa là toạ độ đã đúng sẵn
@@ -165,6 +168,63 @@ public class JdbcSessionMaterializer implements SessionMaterializer {
                         .toList());
 
         return java.util.Arrays.stream(affected).map(n -> Math.max(n, 0)).sum();
+    }
+
+    /**
+     * Đồng bộ <b>giá</b> cho những chỗ CHƯA có ai đụng tới ({@code AVAILABLE}, {@code BLOCKED}).
+     *
+     * <p>Sửa giá hạng vé chỉ được phép khi sự kiện đã rút xuống (EditableEvent), rồi publish lại. Trước đây
+     * giá không được đồng bộ ở đường này, nên Catalog — thứ khách đọc trên trang sự kiện — nói một giá còn
+     * Inventory — nguồn giá của đơn — giữ giá cũ: khách thấy 25.000đ và bị tính 2.500.000đ (đo được trên dữ
+     * liệu demo). Sửa theo chiều ngược lại thì nền tảng bán dưới giá niêm yết.
+     *
+     * <p>Chỉ chỗ chưa bán, vì đó đúng là mối lo của bản trước: chỗ đã bán, đang giữ hay đã đặt mà bị đổi giá
+     * thì khách đã thấy và đã chấp nhận giá cũ, và hoá đơn phải khớp với nó. Đơn lưu giá ở dòng đơn lúc
+     * bán nên không bị ảnh hưởng.
+     *
+     * @return số chỗ thật sự đổi giá hoặc tên hạng vé
+     */
+    private int syncUnsoldPrices(SessionManifest manifest) {
+        List<Object[]> rows = new ArrayList<>();
+        for (SeatLine seat : manifest.seats()) {
+            rows.add(new Object[] {
+                seat.priceVnd(),
+                seat.ticketTypeName(),
+                manifest.eventSessionId(),
+                seat.seatCode(),
+                seat.priceVnd(),
+                seat.ticketTypeName()
+            });
+        }
+        int changed = 0;
+        if (!rows.isEmpty()) {
+            changed += java.util.Arrays.stream(jdbc.batchUpdate(
+                            """
+                            UPDATE session_seats SET price_vnd = ?, ticket_type_name = ?
+                             WHERE event_session_id = ? AND seat_code = ?
+                               AND status IN ('AVAILABLE', 'BLOCKED')
+                               AND (price_vnd IS DISTINCT FROM ? OR ticket_type_name IS DISTINCT FROM ?)
+                            """,
+                            rows))
+                    .map(n -> Math.max(n, 0))
+                    .sum();
+        }
+        for (StandingBlock block : manifest.standingBlocks()) {
+            changed += jdbc.update(
+                    """
+                    UPDATE session_seats SET price_vnd = ?, ticket_type_name = ?
+                     WHERE event_session_id = ? AND zone_code = ? AND admission_type = 'STANDING'
+                       AND status IN ('AVAILABLE', 'BLOCKED')
+                       AND (price_vnd IS DISTINCT FROM ? OR ticket_type_name IS DISTINCT FROM ?)
+                    """,
+                    block.priceVnd(),
+                    block.ticketTypeName(),
+                    manifest.eventSessionId(),
+                    block.zoneCode(),
+                    block.priceVnd(),
+                    block.ticketTypeName());
+        }
+        return changed;
     }
 
     /**

@@ -87,12 +87,13 @@ public class SupportKnowledgeController {
     @GetMapping("/chunks")
     public List<KnowledgeViews.ChunkRow> listChunks(
             @RequestParam(required = false) UUID eventId,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "0") @Max(SupportDeskController.MAX_PAGE) int page,
             @RequestParam(defaultValue = "50") int size) {
 
         access.requireSupportAgent();
         int limit = Math.clamp(size, 1, MAX_PAGE_SIZE);
-        return knowledge.listChunks(eventId, limit, Math.max(page, 0) * limit);
+        // Nhân `long` — `page * limit` kiểu int tràn số ra OFFSET âm, thành 500 (R-07).
+        return knowledge.listChunks(eventId, limit, SupportDeskController.offsetOf(page, limit));
     }
 
     @DeleteMapping("/chunks/{id}")

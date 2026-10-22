@@ -97,7 +97,7 @@ public class PlaceOrderHandler {
         // unique index orders.hold_id là lưới thứ ba.
         var existing = orders.findByHoldId(cmd.holdId());
         if (existing.isPresent()) {
-            return resultOf(existing.get());
+            return resultOf(ownedBy(existing.get(), cmd.userId()));
         }
 
         UUID orderId = UUID.randomUUID();
@@ -190,7 +190,7 @@ public class PlaceOrderHandler {
             log.info("Đơn cho lần giữ chỗ {} đã tồn tại, bù trừ saga {}", cmd.holdId(), orderId);
             compensate(saga, "Đơn trùng cho cùng một lần giữ chỗ");
             return orders.findByHoldId(cmd.holdId())
-                    .map(this::resultOf)
+                    .map(found -> resultOf(ownedBy(found, cmd.userId())))
                     .orElseThrow(() ->
                             new ApiException(OrderingErrorCode.CHECKOUT_UNAVAILABLE, "Checkout failed, please retry"));
         }
@@ -202,23 +202,33 @@ public class PlaceOrderHandler {
      * Chia giảm giá và hoa hồng xuống từng dòng.
      *
      * <p>Giảm giá được cấp cho cả đơn nhưng phải nằm ở dòng, vì hoàn tiền có thể chỉ hoàn một vé.
-     * Chia theo tỷ lệ giá, và <b>dồn phần dư vào dòng cuối</b>: chia 10.000đ cho 3 vé bằng nhau
-     * cho 3.333×3 = 9.999, thiếu 1 đồng. Một đồng đó phải đi đâu đó, nếu không tổng các dòng khác
-     * tổng đơn và sổ cái kép sẽ không cân.
+     * Chia theo tỷ lệ giá, và <b>dồn phần dư vào dòng giá cao nhất</b>: chia 10.000đ cho 3 vé bằng
+     * nhau cho 3.333×3 = 9.999, thiếu 1 đồng. Một đồng đó phải đi đâu đó, nếu không tổng các dòng
+     * khác tổng đơn và sổ cái kép sẽ không cân.
+     *
+     * <p>Không dồn vào dòng cuối: dòng cuối có thể là vé mời 0đ, nhận 1đ giảm giá là vượt đơn giá,
+     * {@link OrderItem} từ chối và khách nhận "thử lại" mãi cho một đơn hợp lệ.
      */
     private List<OrderItem> buildItems(
             InventoryPort.Reservation reservation, PricingPort.Pricing quote, long subtotalVnd) {
         List<InventoryPort.Seat> seats = reservation.seats();
         List<OrderItem> items = new ArrayList<>(seats.size());
+        long[] discounts = new long[seats.size()];
         long allocated = 0;
+        int priciest = 0;
+        for (int i = 0; i < seats.size(); i++) {
+            long price = seats.get(i).priceVnd();
+            discounts[i] = subtotalVnd == 0 ? 0 : Math.floorDiv(quote.discountVnd() * price, subtotalVnd);
+            allocated += discounts[i];
+            if (price > seats.get(priciest).priceVnd()) {
+                priciest = i;
+            }
+        }
+        discounts[priciest] += quote.discountVnd() - allocated;
 
         for (int i = 0; i < seats.size(); i++) {
             InventoryPort.Seat seat = seats.get(i);
-            boolean last = i == seats.size() - 1;
-            long discount = last
-                    ? quote.discountVnd() - allocated
-                    : (subtotalVnd == 0 ? 0 : Math.floorDiv(quote.discountVnd() * seat.priceVnd(), subtotalVnd));
-            allocated += discount;
+            long discount = discounts[i];
 
             items.add(new OrderItem(
                     UUID.randomUUID(),
@@ -270,6 +280,20 @@ public class PlaceOrderHandler {
      * <p>Đọc từ snapshot trong đơn chứ không gọi lại payment-service: mã QR đã hiện cho khách không
      * được đổi, và việc mở lại trang đơn hàng không nên phụ thuộc payment-service còn sống.
      */
+    /**
+     * Lối tắt "đơn đã có cho lần giữ chỗ này" chỉ dành cho chính chủ.
+     *
+     * <p>Thiếu kiểm này, ai biết một {@code holdId} sẽ nhận lại đơn của người khác kèm mã QR và link
+     * thanh toán — đường chính thì Inventory đã chặn bằng HOLD_NOT_OWNED, nhưng lối tắt đi vòng qua
+     * nó. Trả 404 chứ không 403 để không xác nhận holdId đó có thật.
+     */
+    private static Order ownedBy(Order order, UUID userId) {
+        if (!order.isOwnedBy(userId)) {
+            throw new ApiException(OrderingErrorCode.ORDER_NOT_FOUND, "Order not found");
+        }
+        return order;
+    }
+
     private Result resultOf(Order order) {
         return new Result(
                 order.id(),

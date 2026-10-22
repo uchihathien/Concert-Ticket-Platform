@@ -88,7 +88,8 @@ public class PublicCatalogController {
             @RequestParam(defaultValue = "20") int size) {
 
         int limit = Math.clamp(size, 1, MAX_PAGE_SIZE);
-        int offset = Math.max(page, 0) * limit;
+        // long rồi kẹp: page=Integer.MAX_VALUE × 60 tràn int thành offset âm, và PostgreSQL từ chối.
+        int offset = (int) Math.min((long) Math.max(page, 0) * limit, Integer.MAX_VALUE);
 
         CatalogQueries.EventFilter filter =
                 new CatalogQueries.EventFilter(query, city, category, from, to, minPrice, maxPrice);

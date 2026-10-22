@@ -50,15 +50,19 @@ public class ChatIdempotency {
     /**
      * Giữ chỗ cho một lượt sắp chạy.
      *
+     * @param clientSessionId phiên CLIENT gửi lên — {@code null} khi đây là câu đầu của phiên mới.
+     *     KHÔNG phải UUID server vừa sinh: băm một giá trị ngẫu nhiên mỗi request thì hai lần gửi
+     *     giống hệt nhau có chữ ký khác nhau, và lần gửi lại câu đầu tiên luôn bị 409 "khoá dùng cho
+     *     câu hỏi khác" — đúng kịch bản lớp này sinh ra để xử lý (R-15).
      * @return rỗng nghĩa là <b>ta sở hữu lượt này</b>, cứ chạy; khác rỗng là câu trả lời cũ, trả
-     *     thẳng về mà không gọi mô hình
+     *     thẳng về mà không gọi mô hình — kể cả {@code sessionId} lần đầu đã sinh
      * @throws ApiException 409 khi khoá bị dùng lại cho một nội dung khác, hoặc 503 khi đúng request
      *     ấy đang chạy dở ở một nơi khác
      */
     public Optional<SupportChatController.AskResponse> beginOrReplay(
-            UUID userId, String key, UUID sessionId, String message) {
+            UUID userId, String key, UUID clientSessionId, String message) {
 
-        String hash = fingerprint(sessionId, message);
+        String hash = fingerprint(clientSessionId, message);
         if (store.tryBegin(userId, key, hash)) {
             return Optional.empty();
         }
@@ -96,15 +100,16 @@ public class ChatIdempotency {
     }
 
     /**
-     * Chữ ký của request: phiên + nội dung.
+     * Chữ ký của request: phiên client gửi (hoặc {@code NEW}) + nội dung.
      *
      * <p>Băm chứ không lưu thẳng câu hỏi — cột này chỉ để so sánh, và một bản sao nữa của nội dung
      * khách nhắn là một chỗ nữa nó có thể rò.
      */
-    private static String fingerprint(UUID sessionId, String message) {
+    private static String fingerprint(UUID clientSessionId, String message) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(String.valueOf(sessionId).getBytes(StandardCharsets.UTF_8));
+            digest.update(
+                    (clientSessionId == null ? "NEW" : clientSessionId.toString()).getBytes(StandardCharsets.UTF_8));
             digest.update((byte) '\n');
             digest.update(message.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest.digest());

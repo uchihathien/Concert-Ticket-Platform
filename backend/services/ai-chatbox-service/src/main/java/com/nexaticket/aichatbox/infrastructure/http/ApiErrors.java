@@ -2,6 +2,7 @@
 package com.nexaticket.aichatbox.infrastructure.http;
 
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -28,14 +29,24 @@ final class ApiErrors {
             RestClient.RequestHeadersSpec.ConvertibleClientHttpResponse response,
             Map<String, String> translations,
             String fallback) {
+        return translate(code(response), translations, fallback);
+    }
+
+    /**
+     * Trường {@code code} của body lỗi. Body chỉ đọc được MỘT lần — bên cần vừa rẽ nhánh theo mã
+     * vừa dịch thì gọi hàm này một lần rồi dùng {@link #translate}.
+     */
+    static Optional<String> code(RestClient.RequestHeadersSpec.ConvertibleClientHttpResponse response) {
         try {
             ErrorBody body = response.bodyTo(ErrorBody.class);
-            if (body != null && body.code() != null) {
-                return translations.getOrDefault(body.code(), fallback);
-            }
+            return Optional.ofNullable(body).map(ErrorBody::code);
         } catch (RuntimeException ignored) {
             // Body không phải JSON chuẩn (proxy chen vào, HTML của gateway). Câu chung vẫn đúng.
+            return Optional.empty();
         }
-        return fallback;
+    }
+
+    static String translate(Optional<String> code, Map<String, String> translations, String fallback) {
+        return code.map(c -> translations.getOrDefault(c, fallback)).orElse(fallback);
     }
 }

@@ -14,5 +14,8 @@ jobs:
         run: docker compose -f deploy/compose/infra.yml up -d --wait
       - name: Áp RabbitMQ topology
         run: ./scripts/apply-rabbitmq-topology.sh
-      - name: (G1+) Playwright
-        run: echo "E2E dựng ở G1 khi đã có luồng nghiệp vụ đầu tiên"
+      # E2E của giao diện (Playwright) nằm ở repo frontend — .github/workflows/ci.yml, job `e2e`. Nó
+      # chạy với API giả + nhà phát hành OIDC giả nên không cần hạ tầng ở đây. Job này chỉ dựng hạ tầng
+      # để kiểm nó lên được; test tải k6 chạy tay (load-tests/README.md), chưa nằm trong CI.
+      - name: Hạ tầng đã lên
+        run: docker compose -f deploy/compose/infra.yml ps

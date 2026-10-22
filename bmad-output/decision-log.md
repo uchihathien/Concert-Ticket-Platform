@@ -29,3 +29,29 @@
 - **In-progress stories affected:** none
 - **Made by:** bmad-correct-course
 - **Supersedes:** Course Correction "xác nhận đặt vé bằng câu trả lời" cùng ngày (phần thẻ PAYMENT VietQR giữ nguyên)
+
+### 2026-10-22 — Course Correction: chốt chặn "đã đặt vé" (story 1.9)
+- **Decision:** Thêm story 1.9 `booking-claim-guard`: `BookingClaimGuard` (mã, không LLM) chặn câu trả lời khẳng định đã đặt/giữ chỗ hoặc đưa số đơn/UUID không có nguồn trong payload tool của lượt hoặc lượt ASSISTANT đã lưu; thay bằng câu "mình chưa tạo đơn nào", chạy trước khi lưu lịch sử.
+- **Rationale:** Thử đầu-cuối với qwen2.5 7B: khách giục "đặt luôn", trợ lý trả "Đã đặt 2 vé, số đơn 3fa85f64-…, quét VietQR" với toolsUsed rỗng; không có đơn nào. AnswerGrounding để lọt vì RAG có đoạn tri thức. ADR-2001 chặn mô hình *tạo* đơn nhưng không chặn mô hình *nói* là đã tạo.
+- **Impact:** +1 story (1.9, Epic 1), 2.2 thêm Blocked-by 1.9, 3.2 thêm ca eval "giục đặt" (mục LOCKED, người dùng uỷ quyền), ADR-2001 thêm một Consequence, ma trận thêm NFR-001b. Tổng 20 story active.
+- **In-progress stories affected:** none
+- **Made by:** bmad-correct-course
+
+### 2026-10-22 — Course Correction: khách tự chọn số ghế trong chat
+- **Decision:** Thẻ đề xuất có nút "Chọn ghế" mở lưới hàng × số ghế (dữ liệu `GET /v1/sessions/{id}/seats`, không cần toạ độ); khách chọn đúng số vé, xác nhận giữ đúng những ghế đó. Không chọn thì hệ thống chọn hộ. Mô hình không nhận/điền mã ghế. Trang đặt vé web giữ nguyên chọn theo khu (người dùng chọn "chỉ chat").
+- **Rationale:** Người dùng yêu cầu khách được chọn số ghế. Web đã bỏ chọn từng ghế vì 52/63 suất không có toạ độ đúng; lưới theo nhãn hàng/số tránh được vấn đề đó. Phương án đã cân nhắc: sơ đồ khi có toạ độ (hai đường hiển thị), khách gõ mã ghế (khách phải biết mã) — người dùng chọn lưới.
+- **Impact:** ADR-2001 thêm điểm 7; ma trận thêm FR-002b; +3 story 1.10, 1.11, 1.12; 2.2 thêm Blocked-by 1.11 (2.4 kế thừa qua 2.2); migration Phase 2 `booking_intents` dời sang V0107. Tổng 23 story active. Khoá chống trùng khi đổi ghế: `proposalId-s{seat_version}` (1.11).
+- **In-progress stories affected:** none
+- **Made by:** bmad-correct-course
+
+## [2026-10-22] Review ai-chatbox-service → Epic 6 "Review hardening" (tech-spec.md)
+**Decision:** Gom 29 phát hiện review mã (hai người review độc lập, phát hiện nặng đã kiểm lại bằng đọc mã) thành tech-spec Quick Flow với 12 story Epic 6; 5 phát hiện đã có trong backlog Phase 1 không lặp lại. Ba MUST chạy trước Phase 1: 6.1 (race đóng/nhận phiếu), 6.7 (AnswerGrounding chặn nhầm câu hotline "8:00–22:00"), 6.9 (gửi lại tin đầu tiên luôn 409). Phiếu ASSIGNED quá hạn trả về WAITING thay vì tự đóng. Khoá theo phiên trong bộ nhớ (prod một replica).
+**Rationale:** Các lỗi này đang ảnh hưởng production hôm nay và độc lập với tính năng mới; tách epic riêng để không sửa mục LOCKED của 23 story Phase 1 đã duyệt. Thứ tự với Phase 1 theo tệp tranh chấp ghi trong tech-spec.md § Story List.
+
+## [2026-10-22] Chia Epic 6 thành 12 story; xếp thứ tự với 23 story Phase 1
+**Decision:** 12 story 6.1–6.12 `ready-for-dev`. Kiểm bắc cầu trên 35 story active: 18 cạnh Blocked-by thêm tự động theo quy tắc "Phase 1 đi sau Epic 6 khi trùng tệp; trong Epic 6 số nhỏ trước trừ khi tạo vòng" (ghi cả Blocks của bên trước). Không vòng. Điều chỉnh so với tech-spec: migration tách V0108 (handoff) / V0109 (tri thức); view khách giữ tên trường `requestedAt`/`assignedAgentName`; 6.6 lưu mã đơn chưa xác minh ở `claimedOrderId`, hoàn vé trùng trả `Denied`; 6.10 đặt khoá phiên ở controller nên không sửa `CustomerSupportAgentUseCase`; 6.12 coi 409 `REQUEST_IN_PROGRESS` là "chưa biết"; số dòng R-07/R-29 trong tech-spec sửa lại.
+**Rationale:** Epic 6 sửa lỗi đang chạy trên production, nên đi trước phần Phase 1 cùng tệp để Phase 1 dựng trên nền đã sửa; giữ tên trường view để không phải sửa frontend.
+
+## [2026-10-22] 6.5: seeder tri thức nền nạp lại đoạn NỀN bị xoá
+**Decision:** `KnowledgeSeeder` nạp theo tiêu đề còn thiếu (`event_id is null`), không còn theo "kho trống". Hệ quả có chủ ý: một đoạn nền bị đội vận hành xoá sẽ quay lại ở lần khởi động sau; đoạn họ tự soạn (tiêu đề khác) và đoạn nền đã sửa nội dung giữ tiêu đề thì không bị đụng. Muốn bỏ hẳn tri thức nền: `nexaticket.aichatbox.starter-knowledge.enabled=false`. V0109 xoá bản trùng hoàn toàn, đổi tên (không xoá) bản cùng tiêu đề khác nội dung, rồi tạo `uq_knowledge_global_title`.
+**Rationale:** Điều kiện "kho trống" làm kho thiếu vĩnh viễn sau một lần Ollama khởi động chậm (R-10), và hứa hẹn "xoá rồi không dựng lại" đổi lấy lỗi đó là không đáng. Đổi tên thay vì xoá để không mất nội dung do người soạn.

@@ -38,5 +38,11 @@
       <artifactId>spring-boot-configuration-processor</artifactId>
       <optional>true</optional>
     </dependency>
+    <!-- Mockito, Testcontainers PostgreSQL và PostgresSingleton cho test của module này. -->
+    <dependency>
+      <groupId>com.nexaticket</groupId>
+      <artifactId>starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>
