@@ -13,6 +13,7 @@
 **Goal:** Mô hình không còn tạo được đơn; nó lập đề xuất, giao diện vẽ thẻ, khách bấm xác nhận qua endpoint không đi qua mô hình.
 
 **In scope (cited):**
+- FR-002b — khách tự chọn số ghế trong thẻ đề xuất (1.10–1.12) [Source: architecture.md#ADR-2001]
 - NFR-001b — trợ lý không khẳng định có đơn khi không có đơn thật (1.9) [Source: architecture.md#ADR-2001]
 - FR-001 — mô hình lập đề xuất đặt vé, không tạo đơn [Source: architecture.md#7-fr--nfr-coverage-matrix]
 - FR-002 — khách xác nhận/huỷ bằng thẻ; xác nhận tạo hold + order [Source: architecture.md#7-fr--nfr-coverage-matrix]
@@ -38,11 +39,14 @@
 | 1.7 | payment-card-in-chat | `# COURSE-CORRECTION 2026-10-22` — thẻ PAYMENT trong SupportChat: VietQR (tái dùng mã QR của `PaymentPanel`), đếm ngược, link dự phòng, poll `GET /v1/orders/{id}` tới PAID/EXPIRED, vẽ lại từ `ChatThread.action` khi tải lại | ready-for-dev |
 | 1.8 | confirm-by-reply | **cancelled 2026-10-22** — thay bằng nút Đồng ý trên thẻ (ADR-2001 điểm 3). Nội dung cũ: `BookingConfirmIntent` (từ khoá, không LLM) + bước 1d trong `runAgent`: "ok" khi có đúng một đề xuất mở → confirm, trả PAYMENT; "thôi" → cancel | cancelled |
 | 1.9 | booking-claim-guard | `# COURSE-CORRECTION 2026-10-22` — `BookingClaimGuard`: trợ lý không được nói "đã đặt"/đưa số đơn khi lượt không có đơn thật (số đơn phải có nguồn trong payload tool hoặc lượt ASSISTANT đã lưu); chặn trước khi lưu lịch sử | ready-for-dev |
+| 1.10 | proposal-seat-selection-api | `# COURSE-CORRECTION 2026-10-22` — khách tự chọn ghế: V0106 `seat_ids`/`seat_labels`/`seat_version`/`zone_admission`; `InventoryClientPort.listSeats`; `PUT /proposals/{id}/seats`; thẻ thêm `seatSelectable`, `seatLabels` | ready-for-dev |
+| 1.11 | confirm-with-chosen-seats | `# COURSE-CORRECTION 2026-10-22` — xác nhận giữ đúng ghế đã chọn (`holdSeats`); ghế mất → 409 `SEATS_UNAVAILABLE`, đề xuất giữ PROPOSED, xoá ghế; khoá `proposalId-s{seat_version}` | ready-for-dev |
+| 1.12 | chat-seat-grid | `# COURSE-CORRECTION 2026-10-22` — lưới hàng × số ghế trong thẻ đề xuất (`useSeatMap`, không toạ độ), chọn đúng `quantity` ghế, 409 tô đỏ ghế mất | ready-for-dev |
 
 **Cross-epic dependencies:**
 - Blocked by: none
 - Blocks: Epic 2 (2.2 sau 1.3/1.4; 2.4 sửa `BookingProposalUseCase`), Epic 3 (eval cần tool `proposeBooking`), Epic 5 (5.2 sửa ToolDispatcher)
-- Thứ tự trong epic: 1.1 → 1.2 → (1.3 ∥ 1.4 ∥ 1.6) → 1.5 → 1.7; 1.9 sau 1.3, trước 2.2
+- Thứ tự trong epic: 1.1 → 1.2 → (1.3 ∥ 1.4 ∥ 1.6) → 1.5 → 1.7; 1.9 sau 1.3, trước 2.2; chọn ghế: 1.4 → 1.10 → 1.11, 1.7 + 1.10 → 1.12; Epic 2 (2.2, 2.4) sau 1.11
 
 ---
 
@@ -152,10 +156,10 @@
 
 ## Delivery Tracking (count-based)
 
-- Total stories: 20 (+1 cancelled: 1.8)
+- Total stories: 23 (+1 cancelled: 1.8)
 - Done: 0
-- Remaining: 20
-- Completion rate: 0/20
+- Remaining: 23
+- Completion rate: 0/23
 
 ## Notes
 

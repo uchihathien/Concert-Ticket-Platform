@@ -36,3 +36,10 @@
 - **Impact:** +1 story (1.9, Epic 1), 2.2 thêm Blocked-by 1.9, 3.2 thêm ca eval "giục đặt" (mục LOCKED, người dùng uỷ quyền), ADR-2001 thêm một Consequence, ma trận thêm NFR-001b. Tổng 20 story active.
 - **In-progress stories affected:** none
 - **Made by:** bmad-correct-course
+
+### 2026-10-22 — Course Correction: khách tự chọn số ghế trong chat
+- **Decision:** Thẻ đề xuất có nút "Chọn ghế" mở lưới hàng × số ghế (dữ liệu `GET /v1/sessions/{id}/seats`, không cần toạ độ); khách chọn đúng số vé, xác nhận giữ đúng những ghế đó. Không chọn thì hệ thống chọn hộ. Mô hình không nhận/điền mã ghế. Trang đặt vé web giữ nguyên chọn theo khu (người dùng chọn "chỉ chat").
+- **Rationale:** Người dùng yêu cầu khách được chọn số ghế. Web đã bỏ chọn từng ghế vì 52/63 suất không có toạ độ đúng; lưới theo nhãn hàng/số tránh được vấn đề đó. Phương án đã cân nhắc: sơ đồ khi có toạ độ (hai đường hiển thị), khách gõ mã ghế (khách phải biết mã) — người dùng chọn lưới.
+- **Impact:** ADR-2001 thêm điểm 7; ma trận thêm FR-002b; +3 story 1.10, 1.11, 1.12; 2.2 thêm Blocked-by 1.11 (2.4 kế thừa qua 2.2); migration Phase 2 `booking_intents` dời sang V0107. Tổng 23 story active. Khoá chống trùng khi đổi ghế: `proposalId-s{seat_version}` (1.11).
+- **In-progress stories affected:** none
+- **Made by:** bmad-correct-course
