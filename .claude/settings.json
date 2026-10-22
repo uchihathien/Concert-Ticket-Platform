@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "bmad-planning-orchestrator@bmad-method-harness": true
+  },
+  "extraKnownMarketplaces": {
+    "bmad-method-harness": {
+      "source": {
+        "source": "github",
+        "repo": "aj-geddes/claude-code-bmad-skills"
+      }
+    }
+  }
+}
