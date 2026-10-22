@@ -233,10 +233,11 @@ public class SupportChatController {
      * phục vụ hai kiểu người dùng: người gõ "cho tôi gặp người thật", và người đi tìm một cái nút.
      * Bỏ nút đi thì nhóm thứ hai phải đoán ra đúng cách diễn đạt mà hệ thống nhận được.
      *
-     * <p>Idempotent: bấm ba lần vẫn là một phiếu.
+     * <p>Idempotent: bấm ba lần vẫn là một phiếu. Trả bản CỦA KHÁCH — không lý do nội bộ, không id
+     * nhân viên (R-09).
      */
     @PostMapping("/sessions/{sessionId}/handoff")
-    public HandoffViews.HandoffRow requestHuman(@PathVariable UUID sessionId) {
+    public HandoffViews.CustomerHandoffView requestHuman(@PathVariable UUID sessionId) {
         UUID userId = TenantContext.requireAuthenticated().userId().value();
         return handoffs.requestByCustomer(sessionId, userId);
     }

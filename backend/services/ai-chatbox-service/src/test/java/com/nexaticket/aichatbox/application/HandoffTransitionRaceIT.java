@@ -113,13 +113,18 @@ class HandoffTransitionRaceIT extends AiChatboxTestBase {
                 // Lượt nhận của B còn nguyên — bên thua không được đặt nó về null.
                 assertThat(after.assignedAgentId()).isEqualTo(agentB);
                 assertThat(after.assignedAt()).isNotNull();
-                assertThat(failedWith(out[0], AiChatboxErrorCode.HANDOFF_STATE_CHANGED))
-                        .as("resolve thua phải nhận HANDOFF_STATE_CHANGED, nhận %s", out[0])
+                // Nhận xong TRƯỚC khi resolve kịp đọc thì đó không còn là đua: resolve thấy phiếu của B
+                // và từ chối như mọi lần (NOT_ASSIGNED). Đua thật — đọc WAITING rồi UPDATE hụt — thì
+                // phải là STATE_CHANGED kèm trạng thái hiện tại.
+                assertThat(failedWith(out[0], AiChatboxErrorCode.HANDOFF_STATE_CHANGED)
+                                || failedWith(out[0], AiChatboxErrorCode.HANDOFF_NOT_ASSIGNED))
+                        .as("resolve thua phải nhận STATE_CHANGED hoặc NOT_ASSIGNED, nhận %s", out[0])
                         .isTrue();
-                ApiException stateChanged = (ApiException) out[0];
-                assertThat(stateChanged.meta())
-                        .containsEntry("status", "ASSIGNED")
-                        .containsEntry("assignedAgentId", agentB);
+                if (failedWith(out[0], AiChatboxErrorCode.HANDOFF_STATE_CHANGED)) {
+                    assertThat(((ApiException) out[0]).meta())
+                            .containsEntry("status", "ASSIGNED")
+                            .containsEntry("assignedAgentId", agentB);
+                }
             } else {
                 resolveWon++;
                 assertThat(after.status()).isEqualTo(HandoffStatus.RESOLVED);
@@ -199,7 +204,7 @@ class HandoffTransitionRaceIT extends AiChatboxTestBase {
 
         var fresh = handoffs.requestByCustomer(old.sessionId(), old.userId());
 
-        assertThat(fresh.id()).isNotEqualTo(old.id());
         assertThat(fresh.status()).isEqualTo(HandoffStatus.WAITING.name());
+        assertThat(handoffs.openFor(old.sessionId()).orElseThrow().id()).isNotEqualTo(old.id());
     }
 }

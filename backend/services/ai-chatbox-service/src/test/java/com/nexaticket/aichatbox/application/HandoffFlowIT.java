@@ -150,12 +150,17 @@ class HandoffFlowIT extends AiChatboxTestBase {
         UUID userId = UUID.randomUUID();
         history.append(sessionId, userId, ChatRole.USER, "chào bạn");
 
-        HandoffViews.HandoffRow first = handoffs.requestByCustomer(sessionId, userId);
-        HandoffViews.HandoffRow second = handoffs.requestByCustomer(sessionId, userId);
-        HandoffViews.HandoffRow third = handoffs.requestByCustomer(sessionId, userId);
+        handoffs.requestByCustomer(sessionId, userId);
+        UUID first = handoffs.openFor(sessionId).orElseThrow().id();
+        handoffs.requestByCustomer(sessionId, userId);
+        handoffs.requestByCustomer(sessionId, userId);
 
-        assertThat(second.id()).isEqualTo(first.id());
-        assertThat(third.id()).isEqualTo(first.id());
+        // Bản trả cho khách không mang id phiếu (R-09) — đối chiếu qua phiếu đang mở của phiên.
+        assertThat(handoffs.openFor(sessionId).orElseThrow().id()).isEqualTo(first);
+        assertThat(repository.search(null, java.util.Set.of(), null, null, true, 100, 0).stream()
+                        .filter(h -> h.sessionId().equals(sessionId))
+                        .count())
+                .isEqualTo(1);
     }
 
     // --- Đường của người trực ---------------------------------------------
@@ -345,9 +350,9 @@ class HandoffFlowIT extends AiChatboxTestBase {
         UUID userId = UUID.randomUUID();
         history.append(sessionId, userId, ChatRole.USER, "đã thanh toán rồi mà chưa nhận được vé");
 
-        HandoffViews.HandoffRow row = handoffs.requestByCustomer(sessionId, userId);
+        handoffs.requestByCustomer(sessionId, userId);
 
-        assertThat(row.intent()).isEqualTo("INCIDENT");
+        assertThat(handoffs.openFor(sessionId).orElseThrow().intent().name()).isEqualTo("INCIDENT");
     }
 
     @Test

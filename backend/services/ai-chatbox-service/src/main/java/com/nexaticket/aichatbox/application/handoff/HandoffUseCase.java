@@ -25,8 +25,12 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Chuyển cuộc chat sang người thật, và đường đi của người thật.
@@ -65,17 +69,49 @@ public class HandoffUseCase {
     private final Clock clock;
     private final AgentMetrics metrics;
 
+    /**
+     * Transaction lập trình cho phần cần nguyên tử, để lời gọi sang identity nằm NGOÀI transaction.
+     *
+     * <p>Trước đây {@code claim}, {@code queue}, {@code search}… là {@code @Transactional} và gọi HTTP
+     * sang identity bên trong — {@code claim} còn đang giữ khoá dòng phiếu. Identity chậm thì một kết
+     * nối Hikari (pool chỉ 10) và khoá ấy bị giữ theo, chặn mọi thao tác khác trên phiếu (R-08).
+     */
+    private final TransactionOperations tx;
+
+    /** Không transaction thật — cho test tự dựng use case trên kho trong bộ nhớ. */
     public HandoffUseCase(
             HandoffRepository handoffs,
             ChatHistoryPort history,
             IdentityLookupPort identities,
             Clock clock,
             AgentMetrics metrics) {
+        this(handoffs, history, identities, clock, metrics, TransactionOperations.withoutTransaction());
+    }
+
+    @Autowired
+    public HandoffUseCase(
+            HandoffRepository handoffs,
+            ChatHistoryPort history,
+            IdentityLookupPort identities,
+            Clock clock,
+            AgentMetrics metrics,
+            PlatformTransactionManager transactions) {
+        this(handoffs, history, identities, clock, metrics, new TransactionTemplate(transactions));
+    }
+
+    private HandoffUseCase(
+            HandoffRepository handoffs,
+            ChatHistoryPort history,
+            IdentityLookupPort identities,
+            Clock clock,
+            AgentMetrics metrics,
+            TransactionOperations tx) {
         this.handoffs = handoffs;
         this.history = history;
         this.identities = identities;
         this.clock = clock;
         this.metrics = metrics;
+        this.tx = tx;
     }
 
     /**
@@ -89,10 +125,14 @@ public class HandoffUseCase {
         return handoffs.openBySession(sessionId);
     }
 
-    /** Bản để hiển thị của phiếu đang mở. Tầng interfaces không được chạm vào {@link Handoff}. */
-    @Transactional(readOnly = true)
-    public Optional<HandoffViews.HandoffRow> openRowFor(UUID sessionId) {
-        return handoffs.openBySession(sessionId).map(this::rowOf);
+    /**
+     * Phiếu đang mở của phiên, ở hình dạng của KHÁCH. Tầng interfaces không được chạm vào
+     * {@link Handoff}.
+     *
+     * <p>Không transaction: một câu đọc; tên người hỗ trợ tra sau đó, ngoài mọi transaction.
+     */
+    public Optional<HandoffViews.CustomerHandoffView> openRowFor(UUID sessionId) {
+        return handoffs.openBySession(sessionId).map(this::customerView);
     }
 
     /**
@@ -112,24 +152,27 @@ public class HandoffUseCase {
      * <p>Ý định lấy từ câu cuối khách đã gõ, nếu có: bấm nút ngay sau khi hỏi "hoàn vé thế nào" là
      * một phiếu hoàn vé, và người trực chuyên mảng ấy nên thấy nó.
      */
-    @Transactional
-    public HandoffViews.HandoffRow requestByCustomer(UUID sessionId, UUID userId) {
-        requireOwnedSession(sessionId, userId);
+    public HandoffViews.CustomerHandoffView requestByCustomer(UUID sessionId, UUID userId) {
+        // Kiểm chủ phiên + đọc câu cuối + mở phiếu: MỘT transaction. Dựng view (tra tên người hỗ
+        // trợ) SAU khi transaction đã đóng — xem `tx`.
+        Handoff opened = tx.execute(status -> {
+            requireOwnedSession(sessionId, userId);
 
-        String lastUserMessage = history.transcript(sessionId, userId, 20).stream()
-                .filter(message -> message.role() == ChatRole.USER)
-                .reduce((first, second) -> second)
-                .map(message -> message.content())
-                .orElse(null);
-        Handoff opened = escalate(
-                sessionId,
-                userId,
-                HandoffTrigger.CUSTOMER_REQUEST,
-                SupportIntentClassifier.classify(lastUserMessage),
-                "Khách bấm nút gặp nhân viên",
-                null,
-                lastUserMessage);
-        return rowOf(opened);
+            String lastUserMessage = history.transcript(sessionId, userId, 20).stream()
+                    .filter(message -> message.role() == ChatRole.USER)
+                    .reduce((first, second) -> second)
+                    .map(message -> message.content())
+                    .orElse(null);
+            return escalate(
+                    sessionId,
+                    userId,
+                    HandoffTrigger.CUSTOMER_REQUEST,
+                    SupportIntentClassifier.classify(lastUserMessage),
+                    "Khách bấm nút gặp nhân viên",
+                    null,
+                    lastUserMessage);
+        });
+        return customerView(opened);
     }
 
     /**
@@ -244,7 +287,8 @@ public class HandoffUseCase {
      * không phải lỗi: màn hình cần biết để gỡ phiếu ấy khỏi danh sách và mở phiếu khác, chứ không
      * phải hiện một cuộc hội thoại mà người trực không được trả lời.
      */
-    @Transactional
+    // KHÔNG @Transactional: lệnh nhận là MỘT câu UPDATE có điều kiện, nguyên tử tự thân và nhả khoá
+    // dòng ngay khi xong. Bọc nó cùng `threadOf` (gọi identity) là giữ khoá phiếu trong lúc chờ HTTP.
     public HandoffViews.HandoffThread claim(UUID handoffId, UUID agentId, int transcriptLimit) {
         Optional<Handoff> claimed = handoffs.claim(handoffId, agentId, clock.instant());
         if (claimed.isPresent()) {
@@ -297,8 +341,12 @@ public class HandoffUseCase {
         history.append(handoff.sessionId(), handoff.userId(), ChatRole.AGENT, text);
     }
 
-    /** Đóng phiếu. Từ lượt kế tiếp trợ lý AI trả lời trở lại. */
-    @Transactional
+    /**
+     * Đóng phiếu. Từ lượt kế tiếp trợ lý AI trả lời trở lại.
+     *
+     * <p>Không {@code @Transactional}, cùng lý do với {@code release}: phần ghi là một câu UPDATE có
+     * điều kiện, còn {@code rowOf} gọi identity — bọc chung là giữ kết nối DB trong lúc chờ HTTP.
+     */
     public HandoffViews.HandoffRow resolve(UUID handoffId, UUID agentId) {
         Handoff handoff = require(handoffId);
 
@@ -409,7 +457,8 @@ public class HandoffUseCase {
      * @param intent tên ý định (chuỗi, vì bên gọi là tầng interfaces); {@code null} hoặc không
      *     hiểu được thì không lọc
      */
-    @Transactional(readOnly = true)
+    // Không transaction: một câu đọc, rồi tra tên/liên hệ — giữ kết nối DB qua 2×N lời gọi HTTP là
+    // cách làm cạn pool khi người trực hỏi lại mỗi 5 giây (R-08).
     public List<HandoffViews.HandoffRow> queue(UUID mine, String intent, int limit, int offset) {
         return withAgentNames(handoffs.queue(mine, intentFilter(intent), limit, offset));
     }
@@ -424,7 +473,6 @@ public class HandoffUseCase {
      * @param intent tên ý định, cùng quy ước
      * @param query tìm trong lý do chuyển và câu hỏi cuối của khách
      */
-    @Transactional(readOnly = true)
     public List<HandoffViews.HandoffRow> search(
             UUID mine, String status, String intent, String query, int limit, int offset) {
         return search(mine, statusFilter(status), intentFilter(intent), query, limit, offset);
@@ -462,7 +510,6 @@ public class HandoffUseCase {
         }
     }
 
-    @Transactional(readOnly = true)
     public List<HandoffViews.HandoffRow> search(
             UUID mine, Set<HandoffStatus> statuses, SupportIntent intent, String query, int limit, int offset) {
         // Mới nhất trước, ngược với hàng đợi. Hàng đợi là danh sách việc phải làm nên phiếu chờ lâu
@@ -519,8 +566,7 @@ public class HandoffUseCase {
                 .toList();
     }
 
-    /** Phiếu kèm cả hội thoại — một lời gọi cho cả màn hình của người trực. */
-    @Transactional(readOnly = true)
+    /** Phiếu kèm cả hội thoại — một lời gọi cho cả màn hình của người trực. Không transaction: xem {@link #queue}. */
     public HandoffViews.HandoffThread thread(UUID handoffId, int transcriptLimit) {
         return threadOf(require(handoffId), transcriptLimit);
     }
@@ -554,15 +600,27 @@ public class HandoffUseCase {
         return List.of();
     }
 
-    /** Hội thoại của chính khách, kèm phiếu đang mở nếu có. */
-    @Transactional(readOnly = true)
+    /** Hội thoại của chính khách, kèm phiếu đang mở nếu có. Không transaction: xem {@link #queue}. */
     public HandoffViews.ChatThread customerThread(UUID sessionId, UUID userId, int transcriptLimit) {
-        return new HandoffViews.ChatThread(
-                sessionId,
-                openRowFor(sessionId).orElse(null),
-                history.transcript(sessionId, userId, transcriptLimit).stream()
-                        .map(HandoffViews.MessageRow::of)
-                        .toList());
+        // Đọc hội thoại TRƯỚC: nó kiểm chủ phiên — phiên của người khác thì dừng trước khi tra gì thêm.
+        List<HandoffViews.MessageRow> messages = history.transcript(sessionId, userId, transcriptLimit).stream()
+                .map(HandoffViews.MessageRow::of)
+                .toList();
+        return new HandoffViews.ChatThread(sessionId, openRowFor(sessionId).orElse(null), messages);
+    }
+
+    /**
+     * Phiếu ở hình dạng của khách: không lý do nội bộ, không JSON chi tiết, không UUID nhân viên.
+     *
+     * <p>KHÔNG tra liên hệ của chính khách — khách không cần đọc tên mình; bản cũ dùng chung
+     * {@code rowOf} nên mỗi lần mở màn hình chat là một lời gọi {@code contactOf} vô ích. Chỉ tra tên
+     * người hỗ trợ khi phiếu đã có người nhận.
+     */
+    private HandoffViews.CustomerHandoffView customerView(Handoff handoff) {
+        String agentName = handoff.assignedAgentId() == null
+                ? null
+                : identities.displayNameOf(handoff.assignedAgentId()).orElse(null);
+        return new HandoffViews.CustomerHandoffView(handoff.status().name(), handoff.requestedAt(), agentName);
     }
 
     private Handoff require(UUID handoffId) {
