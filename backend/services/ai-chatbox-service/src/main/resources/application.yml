@@ -87,6 +87,10 @@ nexaticket:
       # động đầu tiên sau khi pull mô hình. Không dùng chung 120s của chat: hai phút chờ chỉ để biết
       # Ollama không chạy là quá lâu cho người đang soạn kho tri thức.
       embedding-timeout: ${OLLAMA_EMBEDDING_TIMEOUT:60s}
+      # Cửa sổ ngữ cảnh gửi kèm mỗi lời gọi. Không khai thì Ollama dùng mặc định 2048–4096 và LẶNG LẼ
+      # bỏ message cũ nhất khi vượt — có thể chính là câu hỏi của khách. Adapter log WARN khi
+      # prompt_eval_count ≥ 90% con số này. Lớn hơn thì máy ít VRAM chậm thêm.
+      num-ctx: ${OLLAMA_NUM_CTX:8192}
     agent:
       # Mô hình mặc định. Đổi model là đổi cả hành vi lẫn giá — nên nó nằm ở cấu hình, không nằm
       # trong mã nguồn.
