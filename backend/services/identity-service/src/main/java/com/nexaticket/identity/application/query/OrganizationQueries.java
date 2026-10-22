@@ -60,6 +60,25 @@ public class OrganizationQueries {
     }
 
     /**
+     * Liên lạc của nhiều người mua một lần — ticketing-service chụp lại để nhân viên soát vé tìm khách
+     * quên vé (theo email / SĐT) và để máy soát vé tra offline. Người không có trong hệ thống thì
+     * không có trong kết quả. Tối đa 500 người một lần.
+     */
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public java.util.List<BuyerContactView> contactsOf(java.util.Collection<UserId> userIds) {
+        if (userIds.size() > 500) {
+            throw new ApiException(IdentityErrorCode.USER_NOT_FOUND, "Tối đa 500 người một lần");
+        }
+        return users.findAllByIds(userIds).stream()
+                .map(user ->
+                        new BuyerContactView(user.id().value().toString(), user.email(), user.fullName(), user.phone()))
+                .toList();
+    }
+
+    /** Hợp đồng với {@code IdentityHttpAdapter.ContactResponse} của ticketing-service. */
+    public record BuyerContactView(String userId, String email, String fullName, String phone) {}
+
+    /**
      * Thông tin tổ chức.
      *
      * <p>Kiểm membership tường minh chứ không dựa vào {@code TenantFilter}: bộ lọc đó từng bị đi

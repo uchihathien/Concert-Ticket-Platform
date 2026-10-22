@@ -18,4 +18,19 @@ public interface TicketSigner {
      * @return token nếu chữ ký hợp lệ và chưa hết hạn; rỗng trong mọi trường hợp còn lại
      */
     Optional<QrToken> verify(String compactToken);
+
+    /**
+     * Như {@link #verify(String)}, nhưng kiểm hạn token tại thời điểm {@code at} thay vì bây giờ —
+     * cho lượt quét offline đồng bộ muộn: mã còn hạn lúc máy quét thì là mã hợp lệ, kể cả khi lúc gửi
+     * lên nó đã hết hạn.
+     */
+    Optional<QrToken> verify(String compactToken, java.time.Instant at);
+
+    /**
+     * Mọi khoá CÔNG KHAI còn dùng để kiểm (cả khoá đã nghỉ hưu), dạng Ed25519 thô 32 byte base64url —
+     * máy soát vé tải về để tự kiểm chữ ký QR khi mất mạng.
+     */
+    java.util.List<VerificationKey> verificationKeys();
+
+    record VerificationKey(String kid, String publicKey) {}
 }

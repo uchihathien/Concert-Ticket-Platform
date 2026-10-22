@@ -4,6 +4,7 @@ package com.nexaticket.catalog.interfaces.rest;
 import com.nexaticket.catalog.application.query.CheckinSessionQuery;
 import com.nexaticket.catalog.application.query.PricingQuery;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,6 +44,22 @@ public class InternalCatalogController {
         var info = sessions.info(eventSessionId);
         return new SessionResponse(
                 info.eventSessionId(), info.eventId(), info.eventTitle(), info.startsAt(), info.endsAt());
+    }
+
+    /**
+     * Mọi suất của một hoặc nhiều sự kiện ({@code ?eventId=a&eventId=b}) — ticketing-service hỏi để
+     * dựng ca trực và để tính hạn tài khoản nhân viên soát vé. Tối đa 200 sự kiện một lần.
+     */
+    @GetMapping
+    public List<SessionResponse> sessionsOfEvents(@RequestParam("eventId") List<UUID> eventIds) {
+        if (eventIds.size() > 200) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "Tối đa 200 sự kiện một lần");
+        }
+        return sessions.ofEvents(eventIds).stream()
+                .map(info -> new SessionResponse(
+                        info.eventSessionId(), info.eventId(), info.eventTitle(), info.startsAt(), info.endsAt()))
+                .toList();
     }
 
     /**

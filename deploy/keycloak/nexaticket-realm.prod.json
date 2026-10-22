@@ -57,6 +57,23 @@
       }
     },
     {
+      "clientId": "mobile-staff",
+      "name": "NexaTicket Staff — Mobile",
+      "description": "App NexaTicket Staff: PKCE cho tài khoản email của ban tổ chức, grant password cho nhân viên đăng nhập bằng mã PIN.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "nexaticket-staff://auth"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    },
+    {
       "clientId": "web-customer",
       "name": "NexaTicket — Khách hàng",
       "enabled": true,

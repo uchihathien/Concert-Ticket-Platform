@@ -53,6 +53,36 @@ public class IdentityHttpAdapter implements IdentityPort {
         }
     }
 
+    @Override
+    public Optional<java.util.List<Contact>> contactsOf(java.util.Collection<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Optional.of(java.util.List.of());
+        }
+        try {
+            java.util.List<Contact> all = new java.util.ArrayList<>();
+            java.util.List<UUID> ids = java.util.List.copyOf(userIds);
+            // Identity nhận tối đa 500 người một lần.
+            for (int from = 0; from < ids.size(); from += 500) {
+                ContactResponse[] body = client.post()
+                        .uri("/internal/users/contacts")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                        .body(java.util.Map.of("userIds", ids.subList(from, Math.min(ids.size(), from + 500))))
+                        .retrieve()
+                        .body(ContactResponse[].class);
+                for (ContactResponse contact : body == null ? new ContactResponse[0] : body) {
+                    all.add(new Contact(contact.userId(), contact.email(), contact.fullName(), contact.phone()));
+                }
+            }
+            return Optional.of(all);
+        } catch (RuntimeException e) {
+            log.warn("Không đọc được liên lạc người mua: {}", e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /** Hợp đồng với {@code OrganizationQueries.BuyerContactView} của identity-service. */
+    private record ContactResponse(UUID userId, String email, String fullName, String phone) {}
+
     /** Tên field là hợp đồng với {@code UserContactView} của identity-service. */
     private record UserContactResponse(String userId, String email, String fullName) {}
 }

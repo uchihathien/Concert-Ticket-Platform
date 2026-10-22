@@ -5,6 +5,9 @@ import com.nexaticket.ticketing.domain.port.CatalogPort;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,8 +73,40 @@ public class CatalogHttpAdapter implements CatalogPort {
         }
     }
 
+    @Override
+    public Optional<List<SessionSlot>> sessionsOfEvents(Collection<UUID> eventIds) {
+        if (eventIds.isEmpty()) {
+            return Optional.of(List.of());
+        }
+        try {
+            SessionListItem[] body = client.get()
+                    .uri(uri -> {
+                        uri.path("/internal/sessions");
+                        eventIds.forEach(id -> uri.queryParam("eventId", id));
+                        return uri.build();
+                    })
+                    .retrieve()
+                    .body(SessionListItem[].class);
+            List<SessionSlot> slots = new ArrayList<>();
+            for (SessionListItem item : body == null ? new SessionListItem[0] : body) {
+                if (item.eventSessionId() != null && item.startsAt() != null) {
+                    slots.add(new SessionSlot(
+                            item.eventSessionId(), item.eventId(), item.eventTitle(), item.startsAt(), item.endsAt()));
+                }
+            }
+            return Optional.of(slots);
+        } catch (RuntimeException e) {
+            log.warn("Không đọc được danh sách suất từ catalog: {}", e.toString());
+            return Optional.empty();
+        }
+    }
+
     private record Cached(SessionInfo info, Instant expiresAt) {}
 
     /** Tên field là hợp đồng với {@code InternalCatalogController.SessionResponse}. */
     private record SessionResponse(UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
+
+    /** Cùng hợp đồng, kèm id của suất — dạng phần tử của {@code GET /internal/sessions?eventId=}. */
+    private record SessionListItem(
+            UUID eventSessionId, UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
 }

@@ -1,0 +1,8 @@
+# Bước 1 — cào: trình duyệt headless vì Ticketbox tải nội dung bằng JavaScript.
+playwright==1.48.0
+# Bước 2 — chuẩn hoá ảnh bìa (JPEG, rộng tối đa 1200px).
+Pillow==11.0.0
+# Bước 3 — gọi API NexaTicket.
+requests==2.32.3
+# Kiểm thử các hàm chuẩn hoá.
+pytest==8.3.3
