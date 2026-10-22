@@ -88,10 +88,19 @@ public class JdbcHandoffRepository implements HandoffRepository {
         return inserted > 0 ? Optional.of(candidate) : openBySession(candidate.sessionId());
     }
 
+    /**
+     * Vị từ "phiếu đang mở" viết ĐÚNG như vị từ của các index bộ phận ({@code idx_handoff_queue},
+     * {@code idx_handoff_queue_intent}, {@code uq_handoff_open_per_session}).
+     *
+     * <p>Bản trước viết {@code status <> 'RESOLVED'}: cùng nghĩa với CHECK constraint, nhưng planner
+     * của Postgres không dùng CHECK để chứng minh truy vấn nằm trong vị từ của index, nên cả ba index
+     * bị bỏ qua và {@code openFor} — chạy ở MỌI lượt chat — quét toàn bảng (R-05).
+     */
+    private static final String OPEN = "status in ('WAITING', 'ASSIGNED')";
+
     @Override
     public Optional<Handoff> openBySession(UUID sessionId) {
-        return db.sql("select " + COLUMNS
-                        + " from chat_handoffs where session_id = :sessionId and status <> 'RESOLVED'")
+        return db.sql("select " + COLUMNS + " from chat_handoffs where session_id = :sessionId and " + OPEN)
                 .param("sessionId", sessionId)
                 .query(JdbcHandoffRepository::map)
                 .optional();
@@ -142,7 +151,10 @@ public class JdbcHandoffRepository implements HandoffRepository {
             //
             // ILIKE: không phân biệt hoa thường, nhưng CÓ phân biệt dấu — "Trinh" không ra "Trịnh".
             // Chấp nhận được cho một ô tìm nội bộ; sửa được bằng extension `unaccent` nếu cần.
-            sql.append(" and (reason ilike :q or coalesce(last_question, '') ilike :q)");
+            //
+            // `%`, `_`, `\` trong ô tìm là ký tự THẬT, không phải ký tự đại diện: thoát chúng, nếu
+            // không `q=_` khớp mọi phiếu và biến ô tìm thành một lần quét toàn bảng (R-06).
+            sql.append(" and (reason ilike :q escape '\\' or coalesce(last_question, '') ilike :q escape '\\')");
         }
         if (mine != null) {
             sql.append(" and assigned_agent_id = :mine");
@@ -162,7 +174,7 @@ public class JdbcHandoffRepository implements HandoffRepository {
             statement = statement.param("intent", intent.name());
         }
         if (hasQuery) {
-            statement = statement.param("q", "%" + query.strip() + "%");
+            statement = statement.param("q", "%" + escapeLike(query.strip()) + "%");
         }
         if (mine != null) {
             statement = statement.param("mine", mine);
@@ -170,12 +182,17 @@ public class JdbcHandoffRepository implements HandoffRepository {
         return statement.query(JdbcHandoffRepository::map).list();
     }
 
+    /** Thoát ký tự đại diện của LIKE — đi cùng {@code escape '\'} trong câu lệnh. */
+    static String escapeLike(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
     @Override
     public List<Handoff> queue(UUID mine, SupportIntent intent, int limit, int offset) {
         String scope = mine == null ? "" : " and assigned_agent_id = :mine";
         String byIntent = intent == null ? "" : " and intent = :intent";
         var query = db.sql("select " + COLUMNS
-                        + " from chat_handoffs where status <> 'RESOLVED'"
+                        + " from chat_handoffs where " + OPEN
                         + scope
                         + byIntent
                         + " order by requested_at limit :limit offset :offset")

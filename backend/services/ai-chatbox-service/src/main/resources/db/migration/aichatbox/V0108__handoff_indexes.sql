@@ -1,0 +1,11 @@
+-- Index thường trên session_id của chat_handoffs (R-05).
+--
+-- Ba index bộ phận đã có (idx_handoff_queue, idx_handoff_queue_intent, uq_handoff_open_per_session)
+-- chỉ phục vụ truy vấn có ĐÚNG vị từ status IN ('WAITING','ASSIGNED'). Bảng này lớn lên mãi vì phiếu
+-- RESOLVED không bị xoá, và còn hai đường cần tìm theo session_id mà không lọc trạng thái:
+--   - ON DELETE CASCADE từ chat_sessions (xoá hội thoại theo hạn lưu — story 5.1): thiếu index thì
+--     mỗi phiên bị xoá là một lần quét toàn bảng phiếu.
+--   - Màn tra cứu theo phiên của bàn hỗ trợ.
+--
+-- Không đổi cột nào.
+CREATE INDEX idx_handoff_session ON chat_handoffs (session_id);
