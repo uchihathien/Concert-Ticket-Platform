@@ -3,6 +3,7 @@ package com.nexaticket.inventory.interfaces.rest;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -66,13 +67,14 @@ class SeatMapControllerTest extends WebSliceTestBase {
     class AnDanh {
 
         @Test
-        @DisplayName("Không token vẫn xem được: 200, ETag \"version-anon\", Cache-Control no-cache, không có hạn mức")
+        @DisplayName(
+                "Không token vẫn xem được: 200, ETag yếu W/\"version-anon\", Cache-Control no-cache, không có hạn mức")
         void an_danh_xem_duoc() throws Exception {
             when(queries.seatMap(SESSION, null)).thenReturn(view(null));
 
             mvc.perform(get("/v1/sessions/{id}/seats", SESSION))
                     .andExpect(status().isOk())
-                    .andExpect(header().string(HttpHeaders.ETAG, "\"17-anon\""))
+                    .andExpect(header().string(HttpHeaders.ETAG, "W/\"17-anon\""))
                     .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-cache"))
                     .andExpect(jsonPath("$.availabilityVersion").value(17))
                     .andExpect(jsonPath("$.seats[0].seatCode").value("A-1-1"))
@@ -86,12 +88,36 @@ class SeatMapControllerTest extends WebSliceTestBase {
         @Test
         @DisplayName("If-None-Match khớp: 304 body rỗng, vẫn gửi lại ETag")
         void etag_khop_304() throws Exception {
-            when(queries.seatMap(SESSION, null)).thenReturn(view(null));
+            when(queries.availabilityVersion(SESSION)).thenReturn(17L);
+
+            mvc.perform(get("/v1/sessions/{id}/seats", SESSION).header(HttpHeaders.IF_NONE_MATCH, "W/\"17-anon\""))
+                    .andExpect(status().isNotModified())
+                    .andExpect(header().string(HttpHeaders.ETAG, "W/\"17-anon\""))
+                    .andExpect(content().string(""));
+
+            // Điểm của 304 sớm: không dựng sơ đồ (hàng chục nghìn ghế) chỉ để vứt đi.
+            verify(queries, never()).seatMap(any(), any());
+        }
+
+        @Test
+        @DisplayName("Client cũ còn giữ ETag mạnh \"17-anon\" của bản trước vẫn nhận 304 (so sánh yếu, RFC 9110)")
+        void etag_manh_cu_van_khop() throws Exception {
+            when(queries.availabilityVersion(SESSION)).thenReturn(17L);
 
             mvc.perform(get("/v1/sessions/{id}/seats", SESSION).header(HttpHeaders.IF_NONE_MATCH, "\"17-anon\""))
-                    .andExpect(status().isNotModified())
-                    .andExpect(header().string(HttpHeaders.ETAG, "\"17-anon\""))
-                    .andExpect(content().string(""));
+                    .andExpect(status().isNotModified());
+        }
+
+        @Test
+        @DisplayName("If-None-Match là danh sách hoặc *: khớp một phần tử là 304")
+        void etag_danh_sach_va_sao() throws Exception {
+            when(queries.availabilityVersion(SESSION)).thenReturn(17L);
+
+            mvc.perform(get("/v1/sessions/{id}/seats", SESSION)
+                            .header(HttpHeaders.IF_NONE_MATCH, "W/\"3-anon\", W/\"17-anon\""))
+                    .andExpect(status().isNotModified());
+            mvc.perform(get("/v1/sessions/{id}/seats", SESSION).header(HttpHeaders.IF_NONE_MATCH, "*"))
+                    .andExpect(status().isNotModified());
         }
 
         @Test
@@ -117,7 +143,7 @@ class SeatMapControllerTest extends WebSliceTestBase {
 
             mvc.perform(get("/v1/sessions/{id}/seats", SESSION).header(HttpHeaders.AUTHORIZATION, bearer(token)))
                     .andExpect(status().isOk())
-                    .andExpect(header().string(HttpHeaders.ETAG, "\"17-" + USER + "\""))
+                    .andExpect(header().string(HttpHeaders.ETAG, "W/\"17-" + USER + "\""))
                     .andExpect(jsonPath("$.purchaseAllowance.limit").value(10))
                     .andExpect(jsonPath("$.purchaseAllowance.used").value(4))
                     .andExpect(jsonPath("$.purchaseAllowance.remaining").value(6));
@@ -131,11 +157,11 @@ class SeatMapControllerTest extends WebSliceTestBase {
 
             mvc.perform(get("/v1/sessions/{id}/seats", SESSION)
                             .header(HttpHeaders.AUTHORIZATION, bearer(token))
-                            .header(HttpHeaders.IF_NONE_MATCH, "\"17-" + OTHER + "\""))
+                            .header(HttpHeaders.IF_NONE_MATCH, "W/\"17-" + OTHER + "\""))
                     .andExpect(status().isOk());
             mvc.perform(get("/v1/sessions/{id}/seats", SESSION)
                             .header(HttpHeaders.AUTHORIZATION, bearer(token))
-                            .header(HttpHeaders.IF_NONE_MATCH, "\"17-anon\""))
+                            .header(HttpHeaders.IF_NONE_MATCH, "W/\"17-anon\""))
                     .andExpect(status().isOk());
         }
 
@@ -147,7 +173,7 @@ class SeatMapControllerTest extends WebSliceTestBase {
 
             mvc.perform(get("/v1/sessions/{id}/seats", SESSION).header(HttpHeaders.AUTHORIZATION, bearer(token)))
                     .andExpect(status().isOk())
-                    .andExpect(header().string(HttpHeaders.ETAG, "\"17-anon\""));
+                    .andExpect(header().string(HttpHeaders.ETAG, "W/\"17-anon\""));
         }
     }
 

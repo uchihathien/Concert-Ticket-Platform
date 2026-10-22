@@ -45,14 +45,17 @@ public class SeatMapController {
             @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
 
         UUID viewerId = currentUserOrNull();
-        SeatMapView view = queries.seatMap(eventSessionId, viewerId);
-        String etag = etagOf(view, viewerId);
 
-        if (etag.equals(ifNoneMatch)) {
-            return ResponseEntity.status(304).eTag(etag).build();
+        // 304 SỚM: chỉ cần version (một câu truy vấn nhẹ). Bản cũ dựng cả sơ đồ — 16.796 ghế, 5,3 MB JSON — rồi
+        // mới so ETag để vứt nó đi, nên request nào cũng tốn đủ bộ nhớ và CPU kể cả khi trả 304.
+        String early = etagOf(queries.availabilityVersion(eventSessionId), viewerId);
+        if (matches(ifNoneMatch, early)) {
+            return ResponseEntity.status(304).eTag(early).build();
         }
+
+        SeatMapView view = queries.seatMap(eventSessionId, viewerId);
         return ResponseEntity.ok()
-                .eTag(etag)
+                .eTag(etagOf(view.availabilityVersion(), viewerId))
                 .cacheControl(CacheControl.noCache())
                 .body(view);
     }
@@ -63,8 +66,39 @@ public class SeatMapController {
      * <p>{@code purchaseAllowance} khác nhau theo từng khách. Nếu ETag chỉ là version thì hai khách
      * cùng suất sẽ dùng chung cache và người này thấy hạn mức của người kia.
      */
-    private static String etagOf(SeatMapView view, UUID viewerId) {
-        return "\"" + view.availabilityVersion() + "-" + (viewerId == null ? "anon" : viewerId) + "\"";
+    /**
+     * ETag YẾU ({@code W/"…"}), và đây là điều bắt buộc, không phải chuyện hình thức.
+     *
+     * <p>Tomcat KHÔNG nén một phản hồi có ETag mạnh (mặc định {@code noCompressionStrongETag=true}: nén đổi
+     * từng byte của biểu diễn nên ETag mạnh sẽ sai). Bản trước dùng ETag mạnh, nên {@code server.compression}
+     * trong application.yml không bao giờ có tác dụng: sơ đồ 16.796 ghế đi qua mạng nguyên 5,3 MB dù client gửi
+     * {@code Accept-Encoding: gzip}. ETag yếu nói đúng điều ta muốn — "cùng nội dung ngữ nghĩa" — và cho phép nén.
+     */
+    private static String etagOf(long version, UUID viewerId) {
+        return "W/\"" + version + "-" + (viewerId == null ? "anon" : viewerId) + "\"";
+    }
+
+    /**
+     * So sánh yếu theo RFC 9110 §13.1.2: bỏ tiền tố {@code W/} ở cả hai phía, chấp nhận danh sách và {@code *}.
+     * Client cũ còn giữ ETag mạnh {@code "17-anon"} của bản trước vẫn khớp, nên không phải tải lại một lần vô ích.
+     */
+    static boolean matches(String ifNoneMatch, String etag) {
+        if (ifNoneMatch == null || ifNoneMatch.isBlank()) {
+            return false;
+        }
+        String target = opaque(etag);
+        for (String candidate : ifNoneMatch.split(",")) {
+            String c = candidate.trim();
+            if ("*".equals(c) || opaque(c).equals(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String opaque(String tag) {
+        String t = tag.trim();
+        return t.startsWith("W/") ? t.substring(2) : t;
     }
 
     /** Khách chưa đăng nhập vẫn xem được sơ đồ, chỉ không có phần hạn mức. */
