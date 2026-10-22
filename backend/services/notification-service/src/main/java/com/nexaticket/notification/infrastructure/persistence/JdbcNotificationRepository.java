@@ -29,13 +29,17 @@ public class JdbcNotificationRepository implements NotificationRepository {
 
     @Override
     public boolean queueIfNew(Notification notification) {
+        // next_retry_at = NULL (đến hạn ngay), KHÔNG phải now(): now() là đồng hồ của DATABASE còn claimDue so với
+        // đồng hồ của JVM. Hai đồng hồ lệch vài mili giây (Docker/WSL trôi giờ so với máy chủ) thì thư vừa xếp hàng
+        // chưa "đến hạn" với lượt gửi ngay sau đó — NotificationIT.mot_thu_hong_khong_chan_ca_lo nhận 1 thay vì 3
+        // ở hai lượt chạy đầy đủ rồi xanh khi chạy riêng. Lịch thử lại vẫn tính bằng đồng hồ JVM + số phút.
         // ON CONFLICT DO NOTHING trên event_id: RabbitMQ giao ít nhất một lần, nên message
         // trùng là chuyện thường xuyên chứ không phải hiếm.
         return jdbc.update(
                         """
                         INSERT INTO notifications (id, event_id, event_type, recipient, template,
                                                    payload, status, next_retry_at)
-                        VALUES (?, ?, ?, ?, ?, ?::jsonb, 'PENDING', now())
+                        VALUES (?, ?, ?, ?, ?, ?::jsonb, 'PENDING', NULL)
                         ON CONFLICT (event_id) DO NOTHING
                         """,
                         notification.id(),
@@ -55,7 +59,7 @@ public class JdbcNotificationRepository implements NotificationRepository {
                 SELECT id, event_id, event_type, recipient, template, payload, status, attempts
                   FROM notifications
                  WHERE status = 'PENDING' AND (next_retry_at IS NULL OR next_retry_at <= ?)
-                 ORDER BY next_retry_at
+                 ORDER BY next_retry_at NULLS FIRST
                  LIMIT ?
                    FOR UPDATE SKIP LOCKED
                 """,
