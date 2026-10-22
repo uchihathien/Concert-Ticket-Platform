@@ -199,12 +199,15 @@ class HandoffUseCaseTest {
             UUID session = sessionWith(customer, "chào bạn", "tôi muốn hoàn vé đơn này");
             history.append(session, customer, ChatRole.ASSISTANT, "Bạn cho mình mã đơn nhé");
 
-            HandoffViews.HandoffRow row = handoffs.requestByCustomer(session, customer);
+            // Epic 6 (R-09): khách chỉ nhận CustomerHandoffView; ý định/lý do kiểm ở phiếu lưu.
+            HandoffViews.CustomerHandoffView view = handoffs.requestByCustomer(session, customer);
 
-            assertThat(row.intent()).isEqualTo("REFUND");
-            assertThat(row.trigger()).isEqualTo("CUSTOMER_REQUEST");
-            assertThat(row.lastQuestion()).isEqualTo("tôi muốn hoàn vé đơn này");
-            assertThat(row.reason()).isEqualTo("Khách bấm nút gặp nhân viên");
+            assertThat(view.status()).isEqualTo("WAITING");
+            Handoff stored = repository.openBySession(session).orElseThrow();
+            assertThat(stored.intent()).isEqualTo(SupportIntent.REFUND);
+            assertThat(stored.trigger()).isEqualTo(HandoffTrigger.CUSTOMER_REQUEST);
+            assertThat(stored.lastQuestion()).isEqualTo("tôi muốn hoàn vé đơn này");
+            assertThat(stored.reason()).isEqualTo("Khách bấm nút gặp nhân viên");
         }
 
         @Test
@@ -213,10 +216,11 @@ class HandoffUseCaseTest {
             UUID session = UUID.randomUUID();
             history.append(session, customer, ChatRole.ASSISTANT, "Xin chào, mình giúp được gì?");
 
-            HandoffViews.HandoffRow row = handoffs.requestByCustomer(session, customer);
+            handoffs.requestByCustomer(session, customer);
 
-            assertThat(row.intent()).isEqualTo("GENERAL");
-            assertThat(row.lastQuestion()).isNull();
+            Handoff stored = repository.openBySession(session).orElseThrow();
+            assertThat(stored.intent()).isEqualTo(SupportIntent.GENERAL);
+            assertThat(stored.lastQuestion()).isNull();
         }
 
         @Test
@@ -238,10 +242,11 @@ class HandoffUseCaseTest {
         void bam_hai_lan() {
             UUID session = sessionWith(customer, "cho tôi hỏi");
 
-            HandoffViews.HandoffRow first = handoffs.requestByCustomer(session, customer);
-            HandoffViews.HandoffRow second = handoffs.requestByCustomer(session, customer);
+            HandoffViews.CustomerHandoffView first = handoffs.requestByCustomer(session, customer);
+            HandoffViews.CustomerHandoffView second = handoffs.requestByCustomer(session, customer);
 
-            assertThat(second.id()).isEqualTo(first.id());
+            assertThat(second).isEqualTo(first);
+            assertThat(repository.queue(null, null, 50, 0)).hasSize(1);
         }
     }
 

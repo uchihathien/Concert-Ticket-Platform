@@ -6,22 +6,85 @@ import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
 import com.nexaticket.aichatbox.domain.model.KnowledgeEntry;
 import com.nexaticket.aichatbox.domain.model.RefundPolicy;
 import com.nexaticket.aichatbox.domain.model.RulesEntry;
+import com.nexaticket.aichatbox.domain.port.KnowledgeTitleTakenException;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import java.util.List;
 import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Kho tri thức trên PostgreSQL + pgvector. */
 @Repository
 public class PgVectorStoreAdapter implements VectorStorePort {
 
-    private final JdbcClient db;
+    private static final Logger log = LoggerFactory.getLogger(PgVectorStoreAdapter.class);
 
-    public PgVectorStoreAdapter(JdbcClient db) {
+    /** Mặc định của pgvector — không bao giờ đặt thấp hơn. */
+    private static final int MIN_EF_SEARCH = 40;
+
+    /** Trần của pgvector cho {@code hnsw.ef_search}. */
+    private static final int MAX_EF_SEARCH = 1000;
+
+    private final JdbcClient db;
+    private final TransactionTemplate readOnly;
+    private final int efSearchFactor;
+    private final boolean iterativeScan;
+
+    public PgVectorStoreAdapter(
+            JdbcClient db,
+            PlatformTransactionManager transactions,
+            @Value("${nexaticket.aichatbox.knowledge.ef-search-factor:10}") int efSearchFactor) {
         this.db = db;
+        this.readOnly = new TransactionTemplate(transactions);
+        this.readOnly.setReadOnly(true);
+        this.efSearchFactor = efSearchFactor;
+        String version = vectorVersion();
+        this.iterativeScan = atLeast(version, 0, 8);
+        log.info(
+                "pgvector {} — iterative scan {}, ef_search = max(topK × {}, {})",
+                version,
+                iterativeScan ? "bật" : "không hỗ trợ",
+                efSearchFactor,
+                MIN_EF_SEARCH);
+    }
+
+    private String vectorVersion() {
+        try {
+            return db.sql("select extversion from pg_extension where extname = 'vector'")
+                    .query(String.class)
+                    .optional()
+                    .orElse("?");
+        } catch (DataAccessException e) {
+            log.warn("Không đọc được phiên bản pgvector: {}", e.getMessage());
+            return "?";
+        }
+    }
+
+    /** "0.8.6" ≥ 0.8? Chuỗi lạ thì coi là không — tắt một tối ưu, không hỏng truy vấn. */
+    static boolean atLeast(String version, int major, int minor) {
+        String[] parts = version.split("\\.");
+        try {
+            int ma = Integer.parseInt(parts[0]);
+            int mi = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+            return ma > major || (ma == major && mi >= minor);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /** {@code max(topK × hệ số, 40)}, không quá trần của pgvector. */
+    static int efSearchFor(int topK, int efSearchFactor) {
+        long wanted = Math.max((long) topK * efSearchFactor, MIN_EF_SEARCH);
+        return (int) Math.min(wanted, MAX_EF_SEARCH);
     }
 
     /**
@@ -39,28 +102,46 @@ public class PgVectorStoreAdapter implements VectorStorePort {
         // `event_id is null` = tri thức chung, luôn nằm trong phạm vi. Khi biết sự kiện thì cộng
         // thêm đoạn của chính sự kiện ấy — không bao giờ của sự kiện khác.
         //
-        // Mệnh đề WHERE này KHÔNG dùng được index HNSW (index chỉ đánh trên cột vector), nên
-        // Postgres lọc trước rồi mới xếp hạng. Ở quy mô một kho tri thức do người soạn tay — hàng
-        // trăm tới hàng nghìn đoạn — đó là chuyện không đáng đo. Khi kho lớn tới mức thấy chậm thì
-        // câu trả lời là index bộ phận theo event_id, không phải bỏ mệnh đề này đi.
-        return db.sql(
-                        """
-                        select id, event_id, title, content, embedding <=> cast(:q as vector) as distance
-                        from event_knowledge_embeddings
-                        where event_id is null or event_id = :eventId
-                        order by embedding <=> cast(:q as vector)
-                        limit :k
-                        """)
-                .param("q", toVectorLiteral(queryEmbedding))
-                .param("eventId", eventId)
-                .param("k", topK)
-                .query((rs, rowNum) -> new KnowledgeChunk(
-                        rs.getObject("id", UUID.class),
-                        rs.getObject("event_id", UUID.class),
-                        rs.getString("title"),
-                        rs.getString("content"),
-                        rs.getDouble("distance")))
-                .list();
+        // Index HNSW lấy `ef_search` ứng viên gần nhất (mặc định 40) RỒI mới áp WHERE (R-29): kho có
+        // nhiều đoạn của sự kiện khác gần câu hỏi hơn thì đoạn của chính sự kiện này bị lọc sạch
+        // khỏi 40 ứng viên ấy và trả về thiếu. Nới `ef_search`, và với pgvector ≥ 0.8 bật iterative
+        // scan để index quét tiếp tới khi đủ k dòng qua bộ lọc.
+        //
+        // `set_config(..., true)` chỉ sống trong transaction hiện tại — nên phải có transaction, và
+        // nó chỉ chứa hai ba câu SQL, không có lời gọi mạng nào.
+        return readOnly.execute(status -> {
+            db.sql("select set_config('hnsw.ef_search', :n, true)")
+                    .param("n", String.valueOf(efSearchFor(topK, efSearchFactor)))
+                    .query(String.class)
+                    .single();
+            if (iterativeScan) {
+                db.sql("select set_config('hnsw.iterative_scan', 'relaxed_order', true)")
+                        .query(String.class)
+                        .single();
+            }
+            // relaxed_order có thể trả lệch thứ tự đôi chút — xếp lại trên tập đã lấy.
+            return db.sql(
+                            """
+                            with candidates as materialized (
+                                select id, event_id, title, content, embedding <=> cast(:q as vector) as distance
+                                from event_knowledge_embeddings
+                                where event_id is null or event_id = :eventId
+                                order by embedding <=> cast(:q as vector)
+                                limit :k
+                            )
+                            select * from candidates order by distance
+                            """)
+                    .param("q", toVectorLiteral(queryEmbedding))
+                    .param("eventId", eventId)
+                    .param("k", topK)
+                    .query((rs, rowNum) -> new KnowledgeChunk(
+                            rs.getObject("id", UUID.class),
+                            rs.getObject("event_id", UUID.class),
+                            rs.getString("title"),
+                            rs.getString("content"),
+                            rs.getDouble("distance")))
+                    .list();
+        });
     }
 
     @Override
@@ -83,17 +164,24 @@ public class PgVectorStoreAdapter implements VectorStorePort {
     @Override
     public UUID addChunk(UUID eventId, String title, String content, float[] embedding) {
         UUID id = UUID.randomUUID();
-        db.sql(
-                        """
-                        insert into event_knowledge_embeddings (id, event_id, title, content, embedding)
-                        values (:id, :eventId, :title, :content, cast(:embedding as vector))
-                        """)
-                .param("id", id)
-                .param("eventId", eventId)
-                .param("title", title)
-                .param("content", content)
-                .param("embedding", toVectorLiteral(embedding))
-                .update();
+        try {
+            db.sql(
+                            """
+                            insert into event_knowledge_embeddings (id, event_id, title, content, embedding)
+                            values (:id, :eventId, :title, :content, cast(:embedding as vector))
+                            """)
+                    .param("id", id)
+                    .param("eventId", eventId)
+                    .param("title", title)
+                    .param("content", content)
+                    .param("embedding", toVectorLiteral(embedding))
+                    .update();
+        } catch (DuplicateKeyException e) {
+            if (String.valueOf(e.getMessage()).contains("uq_knowledge_global_title")) {
+                throw new KnowledgeTitleTakenException(title);
+            }
+            throw e;
+        }
         return id;
     }
 

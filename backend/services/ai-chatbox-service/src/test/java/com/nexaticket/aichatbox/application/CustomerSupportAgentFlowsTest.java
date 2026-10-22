@@ -527,17 +527,6 @@ class CustomerSupportAgentFlowsTest {
         }
 
         @Test
-        @DisplayName("không có đoạn nào thì message gửi mô hình là đúng câu hỏi, không có thẻ rỗng")
-        void khong_co_ngu_canh() {
-            llm.answer("ok");
-
-            agent.executeAgentProcess(sessionId, userId, "xin chào");
-
-            assertThat(((Exchange.UserSaid) llm.requests.get(0).transcript().get(0)).text())
-                    .isEqualTo("xin chào");
-        }
-
-        @Test
         @DisplayName("kho tri thức hỏng thì trả lời không kèm tri thức nền, KHÔNG chuyển người thật")
         void kho_tri_thuc_hong() {
             knowledge.broken = true;

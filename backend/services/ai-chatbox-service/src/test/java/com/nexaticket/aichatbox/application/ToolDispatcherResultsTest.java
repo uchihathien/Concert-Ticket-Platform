@@ -622,8 +622,8 @@ class ToolDispatcherResultsTest {
         }
 
         @Test
-        @DisplayName("ordering không phản hồi lúc đặt đơn là LỖI dặn đừng nói 'hết vé', và chỗ giữ được nhả")
-        void ordering_hong_luc_dat_don() {
+        @DisplayName("ordering không phản hồi cả hai lần: báo 'chưa xác nhận', dặn đừng đặt lại, và GIỮ chỗ")
+        void ordering_hong_luc_dat_don() throws Exception {
             catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
             ordering.placeFailure = new RemoteCallException("ordering-service", "giả: hỏng", null);
 
@@ -632,9 +632,13 @@ class ToolDispatcherResultsTest {
                             SupportAgentTools.INITIATE_TICKET_BOOKING,
                             args("dem-nhac-trinh", eventSessionId.toString(), "A", 2)));
 
-            assertThat(result.outcome().failed()).isTrue();
-            assertThat(result.outcome().payload()).contains("ĐỪNG nói là hết vé");
-            assertThat(inventory.released).hasSize(1);
+            // Epic 6 (R-25): ordering quá hạn thì chưa biết đơn đã tạo chưa. Hỏi lại cùng khoá một lần;
+            // vẫn không biết thì KHÔNG nhả chỗ (đơn có thể đã commit) và dặn mô hình đừng đặt lại —
+            // kết quả là booked=false chứ không phải lỗi tool.
+            assertThat(result.outcome().failed()).isFalse();
+            assertThat(json(result).get("booked").asBoolean()).isFalse();
+            assertThat(json(result).get("reason").asText()).contains("Đừng gọi đặt vé lại");
+            assertThat(inventory.released).isEmpty();
         }
 
         @Test

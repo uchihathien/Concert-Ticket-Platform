@@ -41,11 +41,21 @@ spring:
       # Hậu quả đã xảy ra thật: khách nhận 500 "Unexpected error" sau 30 giây trong khi lượt chat
       # vẫn đang chạy ở phía sau, và nó tiếp tục chiếm chỗ đồng thời của chính người ấy.
       #
-      # 600s là CHỐT CHẶN CUỐI, không phải hạn thực tế. Ngân sách thật của một lượt là
-      # 60s (nhúng) + max-tool-iterations × timeout của nhà cung cấp = 60 + 4×120 = 540s, và những
-      # hạn đó PHẢI nổ trước — chúng cho ra 503 "trợ lý đang bận" nói đúng chuyện, còn hạn async chỉ
-      # cho ra một lỗi nói về servlet. Nới hạn nhà cung cấp thì phải nới con số này theo.
-      request-timeout: ${AGENT_ASYNC_TIMEOUT:600s}
+      # Đây là CHỐT CHẶN CUỐI, không phải hạn thực tế — những hạn bên trong PHẢI nổ trước, vì chúng
+      # cho ra 503 "trợ lý đang bận" nói đúng chuyện, còn hạn async chỉ cho ra một lỗi về servlet.
+      # Hạn async tính từ lúc request TỚI, nên ngân sách xấu nhất của một lượt là:
+      #
+      #   max-queue-wait + embedding-timeout
+      #     + max-tool-iterations × (LLM-timeout × (1 + max-retries) + ngân sách tool mỗi vòng)
+      #
+      #   Ollama:    60 + 60 + 4 × (120 × 1 + 20) = 680s   (Ollama không tự thử lại)
+      #   Anthropic: 60 + 10 + 4 × ( 60 × 2 + 20) = 630s   (max-retries = 1)
+      #
+      # "Ngân sách tool mỗi vòng" 20s: một vòng đặt vé gọi tới 5 service × hạn 3s. Bản trước tính
+      # 60 + 4×120 = 540s và bỏ sót cả thời gian chờ hàng đợi lẫn retry của SDK (mặc định 2), nên hạn
+      # 600s có thể nổ trong khi lượt vẫn chạy và còn đặt đơn ở phía sau. Đổi bất kỳ hạn nào ở trên
+      # thì tính lại; ApplicationYamlBudgetTest đỏ nếu con số dưới đây nhỏ hơn ngân sách.
+      request-timeout: ${AGENT_ASYNC_TIMEOUT:720s}
 
 server:
   port: ${PORT:8101}
@@ -87,6 +97,10 @@ nexaticket:
       # động đầu tiên sau khi pull mô hình. Không dùng chung 120s của chat: hai phút chờ chỉ để biết
       # Ollama không chạy là quá lâu cho người đang soạn kho tri thức.
       embedding-timeout: ${OLLAMA_EMBEDDING_TIMEOUT:60s}
+      # Cửa sổ ngữ cảnh gửi kèm mỗi lời gọi. Không khai thì Ollama dùng mặc định 2048–4096 và LẶNG LẼ
+      # bỏ message cũ nhất khi vượt — có thể chính là câu hỏi của khách. Adapter log WARN khi
+      # prompt_eval_count ≥ 90% con số này. Lớn hơn thì máy ít VRAM chậm thêm.
+      num-ctx: ${OLLAMA_NUM_CTX:8192}
     agent:
       # Mô hình mặc định. Đổi model là đổi cả hành vi lẫn giá — nên nó nằm ở cấu hình, không nằm
       # trong mã nguồn.
@@ -108,6 +122,9 @@ nexaticket:
       # Ngưỡng khoảng cách cosine. pgvector luôn trả đủ top-k kể cả khi không có gì liên quan;
       # không cắt thì đoạn lạc đề đi thẳng vào prompt.
       max-retrieval-distance: ${AGENT_MAX_RETRIEVAL_DISTANCE:0.55}
+      # Lượt chờ trong hàng đợi của pool lâu hơn thế này thì từ chối 503 thay vì chạy — chạy muộn thì
+      # hạn async cắt giữa chừng. Là một số hạng của ngân sách ở spring.mvc.async.
+      max-queue-wait: ${AGENT_MAX_QUEUE_WAIT:60s}
     anthropic:
       # KHÔNG có mặc định, và service từ chối khởi động nếu thiếu — nhưng CHỈ khi provider =
       # anthropic. Với provider mặc định (local) thì cả khối này không được dựng, nên máy chưa có
@@ -120,6 +137,9 @@ nexaticket:
       # Mặc định của SDK là 10 phút — quá dài cho người đang nhìn màn hình chat, và đủ để một sự
       # cố phía nhà cung cấp chiếm hết luồng của Tomcat.
       timeout: ${ANTHROPIC_TIMEOUT:60s}
+      # SDK tự thử lại bao nhiêu lần. Mặc định của SDK là 2, tức mỗi lời gọi tới 3 × timeout — con
+      # số đó phải nằm trong ngân sách ở spring.mvc.async.
+      max-retries: ${ANTHROPIC_MAX_RETRIES:1}
     embedding:
       # local | anthropic | none — TÁCH khỏi `provider` ở trên. Xem EmbeddingProvider.
       #
@@ -134,16 +154,20 @@ nexaticket:
       # PHẢI khớp vector(n) trong V0100. Đổi mô hình ⇒ đổi cột ⇒ nhúng lại toàn bộ kho tri thức.
       dimensions: ${EMBEDDING_DIMENSIONS:1024}
       timeout: ${EMBEDDING_TIMEOUT:10s}
+    knowledge:
+      # Index HNSW lấy `ef_search` ứng viên RỒI mới lọc theo sự kiện; đặt max(topK × hệ số, 40)
+      # cho mỗi lần tìm để đoạn của chính sự kiện không bị đoạn của sự kiện khác đẩy khỏi kết quả.
+      ef-search-factor: ${KNOWLEDGE_EF_SEARCH_FACTOR:10}
     starter-knowledge:
-      # Nạp tri thức nền khi kho còn TRỐNG — xem KnowledgeSeeder.
+      # Nạp những đoạn tri thức nền còn THIẾU (theo tiêu đề) — xem KnowledgeSeeder.
       #
       # Bật mặc định ở MỌI môi trường, kể cả production, và tên khoá cố ý không phải `demo-data`:
       # nội dung ấy mô tả hành vi thật của hệ thống (giữ chỗ 10 phút, hạn thanh toán 15 phút, nhận
       # vé ở ví vé), không phải dữ liệu giả. Kho rỗng ở production nghĩa là trợ lý chỉ tra được đơn
       # hàng và trả lời "mình chưa tra được" cho mọi câu hỏi chính sách.
       #
-      # Đội vận hành sửa hoặc xoá đoạn nào cũng được: điều kiện nạp là kho trống, nên lần khởi động
-      # sau không dựng lại những gì họ vừa bỏ đi.
+      # Đoạn NỀN bị xoá sẽ quay lại ở lần khởi động sau; đoạn đội vận hành tự soạn thì không bị
+      # đụng tới. Muốn bỏ hẳn tri thức nền thì tắt khoá này.
       enabled: ${STARTER_KNOWLEDGE_ENABLED:true}
     handoff:
       # Chat không có kết nối thường trực nên không có sự kiện "khách đã rời đi". Phiếu của người
@@ -152,6 +176,10 @@ nexaticket:
       # 24 giờ, không phải 30 phút: bàn hỗ trợ làm theo giờ hành chính, và một phiếu mở lúc 22h
       # đêm phải sống qua đêm để ca sáng còn thấy.
       abandoned-after: ${HANDOFF_ABANDONED_AFTER:24h}
+      # Phiếu đã có người nhận mà không có tin nhân viên nào lâu hơn thế này thì TRẢ VỀ HÀNG ĐỢI —
+      # không đóng, vì đóng là mất việc của khách. Phiếu mở là công tắc tắt trợ lý: thiếu bước này,
+      # người nhận hết ca là khách bị kẹt ở "đang chờ nhân viên" vô thời hạn.
+      assigned-stale-after: ${HANDOFF_ASSIGNED_STALE_AFTER:2h}
       reaper:
         enabled: ${HANDOFF_REAPER_ENABLED:true}
         interval: ${HANDOFF_REAPER_INTERVAL:1h}

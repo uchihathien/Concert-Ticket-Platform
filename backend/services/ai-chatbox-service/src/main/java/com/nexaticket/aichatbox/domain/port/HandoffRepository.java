@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.domain.port;
 
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
+import com.nexaticket.aichatbox.domain.model.HandoverNote;
 import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +29,12 @@ public interface HandoffRepository {
     Optional<Handoff> openBySession(UUID sessionId);
 
     Optional<Handoff> findById(UUID handoffId);
+
+    /**
+     * Phiếu hoàn vé đang mở (WAITING/ASSIGNED) của khách cho một đơn, ở BẤT KỲ phiên nào — cũ nhất
+     * trước. Phiếu không có {@code details.orderId} (dữ liệu cũ) không khớp.
+     */
+    Optional<Handoff> findOpenRefund(UUID userId, UUID orderId);
 
     /**
      * Hàng đợi của người trực: phiếu chưa xong, cũ nhất trước.
@@ -72,7 +79,54 @@ public interface HandoffRepository {
      */
     Optional<Handoff> claim(UUID handoffId, UUID agentId, java.time.Instant now);
 
-    void save(Handoff handoff);
+    /**
+     * Ghi trạng thái mới, <b>chỉ khi</b> trạng thái trong database vẫn đúng như lúc người gọi đọc.
+     *
+     * <p>Thay cho {@code save} mù: nó đọc phiếu, rồi {@code UPDATE ... WHERE id = :id} — một nhân
+     * viên bấm Đóng đúng lúc người khác bấm Nhận thì lệnh của người thứ nhất ghi đè, xoá
+     * {@code assigned_agent_id} của người thứ hai (R-01).
+     *
+     * @return {@code false} khi trạng thái đã đổi — người gọi đọc lại và quyết định
+     */
+    boolean transition(UUID handoffId, HandoffStatus expectedStatus, UUID expectedAgentId, Handoff next);
+
+    /**
+     * Đọc và KHOÁ dòng phiếu tới hết transaction hiện tại ({@code SELECT ... FOR UPDATE}).
+     *
+     * <p>Chỉ có nghĩa bên trong một transaction: ngoài transaction thì khoá nhả ngay sau câu lệnh.
+     * Dùng khi phải kiểm-rồi-ghi một thứ KHÔNG nằm trên dòng phiếu (tin nhắn của nhân viên) mà vẫn
+     * cần phiếu không bị đóng xen giữa.
+     */
+    Optional<Handoff> lockById(UUID handoffId);
+
+    /**
+     * Đổi người giữ phiếu không qua "Nhận": nhả về hàng đợi ({@code newAgent = null}) hoặc chuyển
+     * cho người khác — có điều kiện trạng thái và người giữ đã đọc, như {@link #transition}.
+     *
+     * <p>Ghi {@code details.lastHandover} trong cùng câu lệnh và giữ mọi khoá cũ của {@code details}.
+     *
+     * @return {@code false} khi phiếu đã đổi trạng thái hoặc người giữ
+     */
+    boolean handover(
+            UUID handoffId,
+            HandoffStatus expectedStatus,
+            UUID expectedAgent,
+            UUID newAgent,
+            java.time.Instant now,
+            HandoverNote note);
+
+    /**
+     * Trả về hàng đợi những phiếu ASSIGNED bị bỏ rơi: nhận trước {@code before} và không có tin
+     * AGENT nào kể từ đó.
+     *
+     * <p>Không đóng — đóng là mất việc của khách; trả về hàng đợi để người khác nhận. Giới hạn đã
+     * biết: tin nhân viên gửi đúng giây job chạy có thể không được thấy (truy vấn con dùng snapshot
+     * đầu lệnh) và phiếu vẫn bị nhả — chấp nhận được với ngưỡng tính bằng giờ, người đó nhận lại
+     * được ngay.
+     *
+     * @return số phiếu đã nhả
+     */
+    int releaseStaleAssigned(java.time.Instant before, java.time.Instant now);
 
     /**
      * Đóng những phiếu chờ quá lâu mà chưa ai nhận.

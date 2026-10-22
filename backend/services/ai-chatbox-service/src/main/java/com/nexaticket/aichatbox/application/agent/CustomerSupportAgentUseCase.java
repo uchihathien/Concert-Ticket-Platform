@@ -153,6 +153,12 @@ public class CustomerSupportAgentUseCase {
         } catch (SessionNotOwnedException e) {
             throw new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "Không tìm thấy phiên chat");
         }
+        // Lịch sử lưu NGUYÊN VĂN chữ khách gõ (màn hình hai phía phải thấy đúng chữ ấy), nên thoát lúc
+        // đọc: không thì một thẻ <tai_lieu> khách gõ ở lượt trước quay lại prompt ở mọi lượt sau
+        // (R-24). Lời trợ lý và nhân viên không thuộc mô hình đe doạ này.
+        transcript.replaceAll(exchange -> exchange instanceof Exchange.UserSaid said
+                ? new Exchange.UserSaid(SupportAgentPrompts.neutralizeMarkup(said.text()))
+                : exchange);
 
         // Bước 1b — người thật đang cầm cuộc hội thoại?
         //
@@ -201,56 +207,64 @@ public class CustomerSupportAgentUseCase {
         // xem SupportAgentPrompts.withTicketLinks.
         Map<String, EventRef> eventRefs = new LinkedHashMap<>();
         String answer = null;
-        int round = 0;
-        for (; round < properties.maxToolIterations() && answer == null; round++) {
-            LlmProviderPort.LlmTurn turn = ask(transcript);
-            switch (turn) {
-                    // Gỡ dấu phân đoạn nội bộ TRƯỚC khi câu trả lời đi đâu cả — trước khi lưu, trước
-                    // khi trả về. Lọc ở chỗ khác thì bản đã lưu vẫn còn dấu, và lượt sau mô hình đọc
-                    // lại lịch sử rồi học rằng viết như vậy là được.
-                case LlmProviderPort.LlmTurn.Answer a -> {
-                    String cleaned = SupportAgentPrompts.stripInternalMarkers(a.text());
-                    // Rỗng sau khi gỡ nghĩa là mô hình chỉ trả về đúng mấy cái dấu phân đoạn. Coi
-                    // như CHƯA có câu trả lời: vòng sau thử lại, hết vòng thì chuyển người thật.
-                    // Gán chuỗi rỗng ở đây thì khách nhận một bong bóng trống, tệ hơn hẳn.
-                    answer = cleaned == null || cleaned.isBlank() ? null : cleaned;
-                }
-                case LlmProviderPort.LlmTurn.ToolRequest request -> {
-                    transcript.add(new Exchange.AssistantRequestedTools(request.calls(), request.providerEcho()));
-                    List<ToolOutcome> outcomes = new ArrayList<>(request.calls().size());
-                    for (ToolInvocation call : request.calls()) {
-                        toolsUsed.add(call.toolName());
-
-                        if (SupportAgentTools.CONTROL_TOOLS.contains(call.toolName())) {
-                            // Tool điều khiển: hoặc kết thúc lượt bằng một phiếu, hoặc trả về một
-                            // kết quả cho mô hình đọc tiếp (hoàn vé bị từ chối theo chính sách,
-                            // thiếu tham số). Khi đã mở phiếu thì không chạy nốt những tool còn lại.
-                            ControlResult control = handleControlTool(sessionId, userId, userQuery, call, toolsUsed);
-                            if (control.reply() != null) {
-                                return control.reply();
-                            }
-                            outcomes.add(control.outcome());
-                            continue;
-                        }
-
-                        ToolDispatcher.DispatchResult result = tools.dispatch(call);
-                        outcomes.add(result.outcome());
-                        // Gom sự kiện tra được, theo slug để không trùng khi mô hình gọi findEvents
-                        // rồi getEventDetails trên cùng một sự kiện. LinkedHashMap giữ thứ tự tìm
-                        // thấy — sự kiện khớp nhất đứng đầu, và đó là thứ tự khách nên thấy.
-                        for (EventRef ref : result.events()) {
-                            eventRefs.putIfAbsent(ref.slug(), ref);
-                        }
+        // Đếm vòng ĐÃ BẮT ĐẦU, ghi trong `finally`: lượt kết thúc sớm bằng tool điều khiển (return
+        // giữa vòng) hay bằng ngoại lệ trước đây không được ghi, nên phân bố số vòng thiếu đúng những
+        // lượt đắt nhất.
+        int roundsStarted = 0;
+        try {
+            for (int round = 0; round < properties.maxToolIterations() && answer == null; round++) {
+                roundsStarted++;
+                LlmProviderPort.LlmTurn turn = ask(transcript);
+                switch (turn) {
+                        // Gỡ dấu phân đoạn nội bộ TRƯỚC khi câu trả lời đi đâu cả — trước khi lưu, trước
+                        // khi trả về. Lọc ở chỗ khác thì bản đã lưu vẫn còn dấu, và lượt sau mô hình đọc
+                        // lại lịch sử rồi học rằng viết như vậy là được.
+                    case LlmProviderPort.LlmTurn.Answer a -> {
+                        String cleaned = SupportAgentPrompts.stripInternalMarkers(a.text());
+                        // Rỗng sau khi gỡ nghĩa là mô hình chỉ trả về đúng mấy cái dấu phân đoạn. Coi
+                        // như CHƯA có câu trả lời: vòng sau thử lại, hết vòng thì chuyển người thật.
+                        // Gán chuỗi rỗng ở đây thì khách nhận một bong bóng trống, tệ hơn hẳn.
+                        answer = cleaned == null || cleaned.isBlank() ? null : cleaned;
                     }
-                    // MỘT mục cho TẤT CẢ kết quả. Tách ra thì request kế tiếp thiếu kết quả cho
-                    // một lời gọi đã có, và mô hình học được rằng gọi song song không được đáp ứng.
-                    allOutcomes.addAll(outcomes);
-                    transcript.add(new Exchange.ToolsReturned(outcomes));
+                    case LlmProviderPort.LlmTurn.ToolRequest request -> {
+                        transcript.add(new Exchange.AssistantRequestedTools(request.calls(), request.providerEcho()));
+                        List<ToolOutcome> outcomes =
+                                new ArrayList<>(request.calls().size());
+                        for (ToolInvocation call : request.calls()) {
+                            toolsUsed.add(call.toolName());
+
+                            if (SupportAgentTools.CONTROL_TOOLS.contains(call.toolName())) {
+                                // Tool điều khiển: hoặc kết thúc lượt bằng một phiếu, hoặc trả về một
+                                // kết quả cho mô hình đọc tiếp (hoàn vé bị từ chối theo chính sách,
+                                // thiếu tham số). Khi đã mở phiếu thì không chạy nốt những tool còn lại.
+                                ControlResult control =
+                                        handleControlTool(sessionId, userId, userQuery, call, toolsUsed);
+                                if (control.reply() != null) {
+                                    return control.reply();
+                                }
+                                outcomes.add(control.outcome());
+                                continue;
+                            }
+
+                            ToolDispatcher.DispatchResult result = tools.dispatch(call);
+                            outcomes.add(result.outcome());
+                            // Gom sự kiện tra được, theo slug để không trùng khi mô hình gọi findEvents
+                            // rồi getEventDetails trên cùng một sự kiện. LinkedHashMap giữ thứ tự tìm
+                            // thấy — sự kiện khớp nhất đứng đầu, và đó là thứ tự khách nên thấy.
+                            for (EventRef ref : result.events()) {
+                                eventRefs.putIfAbsent(ref.slug(), ref);
+                            }
+                        }
+                        // MỘT mục cho TẤT CẢ kết quả. Tách ra thì request kế tiếp thiếu kết quả cho
+                        // một lời gọi đã có, và mô hình học được rằng gọi song song không được đáp ứng.
+                        allOutcomes.addAll(outcomes);
+                        transcript.add(new Exchange.ToolsReturned(outcomes));
+                    }
                 }
             }
+        } finally {
+            metrics.recordRounds(roundsStarted);
         }
-
-        metrics.recordRounds(round);
 
         if (answer == null) {
             // Hết vòng mà chưa có câu trả lời — đây ĐÚNG là định nghĩa của "độ tin cậy thấp", nên

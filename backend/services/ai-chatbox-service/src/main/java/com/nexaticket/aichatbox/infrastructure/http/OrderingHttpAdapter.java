@@ -10,6 +10,7 @@ import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
@@ -46,6 +47,9 @@ public class OrderingHttpAdapter implements OrderingClientPort {
             "SEAT_UNAVAILABLE", "Chỗ vừa giữ đã không còn — có người khác lấy trước. Mời khách chọn lại.",
             "PROMOTION_INVALID", "Mã khuyến mãi không hợp lệ.",
             "ORDER_NOT_OPEN", "Đơn này không còn ở trạng thái chờ thanh toán.");
+
+    /** {@code ErrorCode.Common.REQUEST_IN_PROGRESS} của starter-web (IdempotencyFilter). */
+    private static final String REQUEST_IN_PROGRESS = "REQUEST_IN_PROGRESS";
 
     private final RestClient client;
 
@@ -124,8 +128,17 @@ public class OrderingHttpAdapter implements OrderingClientPort {
                     .exchange((request, clientResponse) -> {
                         HttpStatusCode status = clientResponse.getStatusCode();
                         if (status.is4xxClientError()) {
+                            Optional<String> code = ApiErrors.code(clientResponse);
+                            // Request cùng khoá còn đang chạy ở ordering (lần hỏi lại rơi đúng lúc lần
+                            // đầu chưa xong): đó là "chưa biết", KHÔNG phải "từ chối" — coi là từ chối
+                            // thì bên gọi nhả chỗ của một đơn sắp thành công (R-25).
+                            if (status.value() == 409
+                                    && code.filter(REQUEST_IN_PROGRESS::equals).isPresent()) {
+                                throw new RemoteCallException(
+                                        SERVICE, "Ordering còn đang xử lý request cùng khoá", null);
+                            }
                             throw new BookingRejectedException(
-                                    ApiErrors.reason(clientResponse, REJECTIONS, "Ordering không nhận đơn này."));
+                                    ApiErrors.translate(code, REJECTIONS, "Ordering không nhận đơn này."));
                         }
                         if (!status.is2xxSuccessful()) {
                             throw new RemoteCallException(SERVICE, "Ordering trả " + status, null);

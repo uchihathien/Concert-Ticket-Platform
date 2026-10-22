@@ -14,8 +14,11 @@ import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.CallerCredentialsPort;
 import com.nexaticket.aichatbox.domain.port.OrderNotFoundException;
 import com.nexaticket.aichatbox.domain.port.OrderingClientPort;
+import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import java.time.Clock;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +49,13 @@ import org.springframework.stereotype.Service;
 public class SupportCaseUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(SupportCaseUseCase.class);
+
+    /** Trạng thái duy nhất có thể hoàn — so chuỗi, không import enum của ordering (ranh giới ACL). */
+    private static final String PAID = "PAID";
+
+    /** Mốc mở phiếu theo giờ Việt Nam, cách khách đọc. */
+    private static final DateTimeFormatter OPENED_AT =
+            DateTimeFormatter.ofPattern("HH:mm 'ngày' dd/MM/yyyy").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
 
     private final OrderingClientPort ordering;
     private final VectorStorePort knowledge;
@@ -114,6 +124,11 @@ public class SupportCaseUseCase {
             return new RefundOutcome.Denied("Đơn " + order.orderNumber() + " chưa thanh toán nên không có gì để hoàn. "
                     + "Nếu khách không muốn mua nữa thì bấm Huỷ đơn ở trang Đơn hàng — chỗ sẽ được nhả ngay.");
         }
+        // Đã trả tiền chưa đủ: đơn đã hoàn, đã huỷ, đang chờ đối soát… thì không còn gì để xin hoàn
+        // nữa (R-13). Kiểm trước chính sách — chính sách chỉ có nghĩa với một đơn đang PAID.
+        if (!PAID.equals(order.status())) {
+            return new RefundOutcome.Denied(notPaidStatusExplanation(order));
+        }
         switch (eligibility) {
             case NOT_ALLOWED -> {
                 return new RefundOutcome.Denied("Sự kiện " + eventTitle(rules, order)
@@ -128,6 +143,16 @@ public class SupportCaseUseCase {
             case NOT_PAID, ELIGIBLE -> {
                 // NOT_PAID đã được chặn ở trên; ELIGIBLE đi tiếp.
             }
+        }
+
+        // Đã có một yêu cầu đang chờ xem xét cho đúng đơn này (có thể ở phiên khác) thì không mở
+        // phiếu thứ hai — hai phiếu là hai lần hoàn tiền tiềm năng. Trả Denied chứ không trả phiếu
+        // cũ: `Opened` khiến agent kết thúc lượt như thể lượt đã được ghi vào hội thoại này.
+        Optional<Handoff> pending = handoffs.findOpenRefund(userId, order.orderId());
+        if (pending.isPresent()) {
+            return new RefundOutcome.Denied("Đơn " + order.orderNumber() + " đã có một yêu cầu hoàn vé đang được "
+                    + "xem xét, mở lúc " + OPENED_AT.format(pending.get().requestedAt()) + ". Báo khách rằng bộ "
+                    + "phận hỗ trợ đang xử lý yêu cầu đó và dặn khách không cần gửi yêu cầu mới.");
         }
 
         Map<String, Object> details = new LinkedHashMap<>();
@@ -163,9 +188,16 @@ public class SupportCaseUseCase {
      * Khách báo một sự cố.
      *
      * <p>Mã đơn, nếu có, được tra lại bằng token của khách để lấy số đơn đọc được và để chắc rằng nó
-     * là của họ. Không tra được — đơn không tồn tại hoặc ordering đang hỏng — thì vẫn mở phiếu,
-     * ghi mã thô vào chi tiết: người trực xử lý sự cố cần phiếu <i>có</i>, không cần phiếu
-     * <i>hoàn hảo</i>, và một sự cố thật không nên bị chặn vì một lời gọi phụ.
+     * là của họ. Một sự cố thật không bị chặn vì lời gọi phụ này — phiếu luôn được mở — nhưng khoá
+     * {@code orderId} (khoá người trực tin) CHỈ mang mã đã xác minh (R-12):
+     *
+     * <ul>
+     *   <li>đơn của khách → {@code orderId}, {@code orderVerified: true};
+     *   <li>không có trong tài khoản khách → bỏ hẳn mã, {@code orderLookup: NOT_IN_ACCOUNT} — mã đơn
+     *       của người khác kèm checklist "phát lại vé" là đúng cảnh cần tránh;
+     *   <li>ordering không phản hồi → mã thô ở {@code claimedOrderId}, {@code orderLookup:
+     *       UNAVAILABLE}: sự cố thanh toán đúng lúc ordering hỏng là lúc người trực cần mã nhất.
+     * </ul>
      *
      * @param orderId có thể {@code null} với loại sự cố không cần đơn
      */
@@ -173,19 +205,29 @@ public class SupportCaseUseCase {
             UUID sessionId, UUID userId, IncidentKind kind, String description, UUID orderId, String userQuery) {
 
         String orderNumber = null;
+        String orderRef = null;
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("kind", kind.name());
+        details.put("kindLabel", kind.label());
         if (orderId != null) {
             try {
                 orderNumber = ordering.fetchOrder(orderId, credentials.currentAccessToken())
                         .orderNumber();
-            } catch (RuntimeException e) {
+                orderRef = orderNumber;
+                details.put("orderId", orderId);
+                details.put("orderVerified", true);
+            } catch (OrderNotFoundException e) {
+                log.warn("Đơn {} không thuộc tài khoản khách khi mở phiếu sự cố — bỏ mã khỏi phiếu", orderId);
+                details.put("orderVerified", false);
+                details.put("orderLookup", "NOT_IN_ACCOUNT");
+            } catch (RemoteCallException e) {
                 log.warn("Không tra được đơn {} khi mở phiếu sự cố: {}", orderId, e.getMessage());
+                orderRef = "chưa xác minh " + shortId(orderId);
+                details.put("claimedOrderId", orderId);
+                details.put("orderVerified", false);
+                details.put("orderLookup", "UNAVAILABLE");
             }
         }
-
-        Map<String, Object> details = new LinkedHashMap<>();
-        details.put("kind", kind.name());
-        details.put("kindLabel", kind.label());
-        details.put("orderId", orderId);
         details.put("orderNumber", orderNumber);
         details.put("description", blankToNull(description));
 
@@ -194,13 +236,29 @@ public class SupportCaseUseCase {
                 userId,
                 HandoffTrigger.CUSTOMER_REQUEST,
                 SupportIntent.INCIDENT,
-                IncidentTemplates.composeReason(
-                        kind, orderNumber != null ? orderNumber : shortId(orderId), description),
+                IncidentTemplates.composeReason(kind, orderRef, description),
                 write(details),
                 userQuery,
                 SupportAgentPrompts.incidentOpenedMessage(kind, orderNumber));
         log.info("Mở phiếu sự cố {} (phiên {}, đơn {})", kind, sessionId, orderNumber);
         return opened;
+    }
+
+    /** Mỗi trạng thái không-PAID một lời giải thích riêng, cùng giọng với các nhánh Denied khác. */
+    private static String notPaidStatusExplanation(OrderSummary order) {
+        String n = order.orderNumber();
+        return switch (order.status()) {
+            case "REFUNDED" -> "Đơn " + n + " đã được hoàn tiền rồi, không còn gì để hoàn thêm. Nếu khách chưa "
+                    + "thấy tiền về thì đó là thời gian xử lý của ngân hàng — không mở yêu cầu mới.";
+            case "CANCELLED" -> "Đơn " + n + " đã bị huỷ nên không có vé nào để hoàn. Nếu khách đã bị trừ tiền "
+                    + "cho đơn này thì đề nghị báo sự cố thanh toán thay vì xin hoàn vé.";
+            case "EXPIRED" -> "Đơn " + n + " đã hết hạn thanh toán và không thành vé, nên không có gì để hoàn. "
+                    + "Nếu khách đã bị trừ tiền thì đề nghị báo sự cố thanh toán.";
+            case "MANUAL_REVIEW" -> "Đơn " + n + " đang được bộ phận đối soát kiểm tra thanh toán. Chưa xin "
+                    + "hoàn được cho tới khi đối soát xong — báo khách chờ kết quả, không mở yêu cầu mới.";
+            default -> "Đơn " + n + " đang ở trạng thái " + order.status() + ", không phải đơn đã thanh toán "
+                    + "xong, nên chưa xin hoàn được. Đề nghị khách liên hệ hỗ trợ nếu cần.";
+        };
     }
 
     private static String eventTitle(Optional<EventRules> rules, OrderSummary order) {

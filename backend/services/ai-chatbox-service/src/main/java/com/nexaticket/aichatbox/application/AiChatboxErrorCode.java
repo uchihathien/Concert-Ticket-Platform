@@ -31,6 +31,15 @@ public enum AiChatboxErrorCode implements ErrorCode {
     ASSISTANT_BUSY(503),
 
     /**
+     * Phiên này đang có một lượt chạy (R-23).
+     *
+     * <p>409 chứ không 503: hệ thống không bận — chính phiên này đang bận với câu trước. Hai lượt
+     * cùng phiên chạy song song đọc cùng một lịch sử và ghi đan xen, và lượt sau có thể trả lời đè
+     * lên lúc nhân viên vừa tiếp quản. Client chờ câu trả lời đang tới rồi gửi tiếp.
+     */
+    TURN_IN_PROGRESS(409),
+
+    /**
      * Cùng một {@code Idempotency-Key} nhưng nội dung khác.
      *
      * <p>Đây là lỗi của client, không phải một lần gửi lại — và trả về câu trả lời cũ cho một câu
@@ -63,9 +72,31 @@ public enum AiChatboxErrorCode implements ErrorCode {
      */
     HANDOFF_ALREADY_RESOLVED(409),
 
+    /**
+     * Phiếu đổi trạng thái giữa lúc đọc và lúc ghi — thường là người khác vừa nhận nó.
+     *
+     * <p>Khác {@link #HANDOFF_ALREADY_TAKEN}: cái kia trả cho người bấm NHẬN chậm hơn; cái này trả cho
+     * thao tác khác (đóng phiếu) mà người gọi đã quyết dựa trên một trạng thái giờ không còn đúng.
+     * Kèm trạng thái hiện tại để màn hình làm mới thay vì đoán. Trước đây trường hợp này không có:
+     * lệnh ghi đè mù và xoá mất lượt nhận của người kia.
+     */
+    HANDOFF_STATE_CHANGED(409),
+
+    /**
+     * Chuyển phiếu cho một tài khoản không tồn tại.
+     *
+     * <p>422 chứ không 404: phiếu có thật, chỉ là người nhận mới không có. Chỉ kiểm được "tài khoản
+     * tồn tại", chưa kiểm được người đó có quyền hỗ trợ — identity-service chưa có hợp đồng cho việc
+     * này.
+     */
+    HANDOFF_TARGET_AGENT_NOT_FOUND(422),
+
     // --- Kho tri thức ------------------------------------------------------
 
     KNOWLEDGE_CHUNK_NOT_FOUND(404),
+
+    /** Đã có đoạn tri thức chung mang đúng tiêu đề này — tiêu đề là khoá của tri thức chung. */
+    KNOWLEDGE_TITLE_TAKEN(409),
 
     EVENT_RULES_NOT_FOUND(404),
 

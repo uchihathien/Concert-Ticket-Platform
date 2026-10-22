@@ -138,7 +138,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
             UUID owner = UUID.randomUUID();
             UUID session = newSession(owner);
             Handoff first = repository.openOrExisting(candidate(session, owner, SupportIntent.GENERAL, "một", "q", T0));
-            repository.save(first.resolve(T0.plusSeconds(30)));
+            persist(first.resolve(T0.plusSeconds(30)));
 
             Handoff second = repository.openOrExisting(
                     candidate(session, owner, SupportIntent.GENERAL, "hai", "q", T0.plusSeconds(60)));
@@ -207,7 +207,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
             assertThat(repository.findById(UUID.randomUUID())).isEmpty();
 
             Handoff opened = openNew(SupportIntent.GENERAL, "r", "q", T0);
-            repository.save(opened.resolve(T0.plusSeconds(1)));
+            persist(opened.resolve(T0.plusSeconds(1)));
 
             assertThat(repository.openBySession(opened.sessionId())).isEmpty();
             assertThat(repository.findById(opened.id())).isPresent();
@@ -220,7 +220,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
             Handoff c = openNew(SupportIntent.GENERAL, "c", "q", T0.plusSeconds(120));
             Handoff b = openNew(SupportIntent.GENERAL, "b", "q", T0.plusSeconds(60));
             Handoff done = openNew(SupportIntent.GENERAL, "xong", "q", T0.plusSeconds(10));
-            repository.save(done.resolve(T0.plusSeconds(20)));
+            persist(done.resolve(T0.plusSeconds(20)));
 
             assertThat(repository.queue(null, null, 50, 0))
                     .extracting(Handoff::id)
@@ -256,7 +256,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
             Handoff assigned = openNew(SupportIntent.GENERAL, "giu", "q", T0.plusSeconds(1));
             Handoff resolved = openNew(SupportIntent.GENERAL, "xong", "q", T0.plusSeconds(2));
             repository.claim(assigned.id(), UUID.randomUUID(), T0.plusSeconds(3));
-            repository.save(resolved.resolve(T0.plusSeconds(4)));
+            persist(resolved.resolve(T0.plusSeconds(4)));
 
             assertThat(ids(repository.search(null, Set.of(HandoffStatus.WAITING), null, null, true, 50, 0)))
                     .containsExactly(waiting.id());
@@ -367,7 +367,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
         @DisplayName("không nhận được phiếu đã đóng hoặc phiếu không tồn tại")
         void khong_nhan_duoc() {
             Handoff opened = openNew(SupportIntent.GENERAL, "r", "q", T0);
-            repository.save(opened.resolve(T0.plusSeconds(1)));
+            persist(opened.resolve(T0.plusSeconds(1)));
 
             assertThat(repository.claim(opened.id(), UUID.randomUUID(), T0.plusSeconds(2)))
                     .isEmpty();
@@ -418,7 +418,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
     }
 
     @Nested
-    @DisplayName("save")
+    @DisplayName("transition")
     class Save {
 
         @Test
@@ -427,10 +427,10 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
             Handoff opened = openNew(SupportIntent.GENERAL, "r", "q", T0);
             UUID agent = UUID.randomUUID();
             Handoff assigned = opened.assignTo(agent, T0.plusSeconds(10));
-            repository.save(assigned);
+            persist(assigned);
             assertThat(repository.findById(opened.id()).orElseThrow().status()).isEqualTo(HandoffStatus.ASSIGNED);
 
-            repository.save(assigned.resolve(T0.plusSeconds(99)));
+            persist(assigned.resolve(T0.plusSeconds(99)));
 
             Handoff loaded = repository.findById(opened.id()).orElseThrow();
             assertThat(loaded.status()).isEqualTo(HandoffStatus.RESOLVED);
@@ -444,7 +444,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
         void dong_thang_phieu_chua_nhan() {
             Handoff opened = openNew(SupportIntent.GENERAL, "r", "q", T0);
 
-            repository.save(opened.resolve(T0.plusSeconds(5)));
+            persist(opened.resolve(T0.plusSeconds(5)));
 
             Handoff loaded = repository.findById(opened.id()).orElseThrow();
             assertThat(loaded.status()).isEqualTo(HandoffStatus.RESOLVED);
@@ -471,7 +471,7 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
                     null,
                     null);
 
-            assertThatThrownBy(() -> repository.save(inconsistent)).isInstanceOf(DataIntegrityViolationException.class);
+            assertThatThrownBy(() -> persist(inconsistent)).isInstanceOf(DataIntegrityViolationException.class);
         }
     }
 
@@ -530,5 +530,15 @@ class JdbcHandoffRepositoryIT extends AiChatboxTestBase {
                     candidate(session, owner, SupportIntent.GENERAL, "r2", "q", T0.plusSeconds(3)));
             assertThat(reopened.reason()).isEqualTo("r2");
         }
+    }
+
+    /**
+     * Ghi trạng thái mới của phiếu qua {@code transition}. Epic 6 bỏ {@code save} (ghi mù, thua
+     * cuộc đua); mọi chuyển trạng thái giờ phải nêu trạng thái và người nhận KỲ VỌNG. Ở đây lấy
+     * chính giá trị hiện có trong DB làm kỳ vọng để các ca không đua nhau vẫn đọc như cũ.
+     */
+    private boolean persist(Handoff next) {
+        Handoff current = repository.findById(next.id()).orElseThrow();
+        return repository.transition(next.id(), current.status(), current.assignedAgentId(), next);
     }
 }

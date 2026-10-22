@@ -176,7 +176,8 @@ class EmbeddingAdaptersTest {
         private OllamaEmbeddingAdapter adapter(String baseUrl, int dimensions, Duration timeout) {
             return new OllamaEmbeddingAdapter(
                     RestClient.builder(),
-                    new OllamaProperties(baseUrl, "chat", "bge-test", dimensions, Duration.ofSeconds(5), timeout, 10));
+                    new OllamaProperties(
+                            baseUrl, "chat", "bge-test", dimensions, Duration.ofSeconds(5), timeout, 10, 0));
         }
 
         @Test

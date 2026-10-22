@@ -99,10 +99,11 @@ class SupportAgentPromptsBehaviorTest {
     class UserMessage {
 
         @Test
-        @DisplayName("không có ngữ cảnh thì trả đúng câu hỏi, không thẻ nào")
+        @DisplayName("không có ngữ cảnh thì chỉ có thẻ <cau_hoi>, không có khối tài liệu")
         void khong_co_ngu_canh() {
+            // Epic 6 (R-24): câu hỏi LUÔN nằm trong <cau_hoi> để mô hình phân biệt dữ liệu với lệnh.
             assertThat(SupportAgentPrompts.userMessageWithContext("hoàn vé thế nào", List.of()))
-                    .isEqualTo("hoàn vé thế nào");
+                    .isEqualTo("<cau_hoi>\nhoàn vé thế nào\n</cau_hoi>");
         }
 
         @Test

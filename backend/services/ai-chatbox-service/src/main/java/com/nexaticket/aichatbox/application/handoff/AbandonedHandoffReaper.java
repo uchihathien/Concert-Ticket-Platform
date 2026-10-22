@@ -56,13 +56,22 @@ public class AbandonedHandoffReaper {
      */
     private final Duration abandonedAfter;
 
+    /**
+     * Phiếu ASSIGNED không có tin nhân viên nào lâu hơn thế này thì trả về hàng đợi (không đóng).
+     * Phiếu mở là công tắc tắt trợ lý: một phiếu bị người nhận bỏ đó giữ khách ở "đang chờ nhân
+     * viên" vô thời hạn.
+     */
+    private final Duration assignedStaleAfter;
+
     public AbandonedHandoffReaper(
             HandoffRepository handoffs,
             Clock clock,
-            @Value("${nexaticket.aichatbox.handoff.abandoned-after:24h}") Duration abandonedAfter) {
+            @Value("${nexaticket.aichatbox.handoff.abandoned-after:24h}") Duration abandonedAfter,
+            @Value("${nexaticket.aichatbox.handoff.assigned-stale-after:2h}") Duration assignedStaleAfter) {
         this.handoffs = handoffs;
         this.clock = clock;
         this.abandonedAfter = abandonedAfter;
+        this.assignedStaleAfter = assignedStaleAfter;
     }
 
     /**
@@ -74,6 +83,15 @@ public class AbandonedHandoffReaper {
     @Scheduled(fixedDelayString = "${nexaticket.aichatbox.handoff.reaper.interval:1h}", initialDelay = 60_000)
     public void closeAbandoned() {
         Instant now = clock.instant();
+
+        // Nhả TRƯỚC, đóng SAU — bước đóng tính mốc theo lần về hàng đợi gần nhất, nên phiếu vừa nhả
+        // ở đây không bị đóng ngay trong cùng lần chạy.
+        int released = handoffs.releaseStaleAssigned(now.minus(assignedStaleAfter), now);
+        if (released > 0) {
+            // INFO: con số này tăng nghĩa là có người nhận phiếu rồi bỏ đó — tin về bàn hỗ trợ.
+            log.info("Đã trả {} phiếu nhận quá {} mà không trả lời về hàng đợi", released, assignedStaleAfter);
+        }
+
         int closed = handoffs.closeAbandoned(now.minus(abandonedAfter), now);
 
         if (closed > 0) {

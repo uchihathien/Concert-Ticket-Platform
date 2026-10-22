@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.infrastructure.persistence;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
 import com.nexaticket.aichatbox.domain.model.HandoffTrigger;
+import com.nexaticket.aichatbox.domain.model.HandoverNote;
 import com.nexaticket.aichatbox.domain.model.SupportIntent;
 import com.nexaticket.aichatbox.domain.port.HandoffRepository;
 import java.sql.ResultSet;
@@ -46,6 +47,21 @@ public class JdbcHandoffRepository implements HandoffRepository {
      */
     @Override
     public Handoff openOrExisting(Handoff candidate) {
+        // Thử lại vài lần: INSERT bị bỏ vì đụng phiếu mở, rồi phiếu ấy bị đóng (người trực, reaper)
+        // TRƯỚC câu SELECT — lần sau INSERT sẽ vào được. Trước đây trường hợp này ném thẳng và khách
+        // bấm "gặp nhân viên" nhận 500 (R-04).
+        for (int attempt = 1; attempt <= OPEN_ATTEMPTS; attempt++) {
+            Optional<Handoff> opened = tryOpen(candidate);
+            if (opened.isPresent()) {
+                return opened.get();
+            }
+        }
+        throw new IllegalStateException("Không mở được phiếu cho phiên " + candidate.sessionId());
+    }
+
+    private static final int OPEN_ATTEMPTS = 3;
+
+    private Optional<Handoff> tryOpen(Handoff candidate) {
         int inserted = db.sql(
                         """
                         insert into chat_handoffs
@@ -67,20 +83,40 @@ public class JdbcHandoffRepository implements HandoffRepository {
                 .param("requestedAt", Timestamp.from(candidate.requestedAt()))
                 .update();
 
-        return inserted > 0
-                ? candidate
-                : openBySession(candidate.sessionId())
-                        .orElseThrow(() ->
-                                // Không chèn được mà cũng không có phiếu mở: chỉ xảy ra nếu có ai
-                                // vừa đóng phiếu giữa hai lệnh. Ném để nó lộ ra thay vì trả null.
-                                new IllegalStateException("Không mở được phiếu cho phiên " + candidate.sessionId()));
+        // Không chèn được mà cũng không có phiếu mở: có ai vừa đóng phiếu giữa hai lệnh — vòng ngoài
+        // thử lại.
+        return inserted > 0 ? Optional.of(candidate) : openBySession(candidate.sessionId());
     }
+
+    /**
+     * Vị từ "phiếu đang mở" viết ĐÚNG như vị từ của các index bộ phận ({@code idx_handoff_queue},
+     * {@code idx_handoff_queue_intent}, {@code uq_handoff_open_per_session}).
+     *
+     * <p>Bản trước viết {@code status <> 'RESOLVED'}: cùng nghĩa với CHECK constraint, nhưng planner
+     * của Postgres không dùng CHECK để chứng minh truy vấn nằm trong vị từ của index, nên cả ba index
+     * bị bỏ qua và {@code openFor} — chạy ở MỌI lượt chat — quét toàn bảng (R-05).
+     */
+    private static final String OPEN = "status in ('WAITING', 'ASSIGNED')";
 
     @Override
     public Optional<Handoff> openBySession(UUID sessionId) {
-        return db.sql("select " + COLUMNS
-                        + " from chat_handoffs where session_id = :sessionId and status <> 'RESOLVED'")
+        return db.sql("select " + COLUMNS + " from chat_handoffs where session_id = :sessionId and " + OPEN)
                 .param("sessionId", sessionId)
+                .query(JdbcHandoffRepository::map)
+                .optional();
+    }
+
+    /**
+     * Vị từ {@code intent = 'REFUND' and OPEN} khớp đúng index bộ phận {@code idx_handoff_queue_intent};
+     * {@code details} là TEXT JSON do ObjectMapper ghi, nên ép {@code ::jsonb} an toàn, và
+     * {@code null} chỉ cho ra {@code null}.
+     */
+    @Override
+    public Optional<Handoff> findOpenRefund(UUID userId, UUID orderId) {
+        return db.sql("select " + COLUMNS + " from chat_handoffs where user_id = :userId and intent = 'REFUND' and "
+                        + OPEN + " and details::jsonb ->> 'orderId' = :orderId order by requested_at limit 1")
+                .param("userId", userId)
+                .param("orderId", orderId.toString())
                 .query(JdbcHandoffRepository::map)
                 .optional();
     }
@@ -130,7 +166,10 @@ public class JdbcHandoffRepository implements HandoffRepository {
             //
             // ILIKE: không phân biệt hoa thường, nhưng CÓ phân biệt dấu — "Trinh" không ra "Trịnh".
             // Chấp nhận được cho một ô tìm nội bộ; sửa được bằng extension `unaccent` nếu cần.
-            sql.append(" and (reason ilike :q or coalesce(last_question, '') ilike :q)");
+            //
+            // `%`, `_`, `\` trong ô tìm là ký tự THẬT, không phải ký tự đại diện: thoát chúng, nếu
+            // không `q=_` khớp mọi phiếu và biến ô tìm thành một lần quét toàn bảng (R-06).
+            sql.append(" and (reason ilike :q escape '\\' or coalesce(last_question, '') ilike :q escape '\\')");
         }
         if (mine != null) {
             sql.append(" and assigned_agent_id = :mine");
@@ -150,7 +189,7 @@ public class JdbcHandoffRepository implements HandoffRepository {
             statement = statement.param("intent", intent.name());
         }
         if (hasQuery) {
-            statement = statement.param("q", "%" + query.strip() + "%");
+            statement = statement.param("q", "%" + escapeLike(query.strip()) + "%");
         }
         if (mine != null) {
             statement = statement.param("mine", mine);
@@ -158,12 +197,17 @@ public class JdbcHandoffRepository implements HandoffRepository {
         return statement.query(JdbcHandoffRepository::map).list();
     }
 
+    /** Thoát ký tự đại diện của LIKE — đi cùng {@code escape '\'} trong câu lệnh. */
+    static String escapeLike(String text) {
+        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
     @Override
     public List<Handoff> queue(UUID mine, SupportIntent intent, int limit, int offset) {
         String scope = mine == null ? "" : " and assigned_agent_id = :mine";
         String byIntent = intent == null ? "" : " and intent = :intent";
         var query = db.sql("select " + COLUMNS
-                        + " from chat_handoffs where status <> 'RESOLVED'"
+                        + " from chat_handoffs where " + OPEN
                         + scope
                         + byIntent
                         + " order by requested_at limit :limit offset :offset")
@@ -201,21 +245,128 @@ public class JdbcHandoffRepository implements HandoffRepository {
         return updated == 0 ? Optional.empty() : findById(handoffId);
     }
 
+    /**
+     * {@code where status = :expected and assigned_agent_id is not distinct from :expectedAgent} —
+     * cùng nguyên tắc với {@link #claim}: chốt chặn tranh chấp nằm trong chính câu UPDATE.
+     *
+     * <p>{@code is not distinct from} chứ không {@code =}: phiếu WAITING có {@code assigned_agent_id}
+     * null, và {@code null = null} là null chứ không phải true — lệnh sẽ không bao giờ khớp.
+     */
     @Override
-    public void save(Handoff handoff) {
-        db.sql(
+    public boolean transition(UUID handoffId, HandoffStatus expectedStatus, UUID expectedAgentId, Handoff next) {
+        int updated = db.sql(
                         """
                         update chat_handoffs
                            set status = :status, assigned_agent_id = :agentId,
                                assigned_at = :assignedAt, resolved_at = :resolvedAt
                          where id = :id
+                           and status = :expected
+                           and assigned_agent_id is not distinct from cast(:expectedAgent as uuid)
                         """)
-                .param("status", handoff.status().name())
-                .param("agentId", handoff.assignedAgentId())
-                .param("assignedAt", handoff.assignedAt() == null ? null : Timestamp.from(handoff.assignedAt()))
-                .param("resolvedAt", handoff.resolvedAt() == null ? null : Timestamp.from(handoff.resolvedAt()))
-                .param("id", handoff.id())
+                .param("status", next.status().name())
+                .param("agentId", next.assignedAgentId())
+                .param("assignedAt", next.assignedAt() == null ? null : Timestamp.from(next.assignedAt()))
+                .param("resolvedAt", next.resolvedAt() == null ? null : Timestamp.from(next.resolvedAt()))
+                .param("id", handoffId)
+                .param("expected", expectedStatus.name())
+                .param("expectedAgent", expectedAgentId == null ? null : expectedAgentId.toString())
                 .update();
+        return updated == 1;
+    }
+
+    /**
+     * Biểu thức ghi {@code details.lastHandover}, dùng chung cho nhả/chuyển tay và nhả tự động.
+     *
+     * <p>{@code details} là TEXT; ép {@code ::jsonb} để nối {@code ||} — giữ mọi khoá cũ (mã đơn,
+     * loại sự cố…), chỉ ghi đè {@code lastHandover} — rồi trả về {@code ::text}. Mọi tham số đều ép
+     * kiểu tường minh: {@code jsonb_build_object} nhận kiểu "any", và một tham số null không kiểu làm
+     * Postgres báo "could not determine data type".
+     */
+    private static final String WITH_HANDOVER_NOTE =
+            """
+            (coalesce(details::jsonb, '{}'::jsonb) || jsonb_build_object('lastHandover', jsonb_build_object(
+                'action', cast(:action as text),
+                'by', cast(:by as text),
+                'from', %s,
+                'to', cast(:to as text),
+                'reason', cast(:reason as text),
+                'at', cast(:now as timestamptz))))::text""";
+
+    @Override
+    public boolean handover(
+            UUID handoffId,
+            HandoffStatus expectedStatus,
+            UUID expectedAgent,
+            UUID newAgent,
+            Instant now,
+            HandoverNote note) {
+        int updated = db.sql(
+                        """
+                        update chat_handoffs
+                           set status = :status,
+                               assigned_agent_id = cast(:newAgent as uuid),
+                               assigned_at = :assignedAt,
+                               details = %s
+                         where id = :id
+                           and status = :expected
+                           and assigned_agent_id is not distinct from cast(:expectedAgent as uuid)
+                        """
+                                .formatted(WITH_HANDOVER_NOTE.formatted("cast(:from as text)")))
+                .param("status", newAgent == null ? HandoffStatus.WAITING.name() : HandoffStatus.ASSIGNED.name())
+                .param("newAgent", newAgent == null ? null : newAgent.toString())
+                // ck_handoff_assigned: người giữ và mốc nhận cùng có hoặc cùng không.
+                .param("assignedAt", newAgent == null ? null : Timestamp.from(now))
+                .param("action", note.action())
+                .param("by", note.by() == null ? null : note.by().toString())
+                .param("from", note.from() == null ? null : note.from().toString())
+                .param("to", note.to() == null ? null : note.to().toString())
+                .param("reason", note.reason())
+                .param("now", Timestamp.from(now))
+                .param("id", handoffId)
+                .param("expected", expectedStatus.name())
+                .param("expectedAgent", expectedAgent == null ? null : expectedAgent.toString())
+                .update();
+        return updated == 1;
+    }
+
+    /**
+     * Một UPDATE, có điều kiện {@code status = 'ASSIGNED'} — nhiều instance chạy cùng lúc vẫn an toàn
+     * như {@link #closeAbandoned}. "Còn hoạt động" = có tin AGENT kể từ {@code before}; index
+     * {@code idx_chat_messages_session (session_id, created_at desc, id desc)} phục vụ truy vấn con.
+     */
+    @Override
+    public int releaseStaleAssigned(Instant before, Instant now) {
+        return db.sql(
+                        """
+                        update chat_handoffs h
+                           set status = 'WAITING',
+                               assigned_agent_id = null,
+                               assigned_at = null,
+                               details = %s
+                         where h.status = 'ASSIGNED'
+                           and h.assigned_at < :before
+                           and not exists (
+                               select 1 from chat_messages m
+                                where m.session_id = h.session_id
+                                  and m.role = 'AGENT'
+                                  and m.created_at >= :before)
+                        """
+                                .formatted(WITH_HANDOVER_NOTE.formatted("h.assigned_agent_id::text")))
+                .param("action", HandoverNote.AUTO_RELEASE)
+                .param("by", null)
+                .param("to", null)
+                .param("reason", null)
+                .param("now", Timestamp.from(now))
+                .param("before", Timestamp.from(before))
+                .update();
+    }
+
+    @Override
+    public Optional<Handoff> lockById(UUID handoffId) {
+        return db.sql("select " + COLUMNS + " from chat_handoffs where id = :id for update")
+                .param("id", handoffId)
+                .query(JdbcHandoffRepository::map)
+                .optional();
     }
 
     /**
@@ -225,6 +376,11 @@ public class JdbcHandoffRepository implements HandoffRepository {
      * người trực vừa bấm Nhận đúng lúc job chạy thì phiếu đã sang ASSIGNED và lệnh này không đụng
      * tới nó. Ghi thêm lý do vào `reason` chứ không xoá dấu vết — "phiếu này tự đóng vì quá hạn"
      * là dữ liệu cần để biết hàng đợi đang bỏ rơi bao nhiêu người.
+     *
+     * <p>Mốc tính quá hạn là lần cuối phiếu về hàng đợi ({@code lastHandover.at}) nếu có, không phải
+     * lúc khách yêu cầu: nhả phiếu xoá {@code assigned_at}, và một phiếu yêu cầu từ 30 giờ trước vừa
+     * được nhả lúc này mà tính theo {@code requested_at} thì bị đóng ngay ở lần chạy kế tiếp — đúng
+     * điều việc "nhả, không đóng" muốn tránh.
      */
     @Override
     public int closeAbandoned(Instant before, Instant now) {
@@ -234,7 +390,8 @@ public class JdbcHandoffRepository implements HandoffRepository {
                            set status = 'RESOLVED',
                                resolved_at = :now,
                                reason = reason || ' [tự đóng: quá hạn chờ]'
-                         where status = 'WAITING' and requested_at < :before
+                         where status = 'WAITING'
+                           and coalesce((details::jsonb #>> '{lastHandover,at}')::timestamptz, requested_at) < :before
                         """)
                 .param("now", Timestamp.from(now))
                 .param("before", Timestamp.from(before))

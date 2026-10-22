@@ -2,9 +2,13 @@
 package com.nexaticket.aichatbox.infrastructure.concurrent;
 
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
+import com.nexaticket.kernel.id.CorrelationContext;
+import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
+import org.slf4j.MDC;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.task.TaskDecorator;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
@@ -45,11 +49,44 @@ public class AgentExecutorConfig {
         executor.setQueueCapacity(properties.maxQueuedTurns());
         executor.setThreadNamePrefix("agent-");
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        // MDC và CorrelationContext nằm trong ThreadLocal nên KHÔNG tự sang luồng agent: log của cả
+        // lượt chat thiếu correlationId, và lời gọi sang ordering/catalog/inventory không mang header
+        // correlation — không lần được vết một lượt qua các service.
+        executor.setTaskDecorator(new CorrelationTaskDecorator());
 
         // Tắt êm: chờ lượt đang chạy nói xong câu của nó. Hạn ngắn hơn hạn của mô hình là cố ý —
         // một lần triển khai không được treo vì một lượt chat đang chờ nhà cung cấp hết 120 giây.
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(30);
         return executor;
+    }
+
+    /**
+     * Chụp correlation id ở luồng gửi việc, đặt lại ở luồng agent, xoá sạch khi xong.
+     *
+     * <p>Xoá trong {@code finally} là bắt buộc: luồng của pool được dùng lại cho người khác, và một
+     * id sót lại sẽ gắn log của lượt sau vào lượt trước.
+     */
+    static final class CorrelationTaskDecorator implements TaskDecorator {
+
+        @Override
+        public Runnable decorate(Runnable task) {
+            Map<String, String> mdc = MDC.getCopyOfContextMap();
+            String correlationId = CorrelationContext.current();
+            return () -> {
+                if (mdc != null) {
+                    MDC.setContextMap(mdc);
+                }
+                if (!CorrelationContext.UNKNOWN.equals(correlationId)) {
+                    CorrelationContext.set(correlationId);
+                }
+                try {
+                    task.run();
+                } finally {
+                    MDC.clear();
+                    CorrelationContext.clear();
+                }
+            };
+        }
     }
 }

@@ -9,9 +9,9 @@ Mọi con số dưới đây **đã chạy và đọc từ đầu ra thật** tr
 
 | Tầng | Số test | Đạt | Đỏ | Bỏ qua |
 | --- | ---: | ---: | ---: | ---: |
-| Unit + API slice + ArchUnit (Surefire) | 2.614 | 2.614 | 0 | 0 |
-| Integration, PostgreSQL/Redis thật (Failsafe) | 384 | 384 | 0 | 0 |
-| **Tổng backend** | **2.998** | **2.998** | **0** | **0** |
+| Unit + API slice + ArchUnit (Surefire) | 2.958 | 2.958 | 0 | 0 |
+| Integration, PostgreSQL/Redis thật (Failsafe) | 462 | 462 | 0 | 0 |
+| **Tổng backend** | **3.420** | **3.420** | **0** | **0** |
 
 Trước đợt này: 358 unit test (đo ở lần chạy ban đầu, tất cả xanh) + bộ IT có sẵn (chưa chạy được lúc đó vì Docker tắt).
 
@@ -19,10 +19,7 @@ Hai test từng đỏ ở lượt đầu (thiếu `Idempotency-Key`; route soát
 và giờ xanh — xem [known-testing-gaps.md §2](known-testing-gaps.md). Lượt chạy cuối: `BUILD SUCCESS`, không
 test nào đỏ hay bị bỏ qua.
 
-Theo module (unit / IT): shared-kernel 101/—, starter-web 75/—, starter-security 133/—,
-starter-outbox 10/—, starter-idempotency 28/9, api-gateway 163/8, identity 336/76, ledger 64/21,
-catalog 486/60, inventory 206/45, ordering 216/30, realtime-gateway 34/—, payment 214/27,
-payout 79/8, ticketing 212/39, notification 57/7, analytics 47/7, ai-chatbox 153/47.
+Theo module (unit / IT): shared-kernel 101/—, starter-web 75/—, starter-security 133/—, starter-outbox 10/—, starter-idempotency 32/12, api-gateway 163/8, identity 338/82, ledger 64/21, catalog 486/60, inventory 208/48, ordering 216/31, realtime-gateway 34/—, payment 214/27, payout 79/8, ticketing 215/53, notification 57/7, analytics 47/7, ai-chatbox 486/98.
 
 ### Frontend
 
@@ -33,9 +30,11 @@ payout 79/8, ticketing 212/39, notification 57/7, analytics 47/7, ai-chatbox 153
 | `@nexaticket/auth` | 72 | 72 đạt |
 | `@nexaticket/web-customer` | 41 | 41 đạt |
 | `@nexaticket/web-admin` | 9 | 9 đạt |
-| **Unit frontend** | **377** | **377 đạt, 0 đỏ, 0 bỏ qua** |
+| `@nexaticket/web-scanner` | 62 | 62 đạt |
+| `@nexaticket/web-platform` | 124 | 124 đạt |
+| **Unit frontend** | **563** | **563 đạt, 0 đỏ, 0 bỏ qua** |
 | E2E Playwright (`web-customer`, Chromium) | 33 | 33 đạt |
-| `tsc --noEmit` + `eslint` (5 gói/app trên) | — | sạch |
+| `tsc --noEmit` + `eslint` (7 gói/app trên) | — | sạch |
 
 Trước đợt này: 33 tệp test ở `packages/ts-sdk`, `ui`, `auth`; chưa có test ở `apps/*` và chưa có E2E.
 
@@ -90,41 +89,37 @@ Loại trừ: lớp `*Application` và `infrastructure/seed/**` (dữ liệu dem
 | Module | Instruction | Branch | Line | Method |
 | --- | ---: | ---: | ---: | ---: |
 | shared-kernel | 99,9% | 97,7% | 100,0% | 100,0% |
-| starter-idempotency | 94,6% | 100,0% | 91,1% | 85,0% |
+| starter-idempotency | 86,8% | 85,0% | 83,8% | 75,0% |
 | starter-outbox | 94,3% | 88,9% | 92,8% | 76,9% |
-| starter-security | 79,4% | 87,8% | 81,0% | 75,7% |
+| starter-security | 78,8% | 87,8% | 80,4% | 75,7% |
 | starter-web | 96,9% | 91,0% | 95,8% | 92,0% |
+| ai-chatbox-service | 97,9% | 91,6% | 98,1% | 99,2% |
+| analytics-service | 96,4% | 95,2% | 97,9% | 95,5% |
 | api-gateway | 100,0% | 100,0% | 100,0% | 100,0% |
-| identity-service | 93,5% | 85,3% | 94,0% | 92,4% |
-| catalog-service | 88,2% | 76,2% | 88,2% | 88,4% |
-| inventory-service | 95,9% | 92,5% | 95,7% | 95,7% |
+| catalog-service | 87,6% | 75,8% | 87,7% | 87,6% |
+| identity-service | 88,3% | 78,8% | 88,3% | 88,8% |
+| inventory-service | 96,2% | 93,6% | 95,9% | 95,7% |
+| ledger-service | 96,8% | 85,3% | 96,2% | 97,6% |
+| notification-service | 98,5% | 91,2% | 98,1% | 100,0% |
 | ordering-service | 93,0% | 86,7% | 93,7% | 93,5% |
 | payment-service | 98,1% | 90,7% | 98,1% | 97,7% |
-| ledger-service | 96,8% | 85,3% | 96,2% | 97,6% |
 | payout-service | 85,7% | 83,3% | 86,6% | 90,9% |
-| ticketing-service | 94,2% | 88,9% | 93,8% | 96,5% |
-| notification-service | 98,5% | 91,2% | 98,1% | 100,0% |
-| analytics-service | 95,6% | 90,5% | 97,2% | 95,5% |
 | realtime-gateway | 90,4% | 85,3% | 88,1% | 89,4% |
-| ai-chatbox-service | **64,1%** | **47,2%** | **64,0%** | 71,9% |
-| **Tổng** | **87,6%** | **77,0%** | **87,7%** | **89,5%** |
+| ticketing-service | 87,9% | 78,9% | 88,3% | 87,3% |
+| **Tổng** | **91,8%** | **84,9%** | **91,9%** | **91,6%** |
 
-Dòng 10.914/12.447 · nhánh 2.641/3.431.
+Dòng 12.910/14.042 · nhánh 3.314/3.904.
 
 **So với mục tiêu (≥ 80% statement, ≥ 80% branch cho logic lõi):**
 
-- Statement/line: đạt toàn cục (87,6% / 87,7%) và ở mọi module **trừ `ai-chatbox-service` (64%)**.
-- Branch: toàn cục 77,0% — **chưa đạt 80%**. Các module lõi (inventory 92,5%, payment 90,7%,
-  ordering 86,7%, ledger 85,3%, ticketing 88,9%, identity 85,3%) đều trên 80%. Thấp: `catalog`
-  76,2%, `ai-chatbox` 47,2%.
-- Chưa đạt vì: `ai-chatbox-service` có adapter LLM (Anthropic, Ollama, Voyage) và `ToolDispatcher`
-  cần mạng/model thật; `catalog` có `JdbcCatalogQueries`, adapter HTTP tới inventory/analytics và
-  `LayoutColumns` chỉ được chạm bởi IT có sẵn. Lớp thiếu nhiều dòng nhất: `AnthropicLlmAdapter` (119),
-  `ToolDispatcher` (110), `OllamaLlmAdapter` (76), `CatalogHttpAdapter` của chatbox (72),
-  `OrderingHttpAdapter` của chatbox (56), `JdbcTicketSearchAdapter` (45), `JdbcSalesStatsReader` (41),
-  `JdbcCatalogQueries` (41), `AnalyticsSalesAdapter` (38), `SecurityAutoConfiguration` (36).
-- Test tiếp theo cần để đóng khoảng cách: adapter HTTP với `MockRestServiceServer` (chatbox, catalog),
-  `ToolDispatcher` với `FakeAiProviders`, IT cho các reader thống kê JDBC.
+- Statement/line: đạt toàn cục (91,8% / 91,9%) và ở mọi module (thấp nhất `starter-security` ~81%).
+- Branch: toàn cục 84,9% — đạt 80%. Dưới 80% ở ba module: `catalog` 75,8%, `identity` 78,8%, `ticketing`
+  78,9% (hai module sau do nhánh mới của mobile-v2: tài khoản nhân viên PIN, ca trực, soát vé offline). Module lõi
+  khác đều trên 83%: inventory 93,6%, payment 90,7%, ordering 86,7%, ledger 85,3%.
+- Lý do `catalog` còn thấp: `JdbcCatalogQueries`, adapter HTTP tới inventory/analytics và `LayoutColumns` chỉ được chạm
+  bởi IT có sẵn. `ai-chatbox-service` đã từ 64% lên 97,9% dòng (adapter LLM chạy với server HTTP giả, không gọi mạng thật).
+- Test tiếp theo cần: adapter HTTP của catalog với `MockRestServiceServer`, IT cho các reader thống kê JDBC, và test cho
+  phần ca trực / PIN / offline của ticketing và identity.
 
 ### Frontend — `@vitest/coverage-v8` (statements / branches / functions / lines)
 
@@ -135,6 +130,8 @@ Dòng 10.914/12.447 · nhánh 2.641/3.431.
 | auth | 70,71 | 86,98 | 89,09 | 70,71 |
 | web-customer | 21,28 | 65,39 | 37,11 | 21,28 |
 | web-admin | 4,35 | 43,26 | 16,66 | 4,35 |
+| web-scanner | 73,42 | 87,83 | 61,53 | 73,42 |
+| web-platform | 64,3 | 87 | 75 | 64,3 |
 
 **Frontend chưa đạt 80% statement.** Vitest tính mọi tệp dưới `src/`, kể cả các trang và component
 chưa được test (trang quản trị, `FloorPlanEditor`, `EventMasterPanel`…). Phần logic thuần
