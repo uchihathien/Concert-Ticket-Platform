@@ -319,7 +319,7 @@ public class ToolDispatcher {
                                 "found",
                                 false,
                                 "reason",
-                                "KHÔNG CÓ SỰ KIỆN NÀO KHỚP",
+                                AnswerGrounding.REASON_NO_EVENT_MATCH,
                                 "hint",
                                 "Thử lại với ít chữ hơn trong query, hoặc bỏ trống city. "
                                         + "Nếu vẫn không có thì nói thẳng với khách là NexaTicket "
@@ -351,7 +351,12 @@ public class ToolDispatcher {
             return DispatchResult.of(ToolOutcome.ok(
                     call.callId(),
                     write(Map.of(
-                            "found", false, "reason", "THIẾU SLUG", "hint", "Gọi findEvents trước để lấy slug."))));
+                            "found",
+                            false,
+                            "reason",
+                            AnswerGrounding.REASON_MISSING_SLUG,
+                            "hint",
+                            "Gọi findEvents trước để lấy slug."))));
         }
         try {
             return catalog.findEventBySlug(slug.trim())
@@ -364,7 +369,7 @@ public class ToolDispatcher {
                                     "found",
                                     false,
                                     "reason",
-                                    "KHÔNG CÓ SỰ KIỆN NÀO MANG SLUG NÀY",
+                                    AnswerGrounding.REASON_NO_EVENT_FOR_SLUG,
                                     "hint",
                                     "Đừng tự dựng slug từ tên. Gọi findEvents để lấy slug đúng.")))));
         } catch (RemoteCallException e) {

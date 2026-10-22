@@ -19,6 +19,17 @@ public final class SupportAgentPrompts {
 
     private SupportAgentPrompts() {}
 
+    /**
+     * Số hotline và khung giờ — viết nguyên văn trong {@code SYSTEM} và trong mọi câu báo bên dưới.
+     *
+     * <p>{@code AnswerGrounding} dựa vào ĐÚNG hai chuỗi này để không coi "8:00–22:00" là một giờ diễn
+     * bịa. Đổi giờ hotline thì đổi ở đây và ở mọi câu dùng nó; {@code SupportAgentPromptsHotlineTest}
+     * đỏ nếu một câu còn giữ giờ cũ.
+     */
+    public static final String HOTLINE_NUMBER = "1900 1234";
+
+    public static final String HOTLINE_HOURS = "8:00–22:00";
+
     private static final String SYSTEM =
             """
             Bạn là chuyên viên hỗ trợ khách hàng của NexaTicket — nền tảng bán vé sự kiện tại Việt Nam.
