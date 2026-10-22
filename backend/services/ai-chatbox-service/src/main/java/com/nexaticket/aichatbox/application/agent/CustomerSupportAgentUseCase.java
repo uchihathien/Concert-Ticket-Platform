@@ -153,6 +153,12 @@ public class CustomerSupportAgentUseCase {
         } catch (SessionNotOwnedException e) {
             throw new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "Không tìm thấy phiên chat");
         }
+        // Lịch sử lưu NGUYÊN VĂN chữ khách gõ (màn hình hai phía phải thấy đúng chữ ấy), nên thoát lúc
+        // đọc: không thì một thẻ <tai_lieu> khách gõ ở lượt trước quay lại prompt ở mọi lượt sau
+        // (R-24). Lời trợ lý và nhân viên không thuộc mô hình đe doạ này.
+        transcript.replaceAll(exchange -> exchange instanceof Exchange.UserSaid said
+                ? new Exchange.UserSaid(SupportAgentPrompts.neutralizeMarkup(said.text()))
+                : exchange);
 
         // Bước 1b — người thật đang cầm cuộc hội thoại?
         //
