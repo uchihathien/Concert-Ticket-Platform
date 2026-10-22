@@ -43,3 +43,11 @@
 - **Impact:** ADR-2001 thêm điểm 7; ma trận thêm FR-002b; +3 story 1.10, 1.11, 1.12; 2.2 thêm Blocked-by 1.11 (2.4 kế thừa qua 2.2); migration Phase 2 `booking_intents` dời sang V0107. Tổng 23 story active. Khoá chống trùng khi đổi ghế: `proposalId-s{seat_version}` (1.11).
 - **In-progress stories affected:** none
 - **Made by:** bmad-correct-course
+
+## [2026-10-22] Review ai-chatbox-service → Epic 6 "Review hardening" (tech-spec.md)
+**Decision:** Gom 29 phát hiện review mã (hai người review độc lập, phát hiện nặng đã kiểm lại bằng đọc mã) thành tech-spec Quick Flow với 12 story Epic 6; 5 phát hiện đã có trong backlog Phase 1 không lặp lại. Ba MUST chạy trước Phase 1: 6.1 (race đóng/nhận phiếu), 6.7 (AnswerGrounding chặn nhầm câu hotline "8:00–22:00"), 6.9 (gửi lại tin đầu tiên luôn 409). Phiếu ASSIGNED quá hạn trả về WAITING thay vì tự đóng. Khoá theo phiên trong bộ nhớ (prod một replica).
+**Rationale:** Các lỗi này đang ảnh hưởng production hôm nay và độc lập với tính năng mới; tách epic riêng để không sửa mục LOCKED của 23 story Phase 1 đã duyệt. Thứ tự với Phase 1 theo tệp tranh chấp ghi trong tech-spec.md § Story List.
+
+## [2026-10-22] Chia Epic 6 thành 12 story; xếp thứ tự với 23 story Phase 1
+**Decision:** 12 story 6.1–6.12 `ready-for-dev`. Kiểm bắc cầu trên 35 story active: 18 cạnh Blocked-by thêm tự động theo quy tắc "Phase 1 đi sau Epic 6 khi trùng tệp; trong Epic 6 số nhỏ trước trừ khi tạo vòng" (ghi cả Blocks của bên trước). Không vòng. Điều chỉnh so với tech-spec: migration tách V0108 (handoff) / V0109 (tri thức); view khách giữ tên trường `requestedAt`/`assignedAgentName`; 6.6 lưu mã đơn chưa xác minh ở `claimedOrderId`, hoàn vé trùng trả `Denied`; 6.10 đặt khoá phiên ở controller nên không sửa `CustomerSupportAgentUseCase`; 6.12 coi 409 `REQUEST_IN_PROGRESS` là "chưa biết"; số dòng R-07/R-29 trong tech-spec sửa lại.
+**Rationale:** Epic 6 sửa lỗi đang chạy trên production, nên đi trước phần Phase 1 cùng tệp để Phase 1 dựng trên nền đã sửa; giữ tên trường view để không phải sửa frontend.

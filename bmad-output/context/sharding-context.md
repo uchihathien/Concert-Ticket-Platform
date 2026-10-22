@@ -69,3 +69,15 @@ ADR-2001 mục Decision đã sửa (xem `architecture.md#ADR-2001`, điểm 2–
 - Frontend: `apps/web-customer/src/components/PaymentPanel.tsx` đã vẽ VietQR từ `vietQrPayload` và poll trạng thái đơn — tái dùng (tách component QR dùng chung nếu cần).
 - Thứ tự mới: 1.3 → 1.5 → 1.7 (thẻ PAYMENT frontend); 1.8 (`confirm-by-reply`) blocked by 1.3, 1.4; 2.2 blocked by 1.8 (cùng `CustomerSupportAgentUseCase`); 2.4 không đổi phụ thuộc nhưng ghi rõ đường xác nhận bằng câu cũng ghi `pendingOrder`.
 - Đây là thay đổi mục LOCKED có uỷ quyền của người dùng (decision-log 2026-10-22, Course Correction).
+
+
+## Epic 6 — Review hardening (2026-10-22) — đọc TRƯỚC khi viết story 6.x
+
+- Nguồn chính: `bmad-output/tech-spec.md` (bảng R-01…R-29 có `tệp:dòng`, FR-001…FR-013, Technical Approach, Testing Strategy, Story List kèm thứ tự với Phase 1). Citation dạng `[Source: tech-spec.md#FR-003]`, `[Source: tech-spec.md#requirements — R-14]`.
+- Epic 6 sửa trên mã `main` HIỆN TẠI (chưa có Phase 1). Không giả định tệp/kiểu của Phase 1 (ActionCard, BookingProposal…) tồn tại.
+- Migration dùng chung `V0108__handoff_indexes_and_seed_unique.sql`: 6.3 sở hữu tệp, 6.5 thêm phần tri thức SAU 6.3 (Blocked-by 6.3) — hoặc 6.5 dùng `V0109__knowledge_seed_unique.sql` riêng; chọn V0109 riêng để không tranh chấp tệp.
+- Mã lỗi mới thêm vào `AiChatboxErrorCode.java` (tệp tranh chấp giữa 6.1, 6.2, 6.10 và Phase 1 1.2/1.10) — khai shared, xếp tuần tự.
+- `application.yml` (tệp tranh chấp 6.2, 6.5, 6.8, 6.9 và Phase 1 1.6, 3.3, 5.1).
+- Thứ tự gợi ý trong epic: 6.1 → 6.2 → 6.3 → 6.4 (cùng HandoffUseCase/JdbcHandoffRepository); 6.5, 6.6 độc lập; 6.7 → 6.11 (SupportAgentPrompts); 6.8; 6.9 → 6.10 (SupportChatController); 6.12 độc lập.
+- Memory dự án cần nhắc trong Testing của story có IT: fixture duy nhất theo từng lần chạy (container `withReuse` giữ dữ liệu cũ); không khai `@Container` trong lớp base dùng chung (dùng `AiChatboxTestBase` hiện có).
+- Status: `ready-for-dev`; scope mỗi dòng một đường dẫn từ gốc repo, không chú thích cùng dòng; mọi Task có `(AC: #N)`.
