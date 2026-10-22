@@ -71,12 +71,31 @@ class CheckinControllerWebTest extends WebSliceTest {
     @MockitoBean
     CheckinAssignmentRepository assignments;
 
+    /** Ca trực (mobile-v2): nhân viên thường chỉ quét được khi đang trong ca của suất. */
+    @MockitoBean
+    com.nexaticket.ticketing.application.CheckinShifts shifts;
+
     @BeforeEach
     void setUp() {
         when(catalog.sessionInfo(SESSION))
                 .thenReturn(Optional.of(
                         new CatalogPort.SessionInfo(EVENT, "Đêm nhạc", Instant.parse("2026-10-12T13:00:00Z"), null)));
         when(checkIn.handle(any())).thenReturn(accepted("ACCEPTED"));
+        // Mặc định nhân viên ĐANG trong ca ở "Cổng ca"; ca ngoài giờ có test riêng ở NgoaiCa.
+        when(shifts.activeShift(any(), any(), any(), any())).thenReturn(Optional.of(onShift("Cổng ca")));
+    }
+
+    private static com.nexaticket.ticketing.domain.port.ShiftRepository.Shift onShift(String gate) {
+        return new com.nexaticket.ticketing.domain.port.ShiftRepository.Shift(
+                UUID.randomUUID(),
+                ORG,
+                EVENT,
+                SESSION,
+                UUID.randomUUID(),
+                gate,
+                Instant.parse("2026-10-12T11:00:00Z"),
+                Instant.parse("2026-10-12T18:00:00Z"),
+                List.of(STAFF));
     }
 
     @Nested
@@ -166,7 +185,8 @@ class CheckinControllerWebTest extends WebSliceTest {
             assertThat(cmd.staffOrganizationId()).isEqualTo(ORG);
             assertThat(cmd.eventSessionId()).isEqualTo(SESSION);
             assertThat(cmd.qrToken()).isEqualTo("a.b.c");
-            assertThat(cmd.gate()).isEqualTo("Cổng A");
+            // Nhân viên đang trong ca: cổng là cổng của ca (mobile-v2), cổng máy tự khai ("Cổng A") bị bỏ qua.
+            assertThat(cmd.gate()).isEqualTo("Cổng ca");
             assertThat(cmd.override()).isFalse();
         }
 
@@ -401,6 +421,49 @@ class CheckinControllerWebTest extends WebSliceTest {
     }
 
     @Nested
+    @DisplayName("Ca trực (mobile-v2)")
+    class NgoaiCa {
+
+        @Test
+        @DisplayName("Nhân viên ĐÃ được gán sự kiện nhưng KHÔNG trong ca: 403 SHIFT_NOT_ACTIVE, handler không chạy")
+        void ngoai_ca() throws Exception {
+            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(true);
+            when(shifts.activeShift(any(), any(), any(), any())).thenReturn(Optional.empty());
+
+            mvc.perform(scan(QR_BODY).with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("SHIFT_NOT_ACTIVE"));
+
+            verifyNoInteractions(checkIn);
+        }
+
+        @Test
+        @DisplayName("Trong ca: cổng là cổng của ca — máy không tự khai cổng khác được")
+        void cong_theo_ca() throws Exception {
+            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(true);
+
+            mvc.perform(
+                            scan("{\"qrToken\":\"a.b.c\",\"deviceId\":\"may-1\",\"direction\":\"IN\",\"gate\":\"Cổng tự khai\"}")
+                                    .with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
+                    .andExpect(status().isOk());
+
+            assertThat(sentCommand().gate()).isEqualTo("Cổng ca");
+        }
+
+        @Test
+        @DisplayName("Người quản lý sự kiện quét không cần ca, và cổng lấy từ request")
+        void quan_ly_khong_can_ca() throws Exception {
+            when(shifts.activeShift(any(), any(), any(), any())).thenReturn(Optional.empty());
+
+            mvc.perform(scan("{\"qrToken\":\"a.b.c\",\"deviceId\":\"may-1\",\"direction\":\"IN\",\"gate\":\"Cổng B\"}")
+                            .with(member(STAFF, ORG, Role.EVENT_MANAGER)))
+                    .andExpect(status().isOk());
+
+            assertThat(sentCommand().gate()).isEqualTo("Cổng B");
+        }
+    }
+
+    @Nested
     @DisplayName("Lịch sử quét")
     class LichSu {
 
@@ -466,10 +529,13 @@ class CheckinControllerWebTest extends WebSliceTest {
                 1,
                 Instant.parse("2026-10-12T12:00:00Z"),
                 "Cổng A",
-                SESSION);
+                SESSION,
+                false,
+                false);
     }
 
     private static CheckInHandler.Result rejected(String result, String note) {
-        return new CheckInHandler.Result(result, "IN", null, null, null, note, null, null, null, 0, null, null, null);
+        return new CheckInHandler.Result(
+                result, "IN", null, null, null, note, null, null, null, 0, null, null, null, false, false);
     }
 }

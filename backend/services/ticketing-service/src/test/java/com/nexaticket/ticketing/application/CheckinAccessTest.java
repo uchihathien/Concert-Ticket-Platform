@@ -15,6 +15,7 @@ import com.nexaticket.platform.web.error.ApiException;
 import com.nexaticket.ticketing.domain.port.CatalogPort;
 import com.nexaticket.ticketing.domain.port.CheckinAssignmentRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -46,7 +47,12 @@ class CheckinAccessTest {
     void setUp() {
         assignments = mock(CheckinAssignmentRepository.class);
         catalog = mock(CatalogPort.class);
-        access = new CheckinAccess(assignments, catalog);
+        // Ca trực (mobile-v2) chỉ dùng ở requireScannerOnShift; các ca ở đây kiểm luật gán nên giả là đủ.
+        access = new CheckinAccess(
+                assignments,
+                catalog,
+                mock(CheckinShifts.class),
+                Clock.fixed(Instant.parse("2026-10-01T03:00:00Z"), ZoneOffset.UTC));
     }
 
     @Nested
@@ -120,7 +126,8 @@ class CheckinAccessTest {
         void dat_lai_va_doc_lai() {
             Instant now = Instant.parse("2026-10-01T03:00:00Z");
             UUID admin = UUID.randomUUID();
-            CheckinAssignments service = new CheckinAssignments(assignments, Clock.fixed(now, ZoneOffset.UTC));
+            CheckinAssignments service =
+                    new CheckinAssignments(assignments, catalog, Clock.fixed(now, ZoneOffset.UTC), Duration.ofHours(6));
             when(assignments.find(ORG, STAFF))
                     .thenReturn(List.of(new CheckinAssignmentRepository.Assignment(STAFF, EVENT, admin, now)));
 

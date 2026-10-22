@@ -189,7 +189,7 @@ class CheckInHandlerTest {
         @Test
         @DisplayName("Chữ ký sai hoặc token bị sửa: INVALID_TOKEN, không tra database, không lộ gì")
         void chu_ky_sai() {
-            when(signer.verify("gia.mao.chuky")).thenReturn(Optional.empty());
+            when(signer.verify(eq("gia.mao.chuky"), any(Instant.class))).thenReturn(Optional.empty());
 
             CheckInHandler.Result result = handler(true).handle(scanIn("gia.mao.chuky"));
 
@@ -214,7 +214,8 @@ class CheckInHandlerTest {
         @DisplayName("Chữ ký đúng nhưng không có vé mang mã đó: NOT_FOUND")
         void chu_ky_dung_khong_co_ve() {
             UUID jti = UUID.randomUUID();
-            when(signer.verify(QR)).thenReturn(Optional.of(new QrToken(jti, NOW.getEpochSecond() + 3600)));
+            when(signer.verify(eq(QR), any(Instant.class)))
+                    .thenReturn(Optional.of(new QrToken(jti, NOW.getEpochSecond() + 3600)));
             when(tickets.findById(jti)).thenReturn(Optional.empty());
 
             CheckInHandler.Result result = handler(true).handle(scanIn(QR));
@@ -528,7 +529,8 @@ class CheckInHandlerTest {
     }
 
     private void givenQrFor(Ticket ticket, Instant now) {
-        when(signer.verify(QR)).thenReturn(Optional.of(new QrToken(ticket.id(), now.getEpochSecond() + 3600)));
+        when(signer.verify(eq(QR), any(Instant.class)))
+                .thenReturn(Optional.of(new QrToken(ticket.id(), now.getEpochSecond() + 3600)));
         when(tickets.findById(ticket.id())).thenReturn(Optional.of(ticket));
     }
 

@@ -16,6 +16,7 @@ import com.nexaticket.identity.application.command.RevokeInvitationHandler;
 import com.nexaticket.identity.application.command.RevokeSessionsHandler;
 import com.nexaticket.identity.application.command.SendPasswordResetHandler;
 import com.nexaticket.identity.application.command.SetPurchaseLimitsHandler;
+import com.nexaticket.identity.application.command.StaffAccountHandler;
 import com.nexaticket.identity.application.command.StaffInvitationHandler;
 import com.nexaticket.identity.application.command.UpdateProfileHandler;
 import com.nexaticket.identity.application.command.UserLifecycleHandler;
@@ -101,6 +102,10 @@ abstract class RestSliceTestBase {
 
     @MockitoBean
     protected RecordExternalAuditHandler recordExternalAudit;
+
+    /** StaffAccountStatusController (mobile-v2): màn đăng nhập của app Staff hỏi trạng thái tài khoản. */
+    @MockitoBean
+    protected StaffAccountHandler staffAccounts;
 
     @MockitoBean
     protected InviteMemberHandler inviteMember;
