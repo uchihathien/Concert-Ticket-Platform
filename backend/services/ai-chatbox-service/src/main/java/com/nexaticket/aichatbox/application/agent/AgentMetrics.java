@@ -128,6 +128,18 @@ public class AgentMetrics {
     }
 
     /** Số vòng một lượt chat đã dùng. Ghi cả khi lượt ấy kết thúc bằng chuyển người thật. */
+    /**
+     * Một câu "đã đặt vé" bị chặn vì không có đơn thật (story 1.9). Tỷ lệ này tăng là tín hiệu đổi
+     * model/prompt — cùng nhóm cảnh báo với {@code LOW_CONFIDENCE}. Tag {@code reason} chỉ có hai giá trị.
+     */
+    public void recordBookingClaimBlocked(String reason) {
+        Counter.builder("aichatbox.booking_claim.blocked")
+                .description("Câu trả lời khẳng định đã đặt vé bị chặn vì không có đơn thật")
+                .tag("reason", reason)
+                .register(registry)
+                .increment();
+    }
+
     public void recordRounds(int used) {
         rounds.record(used);
     }

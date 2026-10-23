@@ -310,7 +310,25 @@ public class CustomerSupportAgentUseCase {
         // Thứ tự này quan trọng: câu trả lời bị chặn vì bịa thì nó đã được thay bằng câu "chưa thấy
         // sự kiện này", và gắn link vào đó là tự mâu thuẫn. Còn chốt chặn chỉ nổ khi KHÔNG tra được
         // sự kiện nào, nên lúc nó nổ thì cũng chẳng có đường dẫn nào để gắn.
-        String withLinks = SupportAgentPrompts.withTicketLinks(grounded, eventRefs.values());
+        // Chốt chặn thứ hai (1.9): số đơn phải có nguồn, "đã đặt" phải có đơn thật. Chạy TRƯỚC khi
+        // lưu — câu bị chặn không vào lịch sử, để lượt sau mô hình không đọc lại lời bịa như dữ liệu.
+        // Thẻ đề xuất của lượt (nếu có) giữ nguyên: thẻ là thật, chỉ lời là bịa.
+        String checked = grounded;
+        BookingClaimGuard.Verdict verdict = BookingClaimGuard.check(grounded, allOutcomes, transcript);
+        if (verdict instanceof BookingClaimGuard.Blocked blocked) {
+            boolean proposedThisTurn = allOutcomes.stream()
+                    .anyMatch(o ->
+                            !o.failed() && o.payload() != null && o.payload().contains("\"proposed\":true"));
+            // Không log nguyên câu: có thể chứa dữ liệu khách, và lời bịa là nhiễu trong log.
+            log.warn(
+                    "Chặn câu trả lời khẳng định giao dịch không có đơn thật ở phiên {}: {}",
+                    sessionId,
+                    blocked.reason());
+            metrics.recordBookingClaimBlocked(blocked.reason());
+            checked = SupportAgentPrompts.noOrderYetMessage(proposedThisTurn);
+        }
+
+        String withLinks = SupportAgentPrompts.withTicketLinks(checked, eventRefs.values());
 
         // Bước 6 — lưu. Lưu câu hỏi GỐC, không lưu bản đã ghép ngữ cảnh RAG: ngữ cảnh là thứ dựng
         // lại được và khác nhau mỗi lượt, còn lưu nó nghĩa là lượt sau đọc lại ngữ cảnh cũ như thể

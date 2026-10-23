@@ -117,6 +117,19 @@ public final class SupportAgentPrompts {
     }
 
     /**
+     * Câu thay cho một lời "đã đặt vé" không có đơn thật (story 1.9, {@code BookingClaimGuard}).
+     *
+     * @param proposedThisTurn lượt vừa lập đề xuất thành công — khách có thẻ để bấm
+     */
+    public static String noOrderYetMessage(boolean proposedThisTurn) {
+        return proposedThisTurn
+                ? "Mình chưa tạo đơn nào cho bạn. Bạn kiểm tra lại thông tin trên thẻ đề xuất rồi bấm **Đồng ý** "
+                        + "để mình giữ chỗ nhé."
+                : "Mình chưa tạo đơn nào cho bạn. Bạn cho mình biết sự kiện, suất và hạng vé muốn đặt, hoặc đặt "
+                        + "trực tiếp trên trang sự kiện nhé.";
+    }
+
+    /**
      * Câu trả lời khi vừa mở phiếu chuyển tiếp.
      *
      * <p>Viết cứng, không nhờ mô hình sinh: đây là lời hứa về một việc sẽ xảy ra ở phía sau, và nó

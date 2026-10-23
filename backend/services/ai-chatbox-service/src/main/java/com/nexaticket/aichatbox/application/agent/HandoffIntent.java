@@ -3,7 +3,6 @@ package com.nexaticket.aichatbox.application.agent;
 
 import java.text.Normalizer;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Nhận ra câu "cho tôi gặp người thật" mà <b>không</b> hỏi mô hình.
@@ -78,7 +77,6 @@ public final class HandoffIntent {
      * bước này.
      */
     private static String fold(String text) {
-        String lower = text.toLowerCase(Locale.ROOT).replace('đ', 'd');
-        return Normalizer.normalize(lower, Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+        return TextFolding.fold(text);
     }
 }

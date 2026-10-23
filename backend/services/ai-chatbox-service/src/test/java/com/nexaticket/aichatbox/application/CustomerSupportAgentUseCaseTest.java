@@ -8,6 +8,7 @@ import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
 import com.nexaticket.aichatbox.application.agent.AgentReply;
 import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
+import com.nexaticket.aichatbox.application.agent.SupportAgentPrompts;
 import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
@@ -242,6 +243,42 @@ class CustomerSupportAgentUseCaseTest {
 
         assertThat(inventory.holdKeys).isEmpty();
         assertThat(ordering.placeKeys).isEmpty();
+    }
+
+    // --- Chốt chặn "đã đặt vé" (1.9) ---------------------------------------
+
+    @Test
+    void bia_so_don_thi_cau_thay_the_duoc_tra_va_duoc_luu() {
+        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+        llm.willCallTool(SupportAgentTools.FIND_EVENTS, Map.of("query", "Trịnh"))
+                .willAnswer("Đã đặt 2 vé cho bạn. Số đơn của bạn là 3fa85f64-25f0-4226-b435-461969d423a6, "
+                        + "quét mã VietQR trên màn hình nhé.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "đặt luôn 2 vé đi");
+
+        String expected = SupportAgentPrompts.noOrderYetMessage(false);
+        assertThat(reply.answer()).startsWith(expected);
+        assertThat(reply.answer()).doesNotContain("3fa85f64");
+        // Chỉ câu thay thế được lưu — lượt sau không đọc lại lời bịa như dữ liệu.
+        assertThat(history.transcript(sessionId, userId, 10))
+                .filteredOn(m -> m.role() == ChatRole.ASSISTANT)
+                .extracting(m -> m.content())
+                .singleElement()
+                .satisfies(saved -> assertThat(saved).startsWith(expected).doesNotContain("3fa85f64"));
+        assertThat(inventory.holdKeys).isEmpty();
+    }
+
+    @Test
+    void tra_loi_trang_thai_don_that_khong_bi_chan() {
+        OrderSummary order = ordering.put(FakeCommerce.paidOrder(eventId, NOW.minus(Duration.ofHours(1))));
+        llm.willCallTool(
+                        SupportAgentTools.GET_ORDER_STATUS,
+                        Map.of("orderId", order.orderId().toString()))
+                .willAnswer("Đơn " + order.orderId() + " của bạn đã thanh toán, vé nằm trong ví vé.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "đơn của tôi sao rồi");
+
+        assertThat(reply.answer()).contains(order.orderId().toString()).contains("đã thanh toán");
     }
 
     // --- Trần vòng vẫn giữ --------------------------------------------------
