@@ -51,6 +51,8 @@ class SupportAgentPromptsHotlineTest {
                 args[i] = "NT-240001";
             } else if (types[i].isEnum()) {
                 args[i] = types[i].getEnumConstants()[0];
+            } else if (types[i] == boolean.class) {
+                args[i] = Boolean.TRUE; // noOrderYetMessage(proposedThisTurn) — cả hai nhánh đều không nhắc hotline
             } else {
                 throw new IllegalStateException("Thêm giá trị mẫu cho kiểu " + types[i] + " ở " + m.getName());
             }
