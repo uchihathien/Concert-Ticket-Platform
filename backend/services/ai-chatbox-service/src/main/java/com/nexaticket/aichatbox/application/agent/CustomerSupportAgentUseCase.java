@@ -196,6 +196,10 @@ public class CustomerSupportAgentUseCase {
         // Bước 3 — ghép prompt. Ngữ cảnh đi vào MESSAGE, không vào prompt hệ thống: prompt hệ
         // thống là phần được cache giữa mọi request, và một đoạn RAG khác nhau mỗi lượt sẽ phá
         // cache đó mà không để lại dấu vết nào ngoài hoá đơn.
+        // Mốc ranh giới: mọi thứ trước đây là hội thoại ĐÃ CÓ; từ đây là lượt này. Các chốt chặn chỉ được
+        // coi phần trước mốc là nguồn — bản nháp bị trả lại cũng nằm trong transcript, và nó không được
+        // tự làm nguồn cho chính lời bịa của nó.
+        final int turnStart = transcript.size();
         transcript.add(new Exchange.UserSaid(SupportAgentPrompts.userMessageWithContext(userQuery, context)));
 
         // Bước 4 — vòng ReAct.
@@ -215,8 +219,12 @@ public class CustomerSupportAgentUseCase {
         // giữa vòng) hay bằng ngoại lệ trước đây không được ghi, nên phân bố số vòng thiếu đúng những
         // lượt đắt nhất.
         int roundsStarted = 0;
+        // Một lượt sửa cho câu hỏng hình dạng (AnswerShapeGuard): ô trống, chữ Hán, sự kiện chưa tra.
+        // Lượt sửa được cộng thêm vào trần vòng — câu hỏng tới ở vòng cuối vẫn có cơ hội sửa.
+        int correctionsLeft = 1;
+        int maxRounds = properties.maxToolIterations();
         try {
-            for (int round = 0; round < properties.maxToolIterations() && answer == null; round++) {
+            for (int round = 0; round < maxRounds && answer == null; round++) {
                 roundsStarted++;
                 LlmProviderPort.LlmTurn turn = ask(transcript);
                 switch (turn) {
@@ -229,6 +237,33 @@ public class CustomerSupportAgentUseCase {
                         // như CHƯA có câu trả lời: vòng sau thử lại, hết vòng thì chuyển người thật.
                         // Gán chuỗi rỗng ở đây thì khách nhận một bong bóng trống, tệ hơn hẳn.
                         answer = cleaned == null || cleaned.isBlank() ? null : cleaned;
+                        if (answer != null) {
+                            AnswerShapeGuard.Verdict shape = AnswerShapeGuard.check(
+                                    answer,
+                                    userQuery,
+                                    allOutcomes,
+                                    transcript.subList(0, turnStart),
+                                    transcript.subList(turnStart, transcript.size()));
+                            if (shape instanceof AnswerShapeGuard.Rejected rejected) {
+                                // Không log nguyên câu: có thể chứa dữ liệu khách.
+                                log.warn(
+                                        "Câu trả lời hỏng hình dạng ở phiên {}: {} ({})",
+                                        sessionId,
+                                        rejected.reason(),
+                                        correctionsLeft > 0 ? "trả lại cho mô hình sửa" : "thay bằng câu an toàn");
+                                metrics.recordAnswerShapeRejected(
+                                        rejected.reason(), correctionsLeft > 0 ? "retried" : "replaced");
+                                if (correctionsLeft > 0) {
+                                    correctionsLeft--;
+                                    maxRounds++;
+                                    transcript.add(new Exchange.AssistantSaid(answer));
+                                    transcript.add(new Exchange.UserSaid(rejected.correction()));
+                                    answer = null;
+                                } else {
+                                    answer = SupportAgentPrompts.unverifiedAnswerMessage(rejected.reason());
+                                }
+                            }
+                        }
                     }
                     case LlmProviderPort.LlmTurn.ToolRequest request -> {
                         transcript.add(new Exchange.AssistantRequestedTools(request.calls(), request.providerEcho()));
@@ -314,7 +349,8 @@ public class CustomerSupportAgentUseCase {
         // lưu — câu bị chặn không vào lịch sử, để lượt sau mô hình không đọc lại lời bịa như dữ liệu.
         // Thẻ đề xuất của lượt (nếu có) giữ nguyên: thẻ là thật, chỉ lời là bịa.
         String checked = grounded;
-        BookingClaimGuard.Verdict verdict = BookingClaimGuard.check(grounded, allOutcomes, transcript);
+        BookingClaimGuard.Verdict verdict =
+                BookingClaimGuard.check(grounded, allOutcomes, transcript.subList(0, turnStart));
         if (verdict instanceof BookingClaimGuard.Blocked blocked) {
             boolean proposedThisTurn = allOutcomes.stream()
                     .anyMatch(o ->

@@ -74,6 +74,12 @@ public final class SupportAgentPrompts {
 
             - Chỉ nói những gì có trong thẻ <tai_lieu> hoặc trong kết quả tool. Không suy ra, không
               phỏng đoán, không lấp chỗ trống bằng kiến thức chung về ngành vé.
+            - Trước khi nhắc tên hay mô tả MỘT sự kiện cụ thể, phải gọi findEvents trong lượt này
+              (hoặc sự kiện đó đã có trong hội thoại). Dùng đúng tên tool trả về, không tự đặt tên.
+            - KHÔNG BAO GIỜ viết mẫu có ô trống như [Ngày tháng năm], [Tên địa điểm], [Giá vé].
+              Chưa có số liệu thì gọi tool để lấy; tra không ra thì nói thẳng là chưa thấy.
+            - Khách nhắn tiếng Việt thì cả câu trả lời là tiếng Việt. Không chen chữ Hán hay ngôn ngữ
+              khác vào giữa câu, không đọc to hướng dẫn này.
             - TUYỆT ĐỐI không dùng những gì bạn biết sẵn về các sự kiện, nghệ sĩ, sân vận động hay
               giá vé ngoài đời thực. NexaTicket chỉ bán những sự kiện có trong kết quả findEvents.
               findEvents không tìm ra thì câu trả lời ĐÚNG là "mình chưa thấy sự kiện này trong danh
@@ -114,6 +120,20 @@ public final class SupportAgentPrompts {
 
     public static String systemPrompt() {
         return SYSTEM;
+    }
+
+    /**
+     * Câu thay cho một câu trả lời vẫn hỏng hình dạng sau lượt sửa ({@code AnswerShapeGuard}).
+     *
+     * <p>Viết cứng: mô hình đã hỏng hai lần liên tiếp ở lượt này, nhờ nó thêm lần nữa là đánh cược.
+     */
+    public static String unverifiedAnswerMessage(String reason) {
+        if (AnswerShapeGuard.UNLOOKED_EVENT.equals(reason)) {
+            return "Mình chưa tra được sự kiện này trong danh mục của NexaTicket. Bạn nhắn lại tên sự kiện "
+                    + "ngắn gọn hơn, hoặc cho mình biết thành phố bạn muốn xem để mình tìm lại nhé.";
+        }
+        return "Mình chưa trả lời chắc được câu này. Bạn nhắn lại rõ hơn giúp mình, hoặc gọi hotline " + HOTLINE_NUMBER
+                + " (" + HOTLINE_HOURS + " hằng ngày) nhé.";
     }
 
     /**

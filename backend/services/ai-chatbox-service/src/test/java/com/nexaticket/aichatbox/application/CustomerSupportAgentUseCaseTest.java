@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
 import com.nexaticket.aichatbox.application.agent.AgentReply;
+import com.nexaticket.aichatbox.application.agent.AnswerShapeGuard;
 import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
 import com.nexaticket.aichatbox.application.agent.SupportAgentPrompts;
 import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
@@ -279,6 +280,70 @@ class CustomerSupportAgentUseCaseTest {
         AgentReply reply = agent.executeAgentProcess(sessionId, userId, "đơn của tôi sao rồi");
 
         assertThat(reply.answer()).contains(order.orderId().toString()).contains("đã thanh toán");
+    }
+
+    // --- Chốt chặn hình dạng: ô trống, chữ Hán, sự kiện chưa tra ------------------
+
+    @Test
+    void mau_chua_dien_duoc_tra_lai_mo_hinh_goi_tool_roi_viet_lai() {
+        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+        llm.willAnswer("Mình đã tìm thấy sự kiện. Diễn ra vào: [Ngày tháng năm], địa điểm: [Tên địa điểm].")
+                .willCallTool(SupportAgentTools.FIND_EVENTS, Map.of("query", "Trịnh"))
+                .willAnswer("Sự kiện \"Đêm nhạc Trịnh\" diễn ra ở Nhà hát Lớn, Hà Nội.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "có đêm nhạc Trịnh nào không");
+
+        assertThat(reply.answer()).startsWith("Sự kiện \"Đêm nhạc Trịnh\" diễn ra ở Nhà hát Lớn");
+        assertThat(reply.answer()).doesNotContain("[");
+        assertThat(reply.toolsUsed()).containsExactly(SupportAgentTools.FIND_EVENTS);
+        assertThat(llm.calls).hasValue(3);
+        // Chỉ câu khách hỏi và câu trả lời cuối được lưu — bản nháp hỏng và lời nhắc nội bộ thì không.
+        assertThat(history.transcript(sessionId, userId, 10))
+                .extracting(m -> m.content())
+                .hasSize(2)
+                .noneMatch(c -> c.contains("[Ngày tháng năm]") || c.contains("Ghi chú hệ thống"));
+    }
+
+    @Test
+    void sua_mot_lan_van_hong_thi_khach_nhan_cau_an_toan() {
+        llm.willAnswer("Xin lỗi, 保持在120字内。").willAnswer("看来我需要重新获取正确的sessionId。");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "đặt vé giúp mình");
+
+        assertThat(reply.answer())
+                .isEqualTo(SupportAgentPrompts.unverifiedAnswerMessage(AnswerShapeGuard.FOREIGN_SCRIPT));
+        // Đúng một lượt sửa, không hơn: lượt thứ hai hỏng thì dừng.
+        assertThat(llm.calls).hasValue(2);
+    }
+
+    @Test
+    void ten_su_kien_tu_dat_khong_goi_tool_thi_bi_bat_goi_findEvents() {
+        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+        llm.willAnswer("Mình đã tìm thấy sự kiện \"Sự kiện âm nhạc Trịnh Công Sơn\" cho bạn.")
+                .willAnswer("Vẫn là sự kiện \"Sự kiện âm nhạc Trịnh Công Sơn\" nhé.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "có nhạc Trịnh Công Sơn không");
+
+        assertThat(reply.answer())
+                .isEqualTo(SupportAgentPrompts.unverifiedAnswerMessage(AnswerShapeGuard.UNLOOKED_EVENT));
+        assertThat(reply.answer()).doesNotContain("Sự kiện âm nhạc Trịnh Công Sơn");
+    }
+
+    @Test
+    void cau_hong_o_vong_cuoi_van_duoc_mot_luot_sua() {
+        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+        // Ba vòng tool, câu hỏng ở vòng thứ tư (vòng cuối của trần 4), câu đúng ở vòng sửa.
+        llm.willCallTool(SupportAgentTools.FIND_EVENTS, Map.of("query", "Trịnh"))
+                .willCallTool(SupportAgentTools.FIND_EVENTS, Map.of("query", "Trịnh"))
+                .willCallTool(SupportAgentTools.FIND_EVENTS, Map.of("query", "Trịnh"))
+                .willAnswer("Giá vé: [Giá vé].")
+                .willAnswer("Sự kiện \"Đêm nhạc Trịnh\" còn hạng Phổ thông.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "giá vé đêm nhạc Trịnh");
+
+        assertThat(reply.answer()).startsWith("Sự kiện \"Đêm nhạc Trịnh\" còn hạng Phổ thông.");
+        assertThat(llm.calls).hasValue(5);
+        assertThat(handoffRepository.openBySession(sessionId)).isEmpty();
     }
 
     // --- Trần vòng vẫn giữ --------------------------------------------------

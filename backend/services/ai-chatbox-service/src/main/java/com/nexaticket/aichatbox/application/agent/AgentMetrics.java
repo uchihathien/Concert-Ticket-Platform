@@ -140,6 +140,20 @@ public class AgentMetrics {
                 .increment();
     }
 
+    /**
+     * Một câu trả lời hỏng hình dạng ({@code AnswerShapeGuard}): {@code outcome=retried} khi được trả lại
+     * cho mô hình sửa, {@code replaced} khi lượt sửa vẫn hỏng và khách nhận câu an toàn. Tỷ lệ
+     * {@code replaced} cao là tín hiệu đổi model, không phải sửa prompt thêm nữa.
+     */
+    public void recordAnswerShapeRejected(String reason, String outcome) {
+        Counter.builder("aichatbox.answer_shape.rejected")
+                .description("Câu trả lời còn ô trống, lẫn chữ Hán hoặc nói về sự kiện chưa tra")
+                .tag("reason", reason)
+                .tag("outcome", outcome)
+                .register(registry)
+                .increment();
+    }
+
     public void recordRounds(int used) {
         rounds.record(used);
     }
