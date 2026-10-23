@@ -104,3 +104,50 @@ Rồi lần lượt:
 - `OLLAMA_CHAT_MODEL=qwen2.5:3b-instruct` (tải ~2 GB, vừa GPU, nhanh gấp 3–5 lần, kém thông minh hơn), hoặc
 - `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY` (Claude qua API, trả lời trong vài giây; embedding vẫn
   local bằng bge-m3). Cả hai chỉ là biến môi trường khi bật `ai-chatbox-service`.
+
+## Chạy demo trên MacBook (Apple Silicon) — cho người khác trong nhóm
+
+Toàn bộ ảnh Docker của hạ tầng đều có bản ARM64, nên chạy được trên MacBook Air/Pro chip M. Khác với
+máy Windows ở ba chỗ: **không** dùng `infra.gpu.yml` (lớp phủ NVIDIA), **không** bật Ollama trong
+Docker (container không thấy GPU của Mac) mà cài Ollama thẳng trên macOS, và script demo dùng đường
+dẫn tương đối (đã sửa để chạy được trên cả macOS/Linux/Windows).
+
+**Cần có:** Docker Desktop (hoặc OrbStack), JDK 21 (Temurin), Node ≥ 20 + `corepack enable`, Ollama
+(`brew install ollama`), Git. **RAM:** 16 GB chạy thoải mái (ước lượng: Docker ~2,5 GB + 8 JVM
+~3,5 GB + 2 app Next ~1 GB + mô hình 7B ~5 GB ≈ 12 GB). Máy 8 GB thì KHÔNG chạy nổi mô hình 7B kèm
+cả stack — chọn một trong hai: `AI_PROVIDER=anthropic` (cần `ANTHROPIC_API_KEY`, nhanh hơn, không
+cần Ollama) hoặc `OLLAMA_CHAT_MODEL=qwen2.5:3b-instruct` (~2,5 GB RAM, kém thông minh hơn).
+
+```bash
+# 1. Hai repo, đúng nhánh (demo chạy trên nhánh Epic 6; Phase 1 ở feat/ai-chatbox-phase1)
+git clone https://github.com/uchihathien/Concert-Ticket-Platform.git && cd Concert-Ticket-Platform
+git checkout fix/ai-chatbox-epic6
+git clone https://github.com/uchihathien/Concert-Ticket-Frontend.git frontend   # repo riêng, nằm ngoài git của backend
+
+# 2. Ollama chạy thẳng trên macOS (dùng GPU Metal), tải hai mô hình (~6 GB)
+brew install ollama && brew services start ollama
+ollama pull qwen2.5:7b-instruct && ollama pull bge-m3
+
+# 3. Hạ tầng Docker — KHÔNG kèm infra.gpu.yml, KHÔNG --profile ai
+docker compose -p nexaticket-infra -f deploy/compose/infra.yml up -d
+
+# 4. Gỡ frontendUrl tunnel trong Keycloak (file realm trong repo vẫn trỏ tới tunnel của mobile)
+python3 scripts/keycloak-frontend-url.py clear
+
+# 5. Build jar (lần đầu ~10 phút, cần mạng) rồi bật 8 service
+(cd backend && ./mvnw -DskipTests -Dspotless.check.skip package)
+bash scripts/demo-chatbox-up.sh
+
+# 6. Frontend: cài, tạo .env.local từ .env.example trong TỪNG app (xem README của frontend), rồi chạy
+cd frontend && corepack pnpm install
+cp apps/web-customer/.env.example apps/web-customer/.env.local
+cp apps/web-platform/.env.example apps/web-platform/.env.local
+corepack pnpm dev --filter=@nexaticket/web-customer --filter=@nexaticket/web-platform
+
+# 7. Làm nóng mô hình trước khi vào demo
+curl -s localhost:11434/api/generate -d '{"model":"qwen2.5:7b-instruct","prompt":"xin chào","stream":false,"keep_alive":"2h"}'
+```
+
+Sau đó đăng nhập hai cửa sổ và chạy kịch bản ở trên. Trên M2/M3 16 GB, mô hình 7B sinh khoảng 15–25
+token/giây (nhanh hơn RTX 3050 Ti 4 GB vì vừa trọn trong bộ nhớ thống nhất) — mỗi câu trả lời ~8–15
+giây. Tắt: `bash scripts/demo-chatbox-up.sh --kill`, Ctrl+C app Next, `docker compose -p nexaticket-infra -f deploy/compose/infra.yml down`.
