@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.aichatbox.application.agent;
 
+import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.model.ToolSpec;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import java.util.EnumMap;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
- * Bốn con số về trợ lý, và mỗi con số trả lời một câu hỏi không suy ra được từ cái khác.
+ * Năm con số về trợ lý, và mỗi con số trả lời một câu hỏi không suy ra được từ cái khác.
  *
  * <h2>Vì sao service này cần metric nghiệp vụ trong khi những service khác thì chưa</h2>
  *
@@ -31,6 +36,12 @@ import org.springframework.stereotype.Component;
  *   <li><b>{@code handoff.opened}</b> — tỷ lệ chuyển sang người thật, tách theo lý do. Đây là chỉ
  *       số sức khoẻ của trợ lý: {@code LOW_CONFIDENCE} tăng nghĩa là kho tri thức đang hụt,
  *       {@code CUSTOMER_REQUEST} tăng nghĩa là khách không tin nó.
+ *   <li><b>{@code proposals}</b> — đề xuất đặt vé theo trạng thái kết thúc. {@code status=PROPOSED}
+ *       là tổng số đề xuất từng được lập (mọi đề xuất đều từng PROPOSED); {@code CONFIRMED},
+ *       {@code EXPIRED}, {@code CANCELLED} là số đã kết thúc ở đó. "Đề xuất → xác nhận" đo được tách
+ *       khỏi "đặt thành công". Là ảnh chụp theo bảng do {@code ProposalExpiryJob} ghi mỗi phút —
+ *       đúng tuyệt đối theo dữ liệu, chậm nhất một phút; xoá dòng cũ (retention) làm số giảm, Prometheus
+ *       coi là counter reset.
  * </ul>
  *
  * <p>Đặt ở tầng application chứ không trong adapter: "một lượt chat" và "một vòng ReAct" là khái
@@ -52,6 +63,7 @@ public class AgentMetrics {
     private final Counter llmCalls;
     private final Counter llmFailures;
     private final DistributionSummary rounds;
+    private final Map<BookingProposalStatus, AtomicLong> proposalTotals = new EnumMap<>(BookingProposalStatus.class);
     private final MeterRegistry registry;
 
     public AgentMetrics(MeterRegistry registry) {
@@ -74,6 +86,30 @@ public class AgentMetrics {
                 .description("Số vòng ReAct của một lượt chat")
                 .publishPercentiles(0.5, 0.95)
                 .register(registry);
+        // Bốn series có mặt từ lúc khởi động (giá trị 0) — dashboard không phải đợi job chạy lần đầu.
+        for (BookingProposalStatus status : BookingProposalStatus.values()) {
+            AtomicLong total = new AtomicLong();
+            proposalTotals.put(status, total);
+            FunctionCounter.builder("aichatbox.proposals", total, AtomicLong::get)
+                    .tag("status", status.name())
+                    .description("Đề xuất đặt vé: PROPOSED = tổng từng lập; CONFIRMED/EXPIRED/CANCELLED = đã kết "
+                            + "thúc ở trạng thái ấy (ảnh chụp theo bảng, cập nhật mỗi phút)")
+                    .register(registry);
+        }
+    }
+
+    /**
+     * Ảnh chụp {@code countByStatus()} của bảng đề xuất → bốn series. {@code PROPOSED} = tổng mọi
+     * trạng thái (mọi đề xuất đều từng PROPOSED), ba giá trị kia đọc đúng khoá.
+     */
+    public void updateProposalTotals(Map<BookingProposalStatus, Long> counts) {
+        long all = counts.values().stream().mapToLong(Long::longValue).sum();
+        proposalTotals.get(BookingProposalStatus.PROPOSED).set(all);
+        for (BookingProposalStatus status : BookingProposalStatus.values()) {
+            if (status != BookingProposalStatus.PROPOSED) {
+                proposalTotals.get(status).set(counts.getOrDefault(status, 0L));
+            }
+        }
     }
 
     /** Bọc một lần gọi mô hình: đếm, đo, và phân biệt hỏng với xong. */

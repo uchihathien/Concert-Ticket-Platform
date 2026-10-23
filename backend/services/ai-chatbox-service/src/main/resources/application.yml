@@ -191,6 +191,15 @@ nexaticket:
       reaper:
         enabled: ${HANDOFF_REAPER_ENABLED:true}
         interval: ${HANDOFF_REAPER_INTERVAL:1h}
+    proposal:
+      # Đề xuất đặt vé sống 10 phút (TTL khai trong BookingProposalUseCase). Thẻ phía khách tự khoá
+      # khi hết giờ và endpoint confirm tự kiểm expires_at, nên job này KHÔNG phải chốt chặn — nó
+      # chỉ đổi trạng thái để bảng nói thật, mở lại "một đề xuất mở cho một khu", và nuôi metric
+      # aichatbox_proposals_total. 60 giây là đủ nhanh cho cả ba việc; fixedDelay (không fixedRate)
+      # để lần chạy chậm không kéo theo một loạt lần chạy "đuổi kịp".
+      expiry:
+        enabled: ${PROPOSAL_EXPIRY_ENABLED:true}
+        interval: ${PROPOSAL_EXPIRY_INTERVAL:60s}
     services:
       ordering-url: ${ORDERING_URL:http://localhost:8093}
       # Danh mục sự kiện — đường CÔNG KHAI, không mang token của khách. Xem CatalogClientPort.
