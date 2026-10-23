@@ -230,6 +230,13 @@ public class ChatBookingFlow {
             return new Turn("Bạn muốn đặt vé sự kiện nào? Gõ tên sự kiện giúp mình nhé.", null);
         }
         List<EventBrief> found = catalog.searchEvents(query, null, null, MAX_EVENT_CHOICES);
+        // Sự kiện không còn suất sắp diễn thì không thành chip: bấm vào chỉ để nghe "hết suất" là một ngõ
+        // cụt. Tất cả đều hết suất thì giữ nguyên, để bước sau nói đúng lý do thay vì "không tìm thấy".
+        List<EventBrief> upcoming =
+                found.stream().filter(e -> e.nextSessionAt() != null).toList();
+        if (!upcoming.isEmpty()) {
+            found = upcoming;
+        }
         if (found.isEmpty()) {
             drafts.save(draft.asking(BookingDraft.Step.EVENT, "Bạn muốn đặt vé sự kiện nào?", List.of(), now));
             return new Turn(

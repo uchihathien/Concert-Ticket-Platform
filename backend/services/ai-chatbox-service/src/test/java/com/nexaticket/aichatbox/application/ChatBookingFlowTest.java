@@ -9,6 +9,7 @@ import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
 import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
+import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.OrderSummary;
 import com.nexaticket.aichatbox.domain.model.PlacedOrder;
@@ -240,6 +241,51 @@ class ChatBookingFlowTest {
         assertThat(turn.card()).isNull();
         assertThat(turn.answer()).contains("thử lại");
         assertThat(proposals.recentForSession(chatSessionId, userId, 5)).isEmpty();
+    }
+
+    @Test
+    void su_kien_het_suat_khong_thanh_chip_con_mot_su_kien_thi_chon_luon() {
+        FakeCommerce.Catalog twoResults = new FakeCommerce.Catalog() {
+            @Override
+            public List<EventBrief> searchEvents(String query, String city, String category, int limit) {
+                return List.of(
+                        new EventBrief(
+                                "dem-nhac-trinh-mua-dong",
+                                "Đêm nhạc Trịnh — Mùa Đông",
+                                null,
+                                "Huế",
+                                null,
+                                null,
+                                null,
+                                1),
+                        new EventBrief(
+                                "dem-nhac-trinh",
+                                "Đêm nhạc Trịnh",
+                                null,
+                                "Hà Nội",
+                                "Nhà hát Lớn",
+                                Instant.parse("2026-11-20T08:00:00Z"),
+                                450_000L,
+                                2));
+            }
+        };
+        twoResults.put(twoSessionEvent(), ZoneAdmission.SEATED);
+        ChatBookingFlow withPastEvent = new ChatBookingFlow(
+                twoResults,
+                sessionId -> Map.of(),
+                proposalUseCase,
+                proposals,
+                drafts,
+                ordering,
+                new FakeCommerce.Credentials(),
+                clock);
+
+        ChatBookingFlow.Turn turn = withPastEvent
+                .handle(chatSessionId, userId, "cho mình 2 vé đêm nhạc Trịnh")
+                .orElseThrow();
+
+        // Không hỏi "sự kiện nào": sự kiện Mùa Đông đã hết suất, nên đi thẳng tới chọn suất của sự kiện còn lại.
+        assertThat(((ActionCard.Choices) turn.card()).step()).isEqualTo("SESSION");
     }
 
     @Test
