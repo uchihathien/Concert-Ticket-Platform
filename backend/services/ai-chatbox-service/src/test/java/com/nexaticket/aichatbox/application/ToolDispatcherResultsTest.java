@@ -598,25 +598,105 @@ class ToolDispatcherResultsTest {
         }
 
         @Test
-        @DisplayName("thiếu slug, sessionId (hoặc không phải UUID) hay zoneCode thì proposed:false THIẾU THAM SỐ")
-        void thieu_tham_so() throws Exception {
-            String session = eventSessionId.toString();
-            List<Map<String, Object>> bad = List.of(
-                    args(null, session, "A", 2),
-                    args(" ", session, "A", 2),
-                    args("dem", null, "A", 2),
-                    args("dem", "khong-phai-uuid", "A", 2),
-                    args("dem", session, null, 2),
-                    args("dem", session, "  ", 2));
-            for (Map<String, Object> arguments : bad) {
+        @DisplayName("thiếu slug thì proposed:false THIẾU SLUG kèm gợi ý gọi findEvents")
+        void thieu_slug() throws Exception {
+            for (Map<String, Object> arguments : List.of(
+                    args(null, eventSessionId.toString(), "A", 2), args(" ", eventSessionId.toString(), "A", 2))) {
                 var result = dispatcher().dispatch(TURN, call(SupportAgentTools.PROPOSE_BOOKING, arguments));
 
-                assertThat(result.outcome().failed()).as("%s", arguments).isFalse();
-                assertThat(json(result).get("proposed").asBoolean()).isFalse();
-                assertThat(json(result).get("reason").asText()).isEqualTo("THIẾU THAM SỐ");
-                assertThat(json(result).get("hint").asText()).contains("getEventDetails");
+                assertThat(result.outcome().failed()).isFalse();
+                assertThat(json(result).get("reason").asText()).isEqualTo("THIẾU SLUG");
+                assertThat(json(result).get("hint").asText()).contains("findEvents");
             }
             assertThat(inventory.holdKeys).isEmpty();
+        }
+
+        @Test
+        @DisplayName("chỉ có slug + tên hạng vé: sự kiện một suất thì tự chọn suất và mã khu, lập được đề xuất")
+        void tu_tra_suat_va_khu_theo_ten_hang_ve() throws Exception {
+            catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.STANDING);
+            Map<String, Object> arguments = args("dem-nhac-trinh", null, null, 1);
+            arguments.put("ticketType", "phổ thông");
+
+            var result = dispatcher().dispatch(TURN, call(SupportAgentTools.PROPOSE_BOOKING, arguments));
+
+            JsonNode node = json(result);
+            assertThat(node.get("proposed").asBoolean()).isTrue();
+            assertThat(node.get("zoneCode").asText()).isEqualTo("GA");
+            assertThat(result.action()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("mô hình điền TÊN khu vào zoneCode và sessionId sai dạng: vẫn tự tra ra đúng mã")
+        void zoneCode_la_ten_khu() throws Exception {
+            catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+
+            var result = dispatcher()
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.PROPOSE_BOOKING,
+                                    args("dem-nhac-trinh", "khong-phai-uuid", "Khán đài A", 2)));
+
+            assertThat(json(result).get("proposed").asBoolean()).isTrue();
+            assertThat(json(result).get("zoneCode").asText()).isEqualTo("A");
+        }
+
+        @Test
+        @DisplayName("hạng vé không khớp: CHƯA RÕ HẠNG VÉ kèm danh sách hạng để hỏi khách")
+        void hang_ve_khong_khop() throws Exception {
+            catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+            Map<String, Object> arguments = args("dem-nhac-trinh", null, null, 1);
+            arguments.put("ticketType", "hạng kim cương");
+
+            JsonNode node = json(dispatcher().dispatch(TURN, call(SupportAgentTools.PROPOSE_BOOKING, arguments)));
+
+            assertThat(node.get("proposed").asBoolean()).isFalse();
+            assertThat(node.get("reason").asText()).isEqualTo("CHƯA RÕ HẠNG VÉ");
+            assertThat(node.get("tiers")).hasSize(2);
+            assertThat(node.get("hint").asText()).contains("Hỏi khách");
+        }
+
+        @Test
+        @DisplayName("sự kiện nhiều suất mà không có sessionId: CHƯA RÕ SUẤT kèm danh sách suất theo giờ Việt Nam")
+        void nhieu_suat() throws Exception {
+            List<EventDetail.Tier> tiers = List.of(new EventDetail.Tier("Phổ thông", 450_000L, "GA", "Khu đứng"));
+            Instant t1 = Instant.parse("2026-11-20T13:00:00Z");
+            Instant t2 = Instant.parse("2026-11-21T13:00:00Z");
+            catalog.details.put(
+                    new EventDetail(
+                            "hai-suat",
+                            "Hai suất",
+                            null,
+                            null,
+                            "nhac-song",
+                            "Hà Nội",
+                            "Nhà hát",
+                            "1 Tràng Tiền",
+                            List.of(
+                                    new EventDetail.Session(UUID.randomUUID(), t1, t1, t1, tiers),
+                                    new EventDetail.Session(UUID.randomUUID(), t2, t2, t2, tiers))),
+                    ZoneAdmission.STANDING);
+            Map<String, Object> arguments = args("hai-suat", null, null, 1);
+            arguments.put("ticketType", "Phổ thông");
+
+            JsonNode node = json(dispatcher().dispatch(TURN, call(SupportAgentTools.PROPOSE_BOOKING, arguments)));
+
+            assertThat(node.get("reason").asText()).isEqualTo("CHƯA RÕ SUẤT");
+            assertThat(node.get("sessions")).hasSize(2);
+            assertThat(node.get("sessions").get(0).get("vietnamTime").asText()).isEqualTo("20:00 ngày 20/11/2026");
+        }
+
+        @Test
+        @DisplayName("slug không có thật và không có sessionId: báo slug sai, gợi ý gọi findEvents")
+        void slug_sai() throws Exception {
+            Map<String, Object> arguments = args("khong-co", null, null, 1);
+            arguments.put("ticketType", "VIP");
+
+            JsonNode node = json(dispatcher().dispatch(TURN, call(SupportAgentTools.PROPOSE_BOOKING, arguments)));
+
+            assertThat(node.get("proposed").asBoolean()).isFalse();
+            assertThat(node.get("hint").asText()).contains("findEvents");
         }
 
         @Test

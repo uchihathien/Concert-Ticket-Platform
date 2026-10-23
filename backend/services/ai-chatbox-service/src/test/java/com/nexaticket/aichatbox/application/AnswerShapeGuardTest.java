@@ -180,4 +180,46 @@ class AnswerShapeGuardTest {
                         NO_TOOLS))
                 .isInstanceOf(Pass.class);
     }
+
+    // --- Đề xuất nói suông -----------------------------------------------------
+
+    @Test
+    void noi_da_lap_de_xuat_ma_khong_goi_proposeBooking_bi_chan() {
+        Verdict v = check(
+                "Tôi đã lập đề xuất đặt vé cho bạn. Xác nhận đặt vé trong 10 phút trên thẻ dưới đây nhé.",
+                "có, lập đề xuất giúp mình",
+                NO_TOOLS,
+                List.of(new Exchange.AssistantSaid("Sự kiện \"Giải chạy Marathon Đà Nẵng\" có hạng Cự ly 5km.")));
+
+        assertThat(reason(v)).isEqualTo(AnswerShapeGuard.UNBACKED_PROPOSAL);
+        assertThat(((Rejected) v).correction()).contains("proposeBooking").contains("getEventDetails");
+    }
+
+    @Test
+    void co_proposed_true_trong_luot_thi_noi_ve_the_duoc() {
+        Verdict v = check(
+                "Mình đã lập đề xuất 1 vé Cự ly 5km. Bạn bấm Đồng ý trên thẻ bên dưới trong 10 phút nhé.",
+                "đặt 1 vé",
+                called(SupportAgentTools.PROPOSE_BOOKING, "{\"proposed\":true,\"quantity\":1}"),
+                List.of());
+        assertThat(v).isInstanceOf(Pass.class);
+    }
+
+    @Test
+    void hoi_khach_co_muon_lap_de_xuat_khong_thi_khong_bi_chan() {
+        assertThat(check("Bạn có muốn mình lập đề xuất đặt vé không?", "đặt vé", NO_TOOLS, List.of()))
+                .isInstanceOf(Pass.class);
+        assertThat(check("Mình chưa lập đề xuất nào, bạn chọn hạng vé trước nhé.", "đặt vé", NO_TOOLS, List.of()))
+                .isInstanceOf(Pass.class);
+    }
+
+    @Test
+    void proposeBooking_bi_tu_choi_ma_van_noi_co_the_thi_bi_chan() {
+        Verdict v = check(
+                "Mình đã tạo đề xuất, bạn bấm xác nhận trên thẻ nhé.",
+                "đặt 7 vé",
+                called(SupportAgentTools.PROPOSE_BOOKING, "{\"proposed\":false,\"reason\":\"quá 6 vé\"}"),
+                List.of());
+        assertThat(reason(v)).isEqualTo(AnswerShapeGuard.UNBACKED_PROPOSAL);
+    }
 }

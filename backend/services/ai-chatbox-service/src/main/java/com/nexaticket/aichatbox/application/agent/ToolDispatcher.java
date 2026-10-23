@@ -374,16 +374,35 @@ public class ToolDispatcher {
         String zoneCode = call.stringArg("zoneCode");
         Integer quantity = call.intArg("quantity");
 
-        if (slug == null || slug.isBlank() || sessionId == null || zoneCode == null || zoneCode.isBlank()) {
+        if (slug == null || slug.isBlank()) {
             return DispatchResult.of(ToolOutcome.ok(
                     call.callId(),
                     write(Map.of(
                             "proposed",
                             false,
                             "reason",
-                            "THIẾU THAM SỐ",
+                            "THIẾU SLUG",
                             "hint",
-                            "Cần slug, sessionId (UUID) và zoneCode — lấy từ getEventDetails."))));
+                            "Gọi findEvents với tên sự kiện khách nói để lấy slug, rồi gọi lại proposeBooking."))));
+        }
+        // Mô hình nhỏ hay bỏ qua getEventDetails và gọi thẳng tool này chỉ với slug và tên hạng vé. Thay
+        // vì trả "thiếu tham số" — rồi mô hình quay sang hỏi KHÁCH mã sessionId, thứ khách không thể biết —
+        // tự tra: suất duy nhất thì chọn luôn, hạng vé khớp tên thì lấy mã khu. Chỉ khi thật sự mơ hồ
+        // (nhiều suất, không khớp hạng) mới trả danh sách để mô hình hỏi khách bằng lời.
+        if (sessionId == null || zoneCode == null || zoneCode.isBlank() || looksLikeName(zoneCode)) {
+            Resolution resolved;
+            try {
+                resolved = resolveSessionAndZone(slug.trim(), sessionId, zoneCode, call.stringArg("ticketType"));
+            } catch (RemoteCallException e) {
+                log.warn("Không tra được chi tiết {} để lập đề xuất: {}", slug, e.getMessage());
+                return DispatchResult.of(ToolOutcome.error(
+                        call.callId(), "Hệ thống danh mục tạm thời không phản hồi. Mời khách thử lại sau ít phút."));
+            }
+            if (resolved.unresolved() != null) {
+                return DispatchResult.of(ToolOutcome.ok(call.callId(), write(resolved.unresolved())));
+            }
+            sessionId = resolved.sessionId();
+            zoneCode = resolved.zoneCode();
         }
         if (quantity == null) {
             return DispatchResult.of(ToolOutcome.ok(
@@ -432,6 +451,110 @@ public class ToolDispatcher {
                     "Hệ thống danh mục tạm thời không phản hồi. ĐỪNG nói là hết vé — hãy mời khách thử lại "
                             + "sau ít phút hoặc đặt trên trang sự kiện."));
         }
+    }
+
+    /** Kết quả tự tra suất/khu: hoặc đủ hai mã, hoặc một payload "chưa rõ" cho mô hình hỏi khách. */
+    private record Resolution(UUID sessionId, String zoneCode, Map<String, Object> unresolved) {}
+
+    /** Mã khu thật ngắn, không dấu cách ("GA", "VIP", "FLR-16"); tên hạng vé thì có dấu cách hoặc dấu. */
+    private static boolean looksLikeName(String zoneCode) {
+        return zoneCode.trim().contains(" ") || !zoneCode.trim().matches("[A-Za-z0-9_-]{1,20}");
+    }
+
+    private Resolution resolveSessionAndZone(String slug, UUID sessionId, String zoneArg, String ticketType) {
+        Optional<EventDetail> found = catalog.findEventBySlug(slug);
+        if (found.isEmpty()) {
+            return new Resolution(
+                    null,
+                    null,
+                    Map.of(
+                            "proposed",
+                            false,
+                            "reason",
+                            AnswerGrounding.REASON_NO_EVENT_FOR_SLUG,
+                            "hint",
+                            "Gọi findEvents để lấy slug đúng, đừng tự dựng."));
+        }
+        EventDetail event = found.get();
+        List<EventDetail.Session> sessions = event.sessions();
+        EventDetail.Session session;
+        if (sessionId != null) {
+            session = sessions.stream()
+                    .filter(s -> sessionId.equals(s.id()))
+                    .findFirst()
+                    .orElse(null);
+        } else {
+            session = sessions.size() == 1 ? sessions.get(0) : null;
+        }
+        if (session == null) {
+            return new Resolution(
+                    null,
+                    null,
+                    Map.of(
+                            "proposed",
+                            false,
+                            "reason",
+                            "CHƯA RÕ SUẤT",
+                            "sessions",
+                            sessions.stream()
+                                    .map(s -> Map.of(
+                                            "sessionId",
+                                            s.id(),
+                                            "vietnamTime",
+                                            s.startsAt() == null ? "" : VN_TIME.format(s.startsAt())))
+                                    .toList(),
+                            "hint",
+                            "Hỏi khách muốn suất nào (nói theo ngày giờ), rồi gọi lại với sessionId tương ứng."));
+        }
+        String wanted = ticketType != null && !ticketType.isBlank() ? ticketType : zoneArg;
+        EventDetail.Tier tier = matchTier(session.tiers(), wanted);
+        if (tier == null) {
+            return new Resolution(
+                    null,
+                    null,
+                    Map.of(
+                            "proposed",
+                            false,
+                            "reason",
+                            "CHƯA RÕ HẠNG VÉ",
+                            "tiers",
+                            session.tiers().stream()
+                                    .map(t -> Map.of(
+                                            "ticketType", t.name(), "zoneCode", t.zoneCode(), "priceVnd", t.priceVnd()))
+                                    .toList(),
+                            "hint",
+                            "Hỏi khách chọn hạng vé nào trong danh sách, rồi gọi lại với zoneCode tương ứng."));
+        }
+        return new Resolution(session.id(), tier.zoneCode(), null);
+    }
+
+    /** Khớp theo mã khu trước, rồi theo tên hạng vé hoặc tên khu (gập dấu, chứa nhau). */
+    private static EventDetail.Tier matchTier(List<EventDetail.Tier> tiers, String wanted) {
+        if (wanted == null || wanted.isBlank()) {
+            return null;
+        }
+        for (EventDetail.Tier t : tiers) {
+            if (wanted.trim().equalsIgnoreCase(t.zoneCode())) {
+                return t;
+            }
+        }
+        String w = TextFolding.fold(wanted).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+        EventDetail.Tier match = null;
+        for (EventDetail.Tier t : tiers) {
+            String name = TextFolding.fold(t.name() + " " + (t.zoneName() == null ? "" : t.zoneName()))
+                    .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                    .trim();
+            String tierName = TextFolding.fold(t.name())
+                    .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                    .trim();
+            if (!w.isEmpty() && (name.contains(w) || w.contains(tierName))) {
+                if (match != null) {
+                    return null; // khớp nhiều hạng — mơ hồ, hỏi khách
+                }
+                match = t;
+            }
+        }
+        return match;
     }
 
     /**

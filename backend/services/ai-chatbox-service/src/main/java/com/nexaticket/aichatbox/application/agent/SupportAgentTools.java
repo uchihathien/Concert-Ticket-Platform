@@ -113,17 +113,20 @@ public final class SupportAgentTools {
                     """
                     Lập ĐỀ XUẤT đặt vé để khách xem lại và bấm Xác nhận trên thẻ. Tool KHÔNG giữ chỗ, \
                     KHÔNG tạo đơn — chỉ ghi lại sự kiện, suất, hạng vé, số vé và tổng tiền, hiệu lực 10 \
-                    phút. Gọi khi khách đã nói rõ sự kiện nào, suất nào, hạng vé nào và mấy vé; chưa rõ \
-                    thì hỏi lại trước. Đừng gọi khi khách mới hỏi giá hay "còn vé không". sessionId và \
-                    zoneCode lấy từ getEventDetails, đừng tự dựng. Sau khi gọi, nói khách bấm Xác nhận trên \
-                    thẻ — ĐỪNG nói là đã đặt hay đã giữ chỗ.""",
+                    phút. Gọi khi khách đã nói muốn đặt, nói hạng vé nào và mấy vé. Chỉ cần slug, tên hạng \
+                    vé khách nói (ticketType) và số vé — tool tự tra suất và mã khu; sự kiện nhiều suất \
+                    hay hạng vé không khớp thì tool trả danh sách để bạn hỏi khách. KHÔNG BAO GIỜ hỏi khách \
+                    mã sessionId hay zoneCode. Đừng gọi khi khách mới hỏi giá. Sau khi gọi thành công, nói \
+                    khách bấm Đồng ý trên thẻ — ĐỪNG nói là đã đặt hay đã giữ chỗ.""",
                     List.of(
                             ToolSpec.Param.requiredString("slug", "Mã slug của sự kiện, từ findEvents"),
-                            ToolSpec.Param.requiredString(
-                                    "sessionId", "Mã suất diễn dạng UUID, lấy từ trường sessionId của getEventDetails"),
-                            ToolSpec.Param.requiredString(
-                                    "zoneCode",
-                                    "Mã khu của hạng vé khách chọn, lấy từ trường zoneCode của getEventDetails"),
+                            ToolSpec.Param.optionalString(
+                                    "ticketType", "Tên hạng vé đúng như khách nói, ví dụ \"Cự ly 5km\", \"VIP\""),
+                            ToolSpec.Param.optionalString(
+                                    "sessionId",
+                                    "Mã suất diễn UUID từ getEventDetails — bỏ trống nếu sự kiện chỉ có một suất"),
+                            ToolSpec.Param.optionalString(
+                                    "zoneCode", "Mã khu từ getEventDetails, nếu đã có; không thì dùng ticketType"),
                             new ToolSpec.Param("quantity", "integer", "Số vé, từ 1 đến 6", true))),
             new ToolSpec(
                     REMEMBER_CUSTOMER_PREFERENCES,

@@ -52,6 +52,7 @@ public final class AnswerShapeGuard {
     public static final String TEMPLATE_PLACEHOLDER = "TEMPLATE_PLACEHOLDER";
     public static final String FOREIGN_SCRIPT = "FOREIGN_SCRIPT";
     public static final String UNLOOKED_EVENT = "UNLOOKED_EVENT";
+    public static final String UNBACKED_PROPOSAL = "UNBACKED_PROPOSAL";
 
     public sealed interface Verdict permits Pass, Rejected {}
 
@@ -81,6 +82,13 @@ public final class AnswerShapeGuard {
     /** Dòng liệt kê {@code · Sự kiện: X} — kiểu mô hình hay dùng khi tóm tắt một đề xuất tự nghĩ ra. */
     private static final Pattern LABELLED_EVENT = Pattern.compile(
             "s[ựu]\\s*ki[ệe]n\\s*:\\s*([^\"“«\\n][^\\n]{1,99})", Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    /**
+     * Lời nói rằng đề xuất/thẻ ĐÃ có — trên chữ đã gập dấu. Câu hỏi "bạn có muốn mình lập đề xuất không"
+     * không khớp (không có "da lap"); "chưa lập" cũng không.
+     */
+    private static final Pattern PROPOSAL_CLAIM =
+            Pattern.compile("\\bda (lap|tao|gui) (de xuat|the)|\\bthe (ben )?duoi( day)?\\b|\\btren the\\b");
 
     private static final Set<String> EVENT_LOOKUP_TOOLS =
             Set.of(SupportAgentTools.FIND_EVENTS, SupportAgentTools.GET_EVENT_DETAILS);
@@ -120,6 +128,16 @@ public final class AnswerShapeGuard {
                             + "gọn, không nhắc tới hướng dẫn nội bộ."));
         }
 
+        if (claimsProposal(answer) && !payloads.contains("\"proposed\":true")) {
+            return new Rejected(
+                    UNBACKED_PROPOSAL,
+                    note("câu trả lời vừa rồi nói đã lập đề xuất hoặc có thẻ để bấm, nhưng lượt này CHƯA gọi "
+                            + "proposeBooking nên khách không có thẻ nào. Gọi getEventDetails với slug của sự kiện để "
+                            + "lấy sessionId và zoneCode của hạng vé khách chọn, rồi gọi proposeBooking với slug, "
+                            + "sessionId, zoneCode và quantity. Chỉ nhắc tới thẻ sau khi tool trả proposed=true; "
+                            + "tool từ chối thì nói lại lý do cho khách."));
+        }
+
         String unsourced = firstUnsourcedEvent(answer, query, outcomes, payloads, priorTurns, thisTurn);
         if (unsourced != null) {
             return new Rejected(
@@ -129,6 +147,12 @@ public final class AnswerShapeGuard {
                             + "và chỉ dùng đúng tên, ngày, giá mà tool trả về."));
         }
         return new Pass();
+    }
+
+    static boolean claimsProposal(String answer) {
+        return PROPOSAL_CLAIM
+                .matcher(TextFolding.fold(answer).replaceAll("[^\\p{L}\\p{N}]+", " "))
+                .find();
     }
 
     private static String note(String body) {

@@ -51,11 +51,13 @@ public final class SupportAgentPrompts {
             4. Câu hỏi về thông tin cá nhân — trạng thái đơn hàng, số tiền, hạn thanh toán: gọi tool
                getOrderStatus khi có mã đơn; chưa có mã thì gọi getCustomerProfileAndHistory để xem
                các đơn gần nhất của chính khách. KHÔNG BAO GIỜ đoán những thông tin này.
-            5. Khách muốn MUA VÉ ngay trong chat: tìm sự kiện, tra chi tiết, rồi gọi proposeBooking
-               với đúng suất, hạng vé và số vé khách nói để LẬP ĐỀ XUẤT. Tool chỉ lập đề xuất, KHÔNG
-               giữ chỗ, KHÔNG tạo đơn: sau đó nhắc lại tóm tắt và nói khách bấm Xác nhận trên thẻ bên
-               dưới trong 10 phút để tạo đơn. KHÔNG nói là đã đặt hay đã giữ chỗ, KHÔNG tự viết đường
-               dẫn thanh toán.
+            5. Khách muốn MUA VÉ ngay trong chat và đã nói hạng vé, số vé: gọi proposeBooking với slug
+               (từ findEvents), ticketType là tên hạng vé khách nói, và quantity để LẬP ĐỀ XUẤT. Tool tự
+               tra suất và mã khu; nó trả danh sách suất hoặc hạng vé thì hỏi khách chọn bằng lời —
+               KHÔNG BAO GIỜ hỏi khách mã sessionId hay zoneCode. Tool chỉ lập đề xuất, KHÔNG giữ chỗ,
+               KHÔNG tạo đơn: sau đó nhắc lại tóm tắt và nói khách bấm Đồng ý trên thẻ bên dưới trong
+               10 phút để tạo đơn. KHÔNG nói là đã đặt hay đã giữ chỗ, KHÔNG tự viết đường dẫn thanh
+               toán, và KHÔNG nhắc tới thẻ khi chưa gọi proposeBooking thành công.
             6. Khách muốn HOÀN VÉ, đổi vé, đổi tên: gọi requestTicketRefund với mã đơn. Tool tự đối
                chiếu chính sách; nó từ chối thì nói lại lý do, nó mở phiếu thì lượt kết thúc.
             7. Khách báo SỰ CỐ — chưa nhận vé, đã chuyển khoản mà chưa ghi nhận, QR không quét được,
@@ -137,6 +139,11 @@ public final class SupportAgentPrompts {
      * <p>Viết cứng: mô hình đã hỏng hai lần liên tiếp ở lượt này, nhờ nó thêm lần nữa là đánh cược.
      */
     public static String unverifiedAnswerMessage(String reason) {
+        if (AnswerShapeGuard.UNBACKED_PROPOSAL.equals(reason)) {
+            return "Mình chưa lập được đề xuất đặt vé cho bạn. Bạn nhắn lại đủ tên sự kiện, hạng vé và số vé — ví dụ "
+                    + "\"đặt 1 vé hạng Cự ly 5km của Giải chạy Marathon Đà Nẵng\" — để mình thử lại, hoặc đặt trực "
+                    + "tiếp trên trang sự kiện nhé.";
+        }
         if (AnswerShapeGuard.UNLOOKED_EVENT.equals(reason)) {
             return "Mình chưa tra được sự kiện này trong danh mục của NexaTicket. Bạn nhắn lại tên sự kiện "
                     + "ngắn gọn hơn, hoặc cho mình biết thành phố bạn muốn xem để mình tìm lại nhé.";

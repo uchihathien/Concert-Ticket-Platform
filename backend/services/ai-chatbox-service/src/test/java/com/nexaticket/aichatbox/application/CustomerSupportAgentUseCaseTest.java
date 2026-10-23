@@ -371,4 +371,37 @@ class CustomerSupportAgentUseCaseTest {
         assertThat(reply.action()).isNull();
         assertThat(handoffRepository.openBySession(sessionId)).isPresent();
     }
+
+    // --- Đề xuất nói suông: bắt gọi proposeBooking -------------------------------
+
+    @Test
+    void noi_da_lap_de_xuat_khong_goi_tool_thi_duoc_nhac_va_lan_sua_tao_the_that() {
+        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.STANDING);
+        Map<String, Object> args = new HashMap<>();
+        args.put("slug", "dem-nhac-trinh");
+        args.put("sessionId", eventSessionId.toString());
+        args.put("zoneCode", "GA");
+        args.put("quantity", 1);
+        llm.willAnswer("Tôi đã lập đề xuất đặt vé cho bạn, xác nhận trên thẻ dưới đây nhé.")
+                .willCallTool(SupportAgentTools.PROPOSE_BOOKING, args)
+                .willAnswer("Mình đã lập đề xuất 1 vé Phổ thông. Bạn bấm Đồng ý trên thẻ bên dưới trong 10 phút nhé.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "có, lập đề xuất 1 vé Phổ thông giúp mình");
+
+        assertThat(reply.action()).isNotNull();
+        assertThat(reply.toolsUsed()).containsExactly(SupportAgentTools.PROPOSE_BOOKING);
+        assertThat(reply.answer()).contains("Đồng ý");
+        assertThat(proposals.countByStatus()).containsEntry(BookingProposalStatus.PROPOSED, 1L);
+    }
+
+    @Test
+    void noi_suong_hai_lan_thi_khach_nhan_huong_dan_nhan_lai_khong_co_the() {
+        llm.willAnswer("Tôi đã lập đề xuất đặt vé cho bạn.").willAnswer("Bạn xác nhận trên thẻ dưới đây nhé.");
+
+        AgentReply reply = agent.executeAgentProcess(sessionId, userId, "đặt vé giúp mình");
+
+        assertThat(reply.answer())
+                .isEqualTo(SupportAgentPrompts.unverifiedAnswerMessage(AnswerShapeGuard.UNBACKED_PROPOSAL));
+        assertThat(reply.action()).isNull();
+    }
 }

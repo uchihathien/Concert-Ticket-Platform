@@ -65,8 +65,13 @@ class SupportAgentPromptsTest {
                 .orElseThrow();
         assertThat(propose.params())
                 .extracting(ToolSpec.Param::name)
-                .containsExactly("slug", "sessionId", "zoneCode", "quantity");
-        assertThat(propose.params()).allMatch(ToolSpec.Param::required);
+                .containsExactly("slug", "ticketType", "sessionId", "zoneCode", "quantity");
+        // Chỉ slug và số vé bắt buộc: suất và mã khu tool tự tra từ tên hạng vé, để mô hình không
+        // quay sang hỏi khách những mã khách không thể biết.
+        assertThat(propose.params())
+                .filteredOn(ToolSpec.Param::required)
+                .extracting(ToolSpec.Param::name)
+                .containsExactly("slug", "quantity");
         assertThat(propose.description()).contains("KHÔNG giữ chỗ").contains("KHÔNG tạo đơn");
 
         assertThat(SupportAgentPrompts.systemPrompt())
