@@ -42,19 +42,14 @@ public final class ActionCards {
                 p.id(), summary, event.title(), startsAt, p.zoneCode(), p.quantity(), p.totalVnd(), p.expiresAt());
     }
 
-    /**
-     * Thẻ thanh toán ngay sau khi tạo đơn.
-     *
-     * <p>TODO(1.4): {@code PlacedOrder} hôm nay chưa mang {@code vietQrPayload}/{@code paymentReference};
-     * story 1.4 thêm hai trường ấy và đổi hai {@code null} dưới đây thành giá trị thật.
-     */
+    /** Thẻ thanh toán ngay sau khi tạo đơn — đủ VietQR để giao diện vẽ mã. */
     public static ActionCard.Payment payment(PlacedOrder order) {
         return new ActionCard.Payment(
                 order.orderId(),
                 order.orderNumber(),
                 order.totalVnd(),
-                null,
-                null,
+                order.vietQrPayload(),
+                order.paymentReference(),
                 order.checkoutUrl(),
                 order.paymentExpiresAt());
     }

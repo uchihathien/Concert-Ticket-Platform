@@ -203,14 +203,22 @@ public class OrderingHttpAdapter implements OrderingClientPort {
     }
 
     /**
-     * Hợp đồng với {@code OrderController.OrderCreated}. Chuỗi VietQR và mã tham chiếu ngân hàng
-     * cố ý không khai — xem {@link PlacedOrder}.
+     * Hợp đồng với {@code OrderController.OrderCreated}. Chuỗi VietQR và mã tham chiếu ngân hàng CHỈ
+     * đi qua thẻ PAYMENT của endpoint xác nhận (story 1.4) — không bao giờ vào JSON cho mô hình;
+     * đường tra đơn ({@code OrderResponse}) vẫn cố ý không khai hai trường này.
      */
     private record OrderCreatedResponse(
-            UUID orderId, String orderNumber, long totalVnd, String checkoutUrl, Instant paymentExpiresAt) {
+            UUID orderId,
+            String orderNumber,
+            long totalVnd,
+            String checkoutUrl,
+            Instant paymentExpiresAt,
+            String vietQrPayload,
+            String paymentReference) {
 
         PlacedOrder toDomain() {
-            return new PlacedOrder(orderId, orderNumber, totalVnd, checkoutUrl, paymentExpiresAt);
+            return new PlacedOrder(
+                    orderId, orderNumber, totalVnd, checkoutUrl, paymentExpiresAt, vietQrPayload, paymentReference);
         }
     }
 }

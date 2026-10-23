@@ -2,7 +2,9 @@
 package com.nexaticket.aichatbox.application.handoff;
 
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
+import com.nexaticket.aichatbox.application.agent.ActionCardView;
 import com.nexaticket.aichatbox.application.agent.AgentMetrics;
+import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.model.HandoffStatus;
@@ -70,6 +72,9 @@ public class HandoffUseCase {
     private final Clock clock;
     private final AgentMetrics metrics;
 
+    /** Thẻ đang mở của phiên cho màn hình khách (1.4); {@code null} ở bản dựng tay cho test không cần thẻ. */
+    private final BookingProposalUseCase proposals;
+
     /**
      * Transaction lập trình cho phần cần nguyên tử, để lời gọi sang identity nằm NGOÀI transaction.
      *
@@ -86,7 +91,7 @@ public class HandoffUseCase {
             IdentityLookupPort identities,
             Clock clock,
             AgentMetrics metrics) {
-        this(handoffs, history, identities, clock, metrics, TransactionOperations.withoutTransaction());
+        this(handoffs, history, identities, clock, metrics, null, TransactionOperations.withoutTransaction());
     }
 
     @Autowired
@@ -96,8 +101,9 @@ public class HandoffUseCase {
             IdentityLookupPort identities,
             Clock clock,
             AgentMetrics metrics,
+            BookingProposalUseCase proposals,
             PlatformTransactionManager transactions) {
-        this(handoffs, history, identities, clock, metrics, new TransactionTemplate(transactions));
+        this(handoffs, history, identities, clock, metrics, proposals, new TransactionTemplate(transactions));
     }
 
     private HandoffUseCase(
@@ -106,12 +112,14 @@ public class HandoffUseCase {
             IdentityLookupPort identities,
             Clock clock,
             AgentMetrics metrics,
+            BookingProposalUseCase proposals,
             TransactionOperations tx) {
         this.handoffs = handoffs;
         this.history = history;
         this.identities = identities;
         this.clock = clock;
         this.metrics = metrics;
+        this.proposals = proposals;
         this.tx = tx;
     }
 
@@ -625,7 +633,14 @@ public class HandoffUseCase {
             // stack trace trong log cho mỗi lần dò.
             throw new ApiException(AiChatboxErrorCode.CHAT_SESSION_NOT_FOUND, "Không tìm thấy phiên chat");
         }
-        return new HandoffViews.ChatThread(sessionId, openRowFor(sessionId).orElse(null), messages);
+        // Thẻ đang mở (đề xuất chờ bấm / đơn chờ thanh toán) — sau phần kiểm chủ phiên ở trên.
+        ActionCardView action = proposals == null
+                ? null
+                : proposals
+                        .openCardFor(sessionId, userId)
+                        .map(ActionCardView::of)
+                        .orElse(null);
+        return new HandoffViews.ChatThread(sessionId, openRowFor(sessionId).orElse(null), messages, action);
     }
 
     /**

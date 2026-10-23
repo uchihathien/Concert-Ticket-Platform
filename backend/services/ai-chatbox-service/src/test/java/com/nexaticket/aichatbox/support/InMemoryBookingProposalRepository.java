@@ -5,8 +5,10 @@ import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.port.BookingProposalRepository;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -85,6 +87,16 @@ public class InMemoryBookingProposalRepository implements BookingProposalReposit
             }
         }
         return n;
+    }
+
+    @Override
+    public synchronized List<BookingProposal> recentForSession(UUID chatSessionId, UUID userId, int limit) {
+        return rows.values().stream()
+                .filter(p ->
+                        p.chatSessionId().equals(chatSessionId) && p.userId().equals(userId))
+                .sorted(Comparator.comparing(BookingProposal::createdAt).reversed())
+                .limit(limit)
+                .toList();
     }
 
     @Override

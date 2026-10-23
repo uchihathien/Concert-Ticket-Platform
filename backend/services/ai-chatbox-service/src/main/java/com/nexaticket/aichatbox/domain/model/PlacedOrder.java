@@ -14,4 +14,16 @@ import java.util.UUID;
  * @param paymentExpiresAt hạn thanh toán do ordering quyết (mặc định 15 phút kể từ lúc đặt)
  */
 public record PlacedOrder(
-        UUID orderId, String orderNumber, long totalVnd, String checkoutUrl, Instant paymentExpiresAt) {}
+        UUID orderId,
+        String orderNumber,
+        long totalVnd,
+        String checkoutUrl,
+        Instant paymentExpiresAt,
+        String vietQrPayload,
+        String paymentReference) {
+
+    /** Đơn không kèm VietQR — hàng giả cũ và những chỗ chưa cần mã QR. */
+    public PlacedOrder(UUID orderId, String orderNumber, long totalVnd, String checkoutUrl, Instant paymentExpiresAt) {
+        this(orderId, orderNumber, totalVnd, checkoutUrl, paymentExpiresAt, null, null);
+    }
+}

@@ -1,18 +1,34 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.aichatbox.application.booking;
 
+import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
+import com.nexaticket.aichatbox.application.agent.ActionCardView;
+import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.BookingProposal;
+import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
+import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
+import com.nexaticket.aichatbox.domain.model.PlacedOrder;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.domain.port.BookingProposalRepository;
 import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
+import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
+import com.nexaticket.aichatbox.domain.port.RemoteCallException;
+import com.nexaticket.platform.web.error.ApiException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -48,14 +64,36 @@ public class BookingProposalUseCase {
     /** Trần số vé một đề xuất — bằng trần đặt vé qua chat. */
     static final int MAX_QUANTITY = TicketBookingUseCase.MAX_QUANTITY;
 
+    /** Giờ Việt Nam trong câu báo "đã tạo đơn" — chữ cho khách đọc. */
+    private static final DateTimeFormatter VN_TIME =
+            DateTimeFormatter.ofPattern("HH:mm 'ngày' d/M/yyyy").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
+
+    /** Bao nhiêu đề xuất gần nhất của phiên được xét khi dựng lại thẻ. */
+    private static final int RECENT = 5;
+
     private final CatalogClientPort catalog;
     private final BookingProposalRepository proposals;
     private final Clock clock;
+    private final TicketBookingUseCase booking;
+    private final ChatHistoryPort history;
 
+    /** Chỉ lập đề xuất (tool của mô hình) — không xác nhận được; test của dispatcher dùng bản này. */
     public BookingProposalUseCase(CatalogClientPort catalog, BookingProposalRepository proposals, Clock clock) {
+        this(catalog, proposals, clock, null, null);
+    }
+
+    @Autowired
+    public BookingProposalUseCase(
+            CatalogClientPort catalog,
+            BookingProposalRepository proposals,
+            Clock clock,
+            TicketBookingUseCase booking,
+            ChatHistoryPort history) {
         this.catalog = catalog;
         this.proposals = proposals;
         this.clock = clock;
+        this.booking = booking;
+        this.history = history;
     }
 
     /** Kết quả lập đề xuất — hoặc một đề xuất đã ghi, hoặc một lý do để mô hình nói lại với khách. */
@@ -151,5 +189,213 @@ public class BookingProposalUseCase {
                 proposal.totalVnd(),
                 replaced > 0 ? " — thay " + replaced + " đề xuất cũ" : "");
         return new ProposalOutcome.Proposed(proposal, event, tier.get());
+    }
+
+    /**
+     * Kết quả nút Xác nhận: đơn vừa tạo, thẻ PAYMENT (đủ VietQR) và câu báo đã ghi vào hội thoại.
+     *
+     * @param announcement câu "Đã tạo đơn …" — lượt sau trợ lý đọc nó như một câu của chính mình
+     */
+    public record Confirmed(BookingProposal proposal, PlacedOrder order, ActionCard.Payment card, String announcement) {
+
+        /** Đơn ở hình dạng cho controller — tầng interfaces không chạm record domain. */
+        public OrderView orderView() {
+            return new OrderView(
+                    order.orderId(),
+                    order.orderNumber(),
+                    order.totalVnd(),
+                    order.checkoutUrl(),
+                    order.paymentExpiresAt());
+        }
+    }
+
+    /** Đơn vừa tạo — đủ để giao diện hiện số đơn và đường dự phòng; VietQR nằm trong thẻ PAYMENT. */
+    public record OrderView(
+            UUID orderId, String orderNumber, long totalVnd, String checkoutUrl, Instant paymentExpiresAt) {}
+
+    /**
+     * Nút Xác nhận — đường xác nhận DUY NHẤT (ADR-2001).
+     *
+     * <p>Khoá chống trùng của giữ chỗ và đặt đơn suy từ {@code proposalId}
+     * ({@code chat-hold-{id}}, {@code chat-order-{id}} — {@code initiate} tự ghép tiền tố, nên ADR-2006
+     * "proposal-{id}" lệch tiền tố nhưng vẫn tất định theo đề xuất): bấm hai lần là cùng một đơn.
+     *
+     * <p>Lỗi nghiệp vụ (inventory/ordering nói "không") huỷ đề xuất và trả 422 — khách phải lập đề
+     * xuất mới. Lỗi hệ thống (không phản hồi) giữ đề xuất PROPOSED và trả 503 — khách bấm lại. Riêng
+     * "ordering quá hạn hai lần" (6.12) là "chưa biết": cũng giữ đề xuất và 503, vì đơn có thể đã ra đời.
+     *
+     * @throws ApiException {@code PROPOSAL_NOT_FOUND} (404), {@code PROPOSAL_EXPIRED} (410),
+     *     {@code PROPOSAL_ALREADY_CONFIRMED} (409, meta có đơn cũ), {@code BOOKING_REJECTED} (422,
+     *     meta có {@code reason}), {@code REMOTE_UNAVAILABLE} (503)
+     */
+    public Confirmed confirm(UUID userId, UUID proposalId) {
+        BookingProposal proposal = owned(userId, proposalId);
+        Instant now = clock.instant();
+        if (proposal.status() == BookingProposalStatus.CONFIRMED) {
+            throw alreadyConfirmed(proposal);
+        }
+        if (!proposal.isOpen(now)) {
+            throw new ApiException(
+                    AiChatboxErrorCode.PROPOSAL_EXPIRED,
+                    "Đề xuất đã hết hạn hoặc đã huỷ — mời khách hỏi lại để lập đề xuất mới");
+        }
+
+        TicketBookingUseCase.BookingOutcome outcome;
+        try {
+            outcome = requireBooking()
+                    .initiate(
+                            proposal.eventSlug(),
+                            proposal.eventSessionId(),
+                            proposal.zoneCode(),
+                            proposal.quantity(),
+                            proposalId.toString());
+        } catch (RemoteCallException e) {
+            throw new ApiException(
+                    AiChatboxErrorCode.REMOTE_UNAVAILABLE,
+                    "Hệ thống đặt vé tạm thời không phản hồi, mời thử lại sau ít phút");
+        }
+
+        return switch (outcome) {
+            case TicketBookingUseCase.BookingOutcome.Rejected rejected -> {
+                if (TicketBookingUseCase.UNCONFIRMED_REASON.equals(rejected.reason())) {
+                    // 6.12: chưa biết đơn đã tạo hay chưa — không huỷ đề xuất, không bảo khách đặt lại.
+                    throw new ApiException(AiChatboxErrorCode.REMOTE_UNAVAILABLE, rejected.reason());
+                }
+                proposals.cancel(proposalId, userId, now);
+                throw new ApiException(
+                        AiChatboxErrorCode.BOOKING_REJECTED, rejected.reason(), Map.of("reason", rejected.reason()));
+            }
+            case TicketBookingUseCase.BookingOutcome.Started started -> {
+                PlacedOrder order = started.order();
+                BookingProposal.Order saved = new BookingProposal.Order(
+                        order.orderId(), order.orderNumber(), order.checkoutUrl(), order.paymentExpiresAt());
+                String announcement = announcement(proposal, started.event(), order);
+                if (proposals.markConfirmed(proposalId, saved, now)) {
+                    try {
+                        history.append(proposal.chatSessionId(), userId, ChatRole.ASSISTANT, announcement);
+                    } catch (RuntimeException e) {
+                        // Đơn đã có, thẻ đã có; thiếu một câu trong lịch sử không được làm hỏng kết quả.
+                        log.warn(
+                                "Không ghi được câu báo tạo đơn {} vào phiên {}",
+                                order.orderNumber(),
+                                proposal.chatSessionId(),
+                                e);
+                    }
+                    log.info("Khách xác nhận đề xuất {} → đơn {}", proposalId, order.orderNumber());
+                } else {
+                    // Đua: lượt bấm kia (cùng khoá → cùng đơn) hoặc job hết hạn vừa thắng. Đơn đã có thật,
+                    // nên vẫn trả kết quả; dữ liệu đã lưu là nguồn sự thật.
+                    log.warn(
+                            "Đề xuất {} đã rời PROPOSED trước khi ghi đơn {} — trả theo dữ liệu đã lưu",
+                            proposalId,
+                            order.orderNumber());
+                }
+                BookingProposal current = proposals.findById(proposalId).orElse(proposal);
+                yield new Confirmed(current, order, ActionCards.payment(order), announcement);
+            }
+        };
+    }
+
+    /**
+     * Nút Huỷ. Idempotent: đã hết hạn hay đã huỷ thì không làm gì; đã xác nhận thì 409 kèm đơn cũ.
+     *
+     * @throws ApiException {@code PROPOSAL_NOT_FOUND}, {@code PROPOSAL_ALREADY_CONFIRMED}
+     */
+    public void cancel(UUID userId, UUID proposalId) {
+        BookingProposal proposal = owned(userId, proposalId);
+        if (proposal.status() == BookingProposalStatus.CONFIRMED) {
+            throw alreadyConfirmed(proposal);
+        }
+        if (proposal.status() == BookingProposalStatus.PROPOSED
+                && proposals.cancel(proposalId, userId, clock.instant())) {
+            log.info("Khách huỷ đề xuất {}", proposalId);
+        }
+    }
+
+    /**
+     * Thẻ đang mở của phiên — để màn hình khách dựng lại sau khi tải trang: đề xuất PROPOSED còn hạn mới
+     * nhất, hoặc đơn vừa xác nhận còn hạn thanh toán (thẻ PAYMENT KHÔNG có QR: hai chuỗi ấy cố ý không
+     * lưu ở đây, giao diện lấy qua {@code GET /v1/orders/{id}}). Catalog hỏng thì không có thẻ, không 500.
+     */
+    public Optional<ActionCard> openCardFor(UUID chatSessionId, UUID userId) {
+        Instant now = clock.instant();
+        List<BookingProposal> recent = proposals.recentForSession(chatSessionId, userId, RECENT);
+        Optional<BookingProposal> open =
+                recent.stream().filter(p -> p.isOpen(now)).findFirst();
+        if (open.isPresent()) {
+            BookingProposal p = open.get();
+            try {
+                return catalog.findEventBySlug(p.eventSlug()).map(event -> ActionCards.proposal(p, event));
+            } catch (RemoteCallException e) {
+                log.warn("Không dựng được thẻ đề xuất {}: catalog không phản hồi ({})", p.id(), e.getMessage());
+                return Optional.empty();
+            }
+        }
+        return recent.stream()
+                .filter(p -> p.status() == BookingProposalStatus.CONFIRMED
+                        && p.order() != null
+                        && p.order().paymentExpiresAt() != null
+                        && p.order().paymentExpiresAt().isAfter(now))
+                .findFirst()
+                .map(ActionCards::payment);
+    }
+
+    private BookingProposal owned(UUID userId, UUID proposalId) {
+        // Một mã cho "không có" và "của người khác": không xác nhận đề xuất của người khác có thật.
+        return proposals
+                .findById(proposalId)
+                .filter(p -> p.userId().equals(userId))
+                .orElseThrow(() -> new ApiException(AiChatboxErrorCode.PROPOSAL_NOT_FOUND, "Không tìm thấy đề xuất"));
+    }
+
+    private static ApiException alreadyConfirmed(BookingProposal proposal) {
+        return new ApiException(
+                AiChatboxErrorCode.PROPOSAL_ALREADY_CONFIRMED,
+                "Đề xuất này đã được xác nhận — đơn " + proposal.order().orderNumber(),
+                orderMeta(proposal));
+    }
+
+    /** 409 ở confirm và cancel cùng mang đơn cũ: giao diện hiện lại thẻ thanh toán thay vì một lỗi trống. */
+    private static Map<String, Object> orderMeta(BookingProposal proposal) {
+        BookingProposal.Order o = proposal.order();
+        Map<String, Object> order = new LinkedHashMap<>();
+        order.put("orderId", o.orderId());
+        order.put("orderNumber", o.orderNumber());
+        order.put("totalVnd", proposal.totalVnd());
+        order.put("checkoutUrl", o.checkoutUrl());
+        order.put("paymentExpiresAt", o.paymentExpiresAt());
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("order", order);
+        meta.put("action", ActionCardView.of(ActionCards.payment(proposal)));
+        return meta;
+    }
+
+    private static String announcement(BookingProposal proposal, EventDetail event, PlacedOrder order) {
+        String tierName = event.sessions().stream()
+                .filter(s -> proposal.eventSessionId().equals(s.id()))
+                .flatMap(s -> s.tiers().stream())
+                .filter(t -> proposal.zoneCode().equalsIgnoreCase(t.zoneCode()))
+                .map(EventDetail.Tier::name)
+                .findFirst()
+                .orElse(proposal.zoneCode());
+        String deadline = order.paymentExpiresAt() == null
+                ? ""
+                : ", thanh toán trước " + VN_TIME.format(order.paymentExpiresAt());
+        return "Đã tạo đơn " + order.orderNumber() + " (" + proposal.quantity() + " vé " + tierName + ", "
+                + event.title() + ") — tổng " + formatVnd(proposal.totalVnd()) + deadline + ". Thanh toán tại: "
+                + order.checkoutUrl();
+    }
+
+    /** "3.600.000đ" — cách khách đọc số tiền. */
+    private static String formatVnd(long amount) {
+        return String.format(Locale.forLanguageTag("vi-VN"), "%,dđ", amount).replace(',', '.');
+    }
+
+    private TicketBookingUseCase requireBooking() {
+        if (booking == null || history == null) {
+            throw new IllegalStateException(
+                    "BookingProposalUseCase dựng ở chế độ chỉ lập đề xuất — không xác nhận được");
+        }
+        return booking;
     }
 }

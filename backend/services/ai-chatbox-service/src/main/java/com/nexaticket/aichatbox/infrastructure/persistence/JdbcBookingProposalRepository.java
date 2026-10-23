@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -138,6 +139,18 @@ public class JdbcBookingProposalRepository implements BookingProposalRepository 
                         "update booking_proposals set status = 'EXPIRED' where status = 'PROPOSED' and expires_at <= :now")
                 .param("now", Timestamp.from(now))
                 .update();
+    }
+
+    @Override
+    public List<BookingProposal> recentForSession(UUID chatSessionId, UUID userId, int limit) {
+        return db.sql("select " + COLUMNS
+                        + " from booking_proposals where chat_session_id = :s and user_id = :u"
+                        + " order by created_at desc, id desc limit :n")
+                .param("s", chatSessionId)
+                .param("u", userId)
+                .param("n", limit)
+                .query(JdbcBookingProposalRepository::map)
+                .list();
     }
 
     @Override

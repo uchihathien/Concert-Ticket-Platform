@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.domain.port;
 import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -58,6 +59,12 @@ public interface BookingProposalRepository {
      * @return số dòng đã hết hạn
      */
     int expireOverdue(Instant now);
+
+    /**
+     * Đề xuất của khách trong một phiên chat, mới nhất trước — để dựng lại thẻ đang mở khi tải trang.
+     * Bảng nhỏ (vài dòng một phiên), không cần index riêng.
+     */
+    List<BookingProposal> recentForSession(UUID chatSessionId, UUID userId, int limit);
 
     /** Đếm theo trạng thái — đủ bốn khoá, 0 cho trạng thái không có dòng. */
     Map<BookingProposalStatus, Long> countByStatus();

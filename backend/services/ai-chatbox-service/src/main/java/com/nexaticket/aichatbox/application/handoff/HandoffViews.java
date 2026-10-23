@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 package com.nexaticket.aichatbox.application.handoff;
 
+import com.nexaticket.aichatbox.application.agent.ActionCardView;
 import com.nexaticket.aichatbox.domain.model.ChatMessage;
 import com.nexaticket.aichatbox.domain.model.Handoff;
 import com.nexaticket.aichatbox.domain.port.IdentityLookupPort;
@@ -131,8 +132,16 @@ public final class HandoffViews {
      *
      * @param handoff {@code null} nghĩa là trợ lý AI đang trả lời. Khác {@code null} thì giao diện
      *     phải đổi hẳn: ẩn gợi ý của bot, hiện "đang chờ nhân viên", và KHÔNG hứa trả lời tức thì.
+     * @param action thẻ đang mở (đề xuất chờ bấm, đơn chờ thanh toán) để dựng lại sau khi tải trang;
+     *     {@code null} khi không có
      */
-    public record ChatThread(UUID sessionId, CustomerHandoffView handoff, List<MessageRow> messages) {}
+    public record ChatThread(
+            UUID sessionId, CustomerHandoffView handoff, List<MessageRow> messages, ActionCardView action) {
+
+        public ChatThread(UUID sessionId, CustomerHandoffView handoff, List<MessageRow> messages) {
+            this(sessionId, handoff, messages, null);
+        }
+    }
 
     /**
      * Phiếu, phía KHÁCH — chỉ những gì giao diện của khách cần.
