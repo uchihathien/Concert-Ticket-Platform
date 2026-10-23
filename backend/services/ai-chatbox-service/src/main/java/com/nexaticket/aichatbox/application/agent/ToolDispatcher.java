@@ -3,7 +3,7 @@ package com.nexaticket.aichatbox.application.agent;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
+import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.domain.model.CustomerProfile;
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
@@ -76,7 +76,7 @@ public class ToolDispatcher {
     private final VectorStorePort knowledge;
     private final CallerCredentialsPort credentials;
     private final CustomerProfilePort profiles;
-    private final TicketBookingUseCase booking;
+    private final BookingProposalUseCase proposals;
     private final ObjectMapper json;
     private final AgentMetrics metrics;
 
@@ -86,7 +86,7 @@ public class ToolDispatcher {
             VectorStorePort knowledge,
             CallerCredentialsPort credentials,
             CustomerProfilePort profiles,
-            TicketBookingUseCase booking,
+            BookingProposalUseCase proposals,
             ObjectMapper json,
             AgentMetrics metrics) {
         this.ordering = ordering;
@@ -94,7 +94,7 @@ public class ToolDispatcher {
         this.knowledge = knowledge;
         this.credentials = credentials;
         this.profiles = profiles;
-        this.booking = booking;
+        this.proposals = proposals;
         this.json = json;
         this.metrics = metrics;
     }
@@ -114,13 +114,16 @@ public class ToolDispatcher {
         }
     }
 
-    public DispatchResult dispatch(ToolInvocation call) {
-        DispatchResult result = run(call);
+    /**
+     * @param turn phiên và người hỏi của lượt đang chạy — tool đặt vé cần, và mô hình không được điền
+     */
+    public DispatchResult dispatch(TurnContext turn, ToolInvocation call) {
+        DispatchResult result = run(turn, call);
         metrics.recordTool(call.toolName(), result.outcome().failed() ? "failed" : "ok");
         return result;
     }
 
-    private DispatchResult run(ToolInvocation call) {
+    private DispatchResult run(TurnContext turn, ToolInvocation call) {
         try {
             return switch (call.toolName()) {
                 case SupportAgentTools.GET_ORDER_STATUS -> getOrderStatus(call);
@@ -128,7 +131,7 @@ public class ToolDispatcher {
                 case SupportAgentTools.FIND_EVENTS -> findEvents(call);
                 case SupportAgentTools.GET_EVENT_DETAILS -> getEventDetails(call);
                 case SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY -> getCustomerProfileAndHistory(call);
-                case SupportAgentTools.INITIATE_TICKET_BOOKING -> initiateTicketBooking(call);
+                case SupportAgentTools.PROPOSE_BOOKING -> proposeBooking(turn, call);
                     // Mô hình gọi một tool không tồn tại. Hiếm, nhưng xảy ra — và im lặng ở đây
                     // biến nó thành một request sai định dạng ở vòng sau.
                 default -> DispatchResult.of(
@@ -224,14 +227,15 @@ public class ToolDispatcher {
     }
 
     /**
-     * Đặt vé hộ khách.
+     * Lập ĐỀ XUẤT đặt vé — không giữ chỗ, không tạo đơn (ADR-2001).
      *
-     * <p>Mọi kết cục "không đặt được vì nghiệp vụ" (hết chỗ, vượt hạn mức, tham số sai) là kết quả
-     * <i>thành công</i> với {@code booked: false} và một lý do — mô hình đọc rồi nói lại. Chỉ khi
-     * một service không phản hồi mới là lỗi, và lúc đó câu đúng là "thử lại sau" chứ không phải
-     * "hết vé".
+     * <p>"Không lập được vì nghiệp vụ" (quá 6 vé, khu không có) vẫn là kết quả <i>thành công</i> với
+     * {@code proposed: false} và lý do — mô hình đọc rồi nói lại; chỉ catalog không phản hồi mới là
+     * lỗi. Payload KHÔNG có đường dẫn thanh toán — chưa có đơn nào để thanh toán — và dặn mô hình nói
+     * khách bấm Xác nhận trên thẻ. Bản cũ ({@code initiateTicketBooking}) để mô hình quyết "khách đã
+     * đồng ý" rồi giữ chỗ, tạo đơn ngay: một lần đọc sai ý là một đơn không ai bấm.
      */
-    private DispatchResult initiateTicketBooking(ToolInvocation call) {
+    private DispatchResult proposeBooking(TurnContext turn, ToolInvocation call) {
         String slug = call.stringArg("slug");
         UUID sessionId = parseUuid(call.stringArg("sessionId"));
         String zoneCode = call.stringArg("zoneCode");
@@ -241,7 +245,7 @@ public class ToolDispatcher {
             return DispatchResult.of(ToolOutcome.ok(
                     call.callId(),
                     write(Map.of(
-                            "booked",
+                            "proposed",
                             false,
                             "reason",
                             "THIẾU THAM SỐ",
@@ -251,46 +255,46 @@ public class ToolDispatcher {
         if (quantity == null) {
             return DispatchResult.of(ToolOutcome.ok(
                     call.callId(),
-                    write(Map.of("booked", false, "reason", "THIẾU SỐ LƯỢNG", "hint", "Hỏi khách muốn mấy vé."))));
+                    write(Map.of("proposed", false, "reason", "THIẾU SỐ LƯỢNG", "hint", "Hỏi khách muốn mấy vé."))));
         }
 
         try {
-            TicketBookingUseCase.BookingOutcome outcome =
-                    booking.initiate(slug.trim(), sessionId, zoneCode.trim(), quantity, call.callId());
+            BookingProposalUseCase.ProposalOutcome outcome = proposals.propose(
+                    turn.userId(), turn.sessionId(), slug.trim(), sessionId, zoneCode.trim(), quantity);
             return switch (outcome) {
-                case TicketBookingUseCase.BookingOutcome.Rejected rejected -> DispatchResult.of(
-                        ToolOutcome.ok(call.callId(), write(Map.of("booked", false, "reason", rejected.reason()))));
-                case TicketBookingUseCase.BookingOutcome.Started started -> {
+                case BookingProposalUseCase.ProposalOutcome.Rejected rejected -> DispatchResult.of(
+                        ToolOutcome.ok(call.callId(), write(Map.of("proposed", false, "reason", rejected.reason()))));
+                case BookingProposalUseCase.ProposalOutcome.Proposed proposed -> {
+                    var proposal = proposed.proposal();
                     Map<String, Object> out = new LinkedHashMap<>();
-                    out.put("booked", true);
-                    out.put("eventTitle", started.event().title());
-                    out.put("quantity", started.hold().quantity());
-                    out.put("orderNumber", started.order().orderNumber());
-                    out.put("orderId", started.order().orderId());
-                    out.put("totalVnd", started.order().totalVnd());
-                    out.put(
-                            "holdExpiresVietnamTime",
-                            VN_TIME.format(started.hold().expiresAt()));
-                    if (started.order().paymentExpiresAt() != null) {
-                        out.put(
-                                "paymentExpiresVietnamTime",
-                                VN_TIME.format(started.order().paymentExpiresAt()));
-                    }
-                    out.put("checkoutUrl", started.order().checkoutUrl());
+                    out.put("proposed", true);
+                    out.put("proposalId", proposal.id());
+                    out.put("eventTitle", proposed.event().title());
+                    proposed.event().sessions().stream()
+                            .filter(session -> proposal.eventSessionId().equals(session.id()))
+                            .findFirst()
+                            .filter(session -> session.startsAt() != null)
+                            .ifPresent(session -> out.put("sessionVietnamTime", VN_TIME.format(session.startsAt())));
+                    out.put("zoneCode", proposal.zoneCode());
+                    out.put("tierName", proposed.tier().name());
+                    out.put("quantity", proposal.quantity());
+                    out.put("unitPriceVnd", proposal.unitPriceVnd());
+                    out.put("totalVnd", proposal.totalVnd());
+                    out.put("expiresVietnamTime", VN_TIME.format(proposal.expiresAt()));
                     out.put(
                             "nextStep",
-                            "Báo khách số đơn, tổng tiền và hạn thanh toán, rồi đưa đúng checkoutUrl ở trên "
-                                    + "để họ thanh toán. ĐỪNG tự viết đường dẫn khác.");
-                    // Không kèm EventRef: khách vừa đặt xong, và "xem chỗ và mua vé" gắn vào lúc này
-                    // là mời họ mua lần nữa. Đường đi tiếp duy nhất là checkoutUrl.
+                            "Nhắc lại tóm tắt và nói khách bấm Xác nhận trên thẻ bên dưới trong 10 phút. "
+                                    + "ĐỪNG nói là đã đặt hay đã giữ chỗ, ĐỪNG tự viết đường dẫn thanh toán.");
+                    // Không kèm EventRef: thẻ xác nhận là đường đi tiếp; "xem chỗ và mua vé" lúc này là
+                    // mời khách mua lần nữa.
                     yield DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
                 }
             };
         } catch (RemoteCallException e) {
-            log.warn("Không đặt được vé ({} / {}): {}", slug, zoneCode, e.getMessage());
+            log.warn("Không lập được đề xuất ({} / {}): {}", slug, zoneCode, e.getMessage());
             return DispatchResult.of(ToolOutcome.error(
                     call.callId(),
-                    "Hệ thống đặt vé tạm thời không phản hồi. ĐỪNG nói là hết vé — hãy mời khách thử lại "
+                    "Hệ thống danh mục tạm thời không phản hồi. ĐỪNG nói là hết vé — hãy mời khách thử lại "
                             + "sau ít phút hoặc đặt trên trang sự kiện."));
         }
     }
@@ -447,7 +451,7 @@ public class ToolDispatcher {
      * <p>Kèm {@code customerUrl} vì đó là thứ hữu ích nhất mà mô hình có thể đưa cho khách: một
      * đường dẫn bấm được để tự chọn chỗ. Không kèm thì mô hình tự dựng đường dẫn, và nó dựng sai.
      *
-     * <p>Kèm {@code sessionId} và {@code zoneCode} vì đó là hai thứ {@code initiateTicketBooking}
+     * <p>Kèm {@code sessionId} và {@code zoneCode} vì đó là hai thứ {@code proposeBooking}
      * cần — và là cách duy nhất để chúng vào prompt từ nguồn thật thay vì từ trí tưởng tượng.
      */
     private static Map<String, Object> describe(EventDetail event) {

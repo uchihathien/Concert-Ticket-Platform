@@ -45,7 +45,7 @@ class SupportAgentPromptsBehaviorTest {
             assertThat(SupportAgentPrompts.systemPrompt())
                     .contains("requestTicketRefund")
                     .contains("reportIncident")
-                    .contains("initiateTicketBooking")
+                    .contains("proposeBooking")
                     .contains("getEventRules");
         }
     }

@@ -8,7 +8,7 @@ import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.application.agent.AgentProperties;
 import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
-import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
+import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatMessage;
@@ -19,6 +19,7 @@ import com.nexaticket.aichatbox.domain.port.LlmProviderPort.LlmRequest;
 import com.nexaticket.aichatbox.domain.port.LlmProviderPort.LlmTurn;
 import com.nexaticket.aichatbox.support.FakeAiProviders;
 import com.nexaticket.aichatbox.support.FakeCommerce;
+import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
 import com.nexaticket.aichatbox.support.InMemoryChatHistory;
 import com.nexaticket.aichatbox.support.InMemoryHandoffRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -58,8 +59,8 @@ class PromptInjectionTest {
         HandoffUseCase handoffs =
                 new HandoffUseCase(new InMemoryHandoffRepository(), history, id -> Optional.empty(), clock, metrics);
         SupportCaseUseCase cases = new SupportCaseUseCase(ordering, knowledge, credentials, handoffs, clock, json);
-        TicketBookingUseCase booking = new TicketBookingUseCase(
-                new FakeCommerce.Catalog(), new FakeCommerce.Inventory(), ordering, credentials);
+        BookingProposalUseCase booking =
+                new BookingProposalUseCase(new FakeCommerce.Catalog(), new InMemoryBookingProposalRepository(), clock);
         ToolDispatcher tools = new ToolDispatcher(
                 ordering,
                 new FakeCommerce.Catalog(),

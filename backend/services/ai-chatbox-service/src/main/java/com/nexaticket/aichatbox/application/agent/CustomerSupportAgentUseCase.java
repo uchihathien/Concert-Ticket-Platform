@@ -246,7 +246,8 @@ public class CustomerSupportAgentUseCase {
                                 continue;
                             }
 
-                            ToolDispatcher.DispatchResult result = tools.dispatch(call);
+                            ToolDispatcher.DispatchResult result =
+                                    tools.dispatch(new TurnContext(sessionId, userId), call);
                             outcomes.add(result.outcome());
                             // Gom sự kiện tra được, theo slug để không trùng khi mô hình gọi findEvents
                             // rồi getEventDetails trên cùng một sự kiện. LinkedHashMap giữ thứ tự tìm

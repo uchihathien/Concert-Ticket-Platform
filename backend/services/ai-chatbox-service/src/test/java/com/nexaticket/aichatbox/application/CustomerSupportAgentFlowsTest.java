@@ -12,7 +12,7 @@ import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
 import com.nexaticket.aichatbox.application.agent.SupportAgentPrompts;
 import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
-import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
+import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatMessage;
@@ -31,6 +31,7 @@ import com.nexaticket.aichatbox.domain.port.LlmProviderPort;
 import com.nexaticket.aichatbox.domain.port.LlmUnavailableException;
 import com.nexaticket.aichatbox.support.FakeAiProviders;
 import com.nexaticket.aichatbox.support.FakeCommerce;
+import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
 import com.nexaticket.aichatbox.support.InMemoryChatHistory;
 import com.nexaticket.aichatbox.support.InMemoryHandoffRepository;
 import com.nexaticket.platform.web.error.ApiException;
@@ -153,7 +154,8 @@ class CustomerSupportAgentFlowsTest {
         HandoffUseCase handoffs =
                 new HandoffUseCase(handoffRepository, history, id -> Optional.empty(), clock, metrics);
         SupportCaseUseCase cases = new SupportCaseUseCase(ordering, knowledge, credentials, handoffs, clock, json);
-        TicketBookingUseCase booking = new TicketBookingUseCase(catalog, inventory, ordering, credentials);
+        BookingProposalUseCase booking =
+                new BookingProposalUseCase(catalog, new InMemoryBookingProposalRepository(), clock);
         ToolDispatcher tools = new ToolDispatcher(
                 ordering, catalog, knowledge, credentials, new FakeCommerce.Profiles(), booking, json, metrics);
         return new CustomerSupportAgentUseCase(

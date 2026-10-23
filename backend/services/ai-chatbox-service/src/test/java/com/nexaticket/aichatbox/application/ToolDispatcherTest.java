@@ -7,13 +7,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
-import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
-import com.nexaticket.aichatbox.domain.model.PlacedOrder;
+import com.nexaticket.aichatbox.application.agent.TurnContext;
+import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
+import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.support.FakeCommerce;
+import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -27,13 +31,16 @@ class ToolDispatcherTest {
     private final FakeCommerce.Inventory inventory = new FakeCommerce.Inventory();
     private final FakeCommerce.Profiles profiles = new FakeCommerce.Profiles();
     private final FakeCommerce.Credentials credentials = new FakeCommerce.Credentials();
+    private static final TurnContext TURN = new TurnContext(UUID.randomUUID(), UUID.randomUUID());
+    private final InMemoryBookingProposalRepository proposals = new InMemoryBookingProposalRepository();
     private final ToolDispatcher tools = new ToolDispatcher(
             ordering,
             catalog,
             new FakeCommerce.Knowledge(),
             credentials,
             profiles,
-            new TicketBookingUseCase(catalog, inventory, ordering, credentials),
+            new BookingProposalUseCase(
+                    catalog, proposals, Clock.fixed(Instant.parse("2026-10-23T10:00:00Z"), ZoneOffset.UTC)),
             new ObjectMapper(),
             new AgentMetrics(new SimpleMeterRegistry()));
 
@@ -42,7 +49,7 @@ class ToolDispatcherTest {
         ordering.mine.add(FakeCommerce.paidOrder(UUID.randomUUID(), Instant.now()));
         ordering.mine.add(FakeCommerce.unpaidOrder(UUID.randomUUID()));
 
-        String payload = tools.dispatch(call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()))
+        String payload = tools.dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()))
                 .outcome()
                 .payload();
 
@@ -57,7 +64,7 @@ class ToolDispatcherTest {
         profiles.down = true;
         ordering.mine.add(FakeCommerce.paidOrder(UUID.randomUUID(), Instant.now()));
 
-        var result = tools.dispatch(call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
+        var result = tools.dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
 
         assertThat(result.outcome().failed()).isFalse();
         assertThat(result.outcome().payload()).contains("CHƯA LẤY ĐƯỢC HỒ SƠ").contains("NT-240001");
@@ -67,7 +74,7 @@ class ToolDispatcherTest {
     void ordering_hong_thi_la_loi_khong_phai_khach_khong_co_don() {
         ordering.down = true;
 
-        var result = tools.dispatch(call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
+        var result = tools.dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
 
         assertThat(result.outcome().failed()).isTrue();
         assertThat(result.outcome().payload()).contains("ĐỪNG nói là khách không có đơn");
@@ -77,7 +84,8 @@ class ToolDispatcherTest {
     void chi_tiet_su_kien_mang_sessionId_va_zoneCode_cho_tool_dat_ve() {
         catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
 
-        String payload = tools.dispatch(call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "dem-nhac-trinh")))
+        String payload = tools.dispatch(
+                        TURN, call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "dem-nhac-trinh")))
                 .outcome()
                 .payload();
 
@@ -86,70 +94,72 @@ class ToolDispatcherTest {
     }
 
     @Test
-    void dat_ve_thanh_cong_tra_ve_so_don_han_thanh_toan_va_duong_dan() {
+    void de_xuat_thanh_cong_tra_tom_tat_va_dan_dung_noi_da_dat() {
         catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
-        ordering.nextOrder = new PlacedOrder(
-                UUID.randomUUID(),
-                "NT-240010",
-                3_600_000L,
-                "https://pay.payos.vn/web/xyz",
-                Instant.parse("2026-10-07T03:15:00Z"));
 
-        var result = tools.dispatch(call(
-                SupportAgentTools.INITIATE_TICKET_BOOKING,
-                Map.of(
-                        "slug",
-                        "dem-nhac-trinh",
-                        "sessionId",
-                        eventSessionId.toString(),
-                        "zoneCode",
-                        "A",
-                        "quantity",
-                        "2")));
+        var result = tools.dispatch(
+                TURN,
+                call(
+                        SupportAgentTools.PROPOSE_BOOKING,
+                        Map.of(
+                                "slug",
+                                "dem-nhac-trinh",
+                                "sessionId",
+                                eventSessionId.toString(),
+                                "zoneCode",
+                                "A",
+                                "quantity",
+                                "2")));
 
         assertThat(result.outcome().failed()).isFalse();
         assertThat(result.outcome().payload())
-                .contains("\"booked\":true")
-                .contains("\"orderNumber\":\"NT-240010\"")
-                // Giờ Việt Nam, đã định dạng — mô hình không phải đổi múi giờ.
-                .contains("\"paymentExpiresVietnamTime\":\"10:15 ngày 7/10/2026\"")
-                .contains("https://pay.payos.vn/web/xyz");
-        // KHÔNG kèm EventRef: khách vừa đặt xong thì câu "xem chỗ và mua vé" gắn thêm là mời họ mua
-        // lần nữa — đường đi tiếp duy nhất là checkoutUrl ở trên.
-        assertThat(result.events()).isEmpty();
-    }
-
-    @Test
-    void dat_ve_thieu_so_luong_thi_la_ket_qua_thanh_cong_bao_thieu() {
-        var result = tools.dispatch(call(
-                SupportAgentTools.INITIATE_TICKET_BOOKING,
-                Map.of("slug", "dem-nhac-trinh", "sessionId", eventSessionId.toString(), "zoneCode", "A")));
-
-        assertThat(result.outcome().failed()).isFalse();
-        assertThat(result.outcome().payload()).contains("\"booked\":false").contains("THIẾU SỐ LƯỢNG");
+                .contains("\"proposed\":true")
+                .contains("\"proposalId\"")
+                .contains("\"tierName\":\"VIP\"")
+                .contains("\"quantity\":2")
+                .contains("\"totalVnd\":3600000")
+                .contains("ĐỪNG nói là đã đặt");
+        // Chỉ là đề xuất: không giữ chỗ, không tạo đơn, không gắn thêm link mua vé.
         assertThat(inventory.holdKeys).isEmpty();
+        assertThat(ordering.placedHolds).isEmpty();
+        assertThat(result.events()).isEmpty();
+        assertThat(proposals.countByStatus()).containsEntry(BookingProposalStatus.PROPOSED, 1L);
     }
 
     @Test
-    void dat_ve_bi_tu_choi_thi_booked_false_kem_ly_do_khong_phai_loi() {
-        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
-        inventory.holdFailure =
-                new com.nexaticket.aichatbox.domain.port.BookingRejectedException("Khu này không còn đủ chỗ trống.");
-
-        var result = tools.dispatch(call(
-                SupportAgentTools.INITIATE_TICKET_BOOKING,
-                Map.of(
-                        "slug",
-                        "dem-nhac-trinh",
-                        "sessionId",
-                        eventSessionId.toString(),
-                        "zoneCode",
-                        "A",
-                        "quantity",
-                        2)));
+    void de_xuat_thieu_so_luong_thi_la_ket_qua_thanh_cong_bao_thieu() {
+        var result = tools.dispatch(
+                TURN,
+                call(
+                        SupportAgentTools.PROPOSE_BOOKING,
+                        Map.of("slug", "dem-nhac-trinh", "sessionId", eventSessionId.toString(), "zoneCode", "A")));
 
         assertThat(result.outcome().failed()).isFalse();
-        assertThat(result.outcome().payload()).contains("\"booked\":false").contains("không còn đủ chỗ");
+        assertThat(result.outcome().payload()).contains("\"proposed\":false").contains("THIẾU SỐ LƯỢNG");
+        assertThat(proposals.countByStatus()).containsEntry(BookingProposalStatus.PROPOSED, 0L);
+    }
+
+    @Test
+    void de_xuat_bi_tu_choi_thi_proposed_false_kem_ly_do_khong_phai_loi() {
+        catalog.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
+
+        var result = tools.dispatch(
+                TURN,
+                call(
+                        SupportAgentTools.PROPOSE_BOOKING,
+                        Map.of(
+                                "slug",
+                                "dem-nhac-trinh",
+                                "sessionId",
+                                eventSessionId.toString(),
+                                "zoneCode",
+                                "A",
+                                "quantity",
+                                7)));
+
+        assertThat(result.outcome().failed()).isFalse();
+        assertThat(result.outcome().payload()).contains("\"proposed\":false").contains("tối đa 6 vé");
+        assertThat(inventory.holdKeys).isEmpty();
     }
 
     @Test
@@ -164,12 +174,13 @@ class ToolDispatcherTest {
                 knowledge,
                 credentials,
                 profiles,
-                new TicketBookingUseCase(catalog, inventory, ordering, credentials),
+                new BookingProposalUseCase(
+                        catalog, proposals, Clock.fixed(Instant.parse("2026-10-23T10:00:00Z"), ZoneOffset.UTC)),
                 new ObjectMapper(),
                 new AgentMetrics(new SimpleMeterRegistry()));
 
         String payload = withRules
-                .dispatch(call(SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())))
+                .dispatch(TURN, call(SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())))
                 .outcome()
                 .payload();
 

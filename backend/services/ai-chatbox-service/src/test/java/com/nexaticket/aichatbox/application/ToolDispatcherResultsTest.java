@@ -8,13 +8,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.agent.AgentMetrics;
 import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
-import com.nexaticket.aichatbox.application.booking.TicketBookingUseCase;
+import com.nexaticket.aichatbox.application.agent.TurnContext;
+import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.domain.model.CustomerProfile;
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.EventRef;
 import com.nexaticket.aichatbox.domain.model.OrderSummary;
-import com.nexaticket.aichatbox.domain.model.PlacedOrder;
 import com.nexaticket.aichatbox.domain.model.RefundPolicy;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
@@ -22,8 +22,8 @@ import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
 import com.nexaticket.aichatbox.domain.port.OrderingClientPort;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import com.nexaticket.aichatbox.support.FakeCommerce;
+import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +42,7 @@ import org.junit.jupiter.api.Test;
 class ToolDispatcherResultsTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final TurnContext TURN = new TurnContext(UUID.randomUUID(), UUID.randomUUID());
 
     /** Danh mục giả tuỳ biến được kết quả tìm kiếm và lỗi. */
     private static final class ScriptedCatalog implements CatalogClientPort {
@@ -95,7 +96,8 @@ class ToolDispatcherResultsTest {
                 knowledge,
                 credentials,
                 profiles,
-                new TicketBookingUseCase(catalog, inventory, orderingPort, credentials, Duration.ZERO),
+                new BookingProposalUseCase(
+                        catalog, new InMemoryBookingProposalRepository(), java.time.Clock.systemUTC()),
                 JSON,
                 new AgentMetrics(new SimpleMeterRegistry()));
     }
@@ -117,7 +119,7 @@ class ToolDispatcherResultsTest {
         void tool_la() {
             ToolInvocation call = call("hackTheSystem", Map.of());
 
-            var result = dispatcher().dispatch(call);
+            var result = dispatcher().dispatch(TURN, call);
 
             assertThat(result.outcome().failed()).isTrue();
             assertThat(result.outcome().callId()).isEqualTo(call.callId());
@@ -136,9 +138,11 @@ class ToolDispatcherResultsTest {
             };
 
             var result = dispatcher(exploding)
-                    .dispatch(call(
-                            SupportAgentTools.GET_ORDER_STATUS,
-                            Map.of("orderId", UUID.randomUUID().toString())));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.GET_ORDER_STATUS,
+                                    Map.of("orderId", UUID.randomUUID().toString())));
 
             assertThat(result.outcome().failed()).isTrue();
             assertThat(result.outcome().payload()).contains("sự cố").doesNotContain("hunter2");
@@ -153,14 +157,15 @@ class ToolDispatcherResultsTest {
         @DisplayName("mã đơn không phải UUID là found:false kèm gợi ý, KHÔNG gọi ordering và KHÔNG là lỗi")
         void ma_don_khong_hop_le() throws Exception {
             for (Object bad : new Object[] {"khong-phai-uuid", "", "   ", 12345}) {
-                var result = dispatcher().dispatch(call(SupportAgentTools.GET_ORDER_STATUS, Map.of("orderId", bad)));
+                var result =
+                        dispatcher().dispatch(TURN, call(SupportAgentTools.GET_ORDER_STATUS, Map.of("orderId", bad)));
 
                 assertThat(result.outcome().failed()).as("orderId=%s", bad).isFalse();
                 assertThat(json(result).get("found").asBoolean()).isFalse();
                 assertThat(json(result).get("reason").asText()).isEqualTo("MÃ ĐƠN KHÔNG HỢP LỆ");
                 assertThat(json(result).get("hint").asText()).contains("getCustomerProfileAndHistory");
             }
-            var missing = dispatcher().dispatch(call(SupportAgentTools.GET_ORDER_STATUS, Map.of()));
+            var missing = dispatcher().dispatch(TURN, call(SupportAgentTools.GET_ORDER_STATUS, Map.of()));
             assertThat(json(missing).get("reason").asText()).isEqualTo("MÃ ĐƠN KHÔNG HỢP LỆ");
         }
 
@@ -168,9 +173,11 @@ class ToolDispatcherResultsTest {
         @DisplayName("đơn không có (hoặc của người khác) là THÀNH CÔNG với found:false")
         void khong_co_don() throws Exception {
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.GET_ORDER_STATUS,
-                            Map.of("orderId", UUID.randomUUID().toString())));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.GET_ORDER_STATUS,
+                                    Map.of("orderId", UUID.randomUUID().toString())));
 
             assertThat(result.outcome().failed()).isFalse();
             assertThat(json(result).get("found").asBoolean()).isFalse();
@@ -183,9 +190,11 @@ class ToolDispatcherResultsTest {
             ordering.down = true;
 
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.GET_ORDER_STATUS,
-                            Map.of("orderId", UUID.randomUUID().toString())));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.GET_ORDER_STATUS,
+                                    Map.of("orderId", UUID.randomUUID().toString())));
 
             assertThat(result.outcome().failed()).isTrue();
             assertThat(result.outcome().payload()).contains("ĐỪNG nói là không tìm thấy đơn");
@@ -198,9 +207,11 @@ class ToolDispatcherResultsTest {
                     ordering.put(FakeCommerce.paidOrder(UUID.randomUUID(), Instant.parse("2026-10-07T03:00:00Z")));
 
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.GET_ORDER_STATUS,
-                            Map.of("orderId", order.orderId().toString())));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.GET_ORDER_STATUS,
+                                    Map.of("orderId", order.orderId().toString())));
 
             JsonNode node = json(result);
             assertThat(node.get("found").asBoolean()).isTrue();
@@ -219,7 +230,9 @@ class ToolDispatcherResultsTest {
             OrderSummary order = ordering.put(FakeCommerce.unpaidOrder(UUID.randomUUID()));
 
             var result = dispatcher()
-                    .dispatch(call(SupportAgentTools.GET_ORDER_STATUS, Map.of("orderId", " " + order.orderId() + " ")));
+                    .dispatch(
+                            TURN,
+                            call(SupportAgentTools.GET_ORDER_STATUS, Map.of("orderId", " " + order.orderId() + " ")));
 
             JsonNode node = json(result);
             assertThat(node.get("status").asText()).isEqualTo("AWAITING_PAYMENT");
@@ -233,9 +246,11 @@ class ToolDispatcherResultsTest {
             OrderSummary order = ordering.put(FakeCommerce.paidOrder(UUID.randomUUID(), Instant.now()));
 
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.GET_ORDER_STATUS,
-                            Map.of("orderId", order.orderId().toString())));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.GET_ORDER_STATUS,
+                                    Map.of("orderId", order.orderId().toString())));
 
             assertThat(result.outcome().payload()).doesNotContain(FakeCommerce.TOKEN);
         }
@@ -248,7 +263,8 @@ class ToolDispatcherResultsTest {
         @Test
         @DisplayName("khách chưa có đơn: orders rỗng kèm gợi ý hỏi tài khoản khác")
         void chua_co_don() throws Exception {
-            var result = dispatcher().dispatch(call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
+            var result =
+                    dispatcher().dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
 
             JsonNode node = json(result);
             assertThat(result.outcome().failed()).isFalse();
@@ -265,8 +281,8 @@ class ToolDispatcherResultsTest {
             }
             ordering.mine.add(0, FakeCommerce.unpaidOrder(UUID.randomUUID()));
 
-            JsonNode node =
-                    json(dispatcher().dispatch(call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of())));
+            JsonNode node = json(
+                    dispatcher().dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of())));
 
             assertThat(node.get("orderCount").asInt()).isEqualTo(5);
             assertThat(node.get("orders")).hasSize(5);
@@ -292,7 +308,7 @@ class ToolDispatcherResultsTest {
                 profiles.profile = new CustomerProfile("Tên", c.email(), c.phone());
 
                 JsonNode customer = json(dispatcher()
-                                .dispatch(call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of())))
+                                .dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of())))
                         .get("customer");
 
                 assertThat(
@@ -322,7 +338,7 @@ class ToolDispatcherResultsTest {
         @Test
         @DisplayName("không ra gì là THÀNH CÔNG found:false kèm gợi ý, và không kèm EventRef nào")
         void khong_ra_gi() throws Exception {
-            var result = dispatcher().dispatch(call(SupportAgentTools.FIND_EVENTS, Map.of("query", "Rồng Vàng")));
+            var result = dispatcher().dispatch(TURN, call(SupportAgentTools.FIND_EVENTS, Map.of("query", "Rồng Vàng")));
 
             assertThat(result.outcome().failed()).isFalse();
             assertThat(json(result).get("found").asBoolean()).isFalse();
@@ -338,8 +354,11 @@ class ToolDispatcherResultsTest {
                     brief("kich-noi", "Kịch nói", 1, null, null));
 
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.FIND_EVENTS, Map.of("query", "nhạc", "city", "Hà Nội", "category", "x")));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.FIND_EVENTS,
+                                    Map.of("query", "nhạc", "city", "Hà Nội", "category", "x")));
 
             JsonNode node = json(result);
             assertThat(node.get("found").asBoolean()).isTrue();
@@ -362,7 +381,8 @@ class ToolDispatcherResultsTest {
         void nhieu_suat() throws Exception {
             catalog.found = List.of(brief("a", "A", 3, Instant.parse("2026-10-02T13:00:00Z"), 1L));
 
-            JsonNode event = json(dispatcher().dispatch(call(SupportAgentTools.FIND_EVENTS, Map.of("query", "a"))))
+            JsonNode event = json(dispatcher()
+                            .dispatch(TURN, call(SupportAgentTools.FIND_EVENTS, Map.of("query", "a"))))
                     .get("events")
                     .get(0);
 
@@ -374,7 +394,7 @@ class ToolDispatcherResultsTest {
         @Test
         @DisplayName("tham số bỏ trống được chuyển nguyên là null cho cổng danh mục")
         void tham_so_bo_trong() {
-            dispatcher().dispatch(call(SupportAgentTools.FIND_EVENTS, Map.of()));
+            dispatcher().dispatch(TURN, call(SupportAgentTools.FIND_EVENTS, Map.of()));
 
             assertThat(catalog.queries).containsExactly("null|null|null");
         }
@@ -384,7 +404,7 @@ class ToolDispatcherResultsTest {
         void catalog_hong() {
             catalog.down = true;
 
-            var result = dispatcher().dispatch(call(SupportAgentTools.FIND_EVENTS, Map.of("query", "x")));
+            var result = dispatcher().dispatch(TURN, call(SupportAgentTools.FIND_EVENTS, Map.of("query", "x")));
 
             assertThat(result.outcome().failed()).isTrue();
             assertThat(result.outcome().payload()).contains("ĐỪNG nói là không có sự kiện nào");
@@ -400,7 +420,7 @@ class ToolDispatcherResultsTest {
         @DisplayName("thiếu slug hoặc slug trống là found:false kèm gợi ý gọi findEvents")
         void thieu_slug() throws Exception {
             for (Map<String, Object> args : List.of(Map.<String, Object>of(), Map.<String, Object>of("slug", "  "))) {
-                var result = dispatcher().dispatch(call(SupportAgentTools.GET_EVENT_DETAILS, args));
+                var result = dispatcher().dispatch(TURN, call(SupportAgentTools.GET_EVENT_DETAILS, args));
 
                 assertThat(result.outcome().failed()).isFalse();
                 assertThat(json(result).get("reason").asText()).isEqualTo("THIẾU SLUG");
@@ -410,7 +430,8 @@ class ToolDispatcherResultsTest {
         @Test
         @DisplayName("slug không có thật là found:false dặn đừng tự dựng slug từ tên")
         void slug_khong_co() throws Exception {
-            var result = dispatcher().dispatch(call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "tu-bia")));
+            var result =
+                    dispatcher().dispatch(TURN, call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "tu-bia")));
 
             assertThat(result.outcome().failed()).isFalse();
             assertThat(json(result).get("hint").asText()).contains("Đừng tự dựng slug");
@@ -439,7 +460,7 @@ class ToolDispatcherResultsTest {
             catalog.details.put(detail, ZoneAdmission.SEATED);
 
             var result = dispatcher()
-                    .dispatch(call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "  dem-nhac-trinh  ")));
+                    .dispatch(TURN, call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "  dem-nhac-trinh  ")));
 
             JsonNode node = json(result);
             assertThat(node.get("found").asBoolean()).isTrue();
@@ -471,7 +492,8 @@ class ToolDispatcherResultsTest {
                             List.of(new EventDetail.Session(UUID.randomUUID(), null, null, null, List.of()))),
                     ZoneAdmission.SEATED);
 
-            JsonNode node = json(dispatcher().dispatch(call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "a"))));
+            JsonNode node =
+                    json(dispatcher().dispatch(TURN, call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "a"))));
 
             assertThat(node.has("summary")).isFalse();
             assertThat(node.has("description")).isFalse();
@@ -486,7 +508,7 @@ class ToolDispatcherResultsTest {
         void catalog_hong() {
             catalog.down = true;
 
-            var result = dispatcher().dispatch(call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "a")));
+            var result = dispatcher().dispatch(TURN, call(SupportAgentTools.GET_EVENT_DETAILS, Map.of("slug", "a")));
 
             assertThat(result.outcome().failed()).isTrue();
             assertThat(result.outcome().payload()).contains("thử lại sau");
@@ -502,7 +524,7 @@ class ToolDispatcherResultsTest {
         void ma_khong_hop_le() throws Exception {
             for (Map<String, Object> args :
                     List.of(Map.<String, Object>of(), Map.<String, Object>of("eventId", "xyz"))) {
-                var result = dispatcher().dispatch(call(SupportAgentTools.GET_EVENT_RULES, args));
+                var result = dispatcher().dispatch(TURN, call(SupportAgentTools.GET_EVENT_RULES, args));
 
                 assertThat(result.outcome().failed()).isFalse();
                 assertThat(json(result).get("reason").asText()).isEqualTo("MÃ SỰ KIỆN KHÔNG HỢP LỆ");
@@ -513,9 +535,11 @@ class ToolDispatcherResultsTest {
         @DisplayName("chưa công bố quy định là found:false — mô hình không được bịa quy định")
         void chua_cong_bo() throws Exception {
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.GET_EVENT_RULES,
-                            Map.of("eventId", UUID.randomUUID().toString())));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.GET_EVENT_RULES,
+                                    Map.of("eventId", UUID.randomUUID().toString())));
 
             assertThat(result.outcome().failed()).isFalse();
             assertThat(json(result).get("reason").asText()).contains("CHƯA CÓ QUY ĐỊNH");
@@ -534,7 +558,8 @@ class ToolDispatcherResultsTest {
                 knowledge.publishRules(eventId, "Đêm nhạc Trịnh", c.policy());
 
                 JsonNode node = json(dispatcher()
-                        .dispatch(call(SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString()))));
+                        .dispatch(
+                                TURN, call(SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString()))));
 
                 assertThat(node.get("found").asBoolean()).isTrue();
                 assertThat(node.get("eventTitle").asText()).isEqualTo("Đêm nhạc Trịnh");
@@ -545,8 +570,8 @@ class ToolDispatcherResultsTest {
     }
 
     @Nested
-    @DisplayName("initiateTicketBooking")
-    class Booking {
+    @DisplayName("proposeBooking")
+    class Proposing {
 
         private final UUID eventSessionId = UUID.randomUUID();
 
@@ -561,8 +586,7 @@ class ToolDispatcherResultsTest {
         }
 
         @Test
-        @DisplayName(
-                "thiếu slug, sessionId (hoặc không phải UUID) hay zoneCode thì booked:false THIẾU THAM SỐ, không chạm kho chỗ")
+        @DisplayName("thiếu slug, sessionId (hoặc không phải UUID) hay zoneCode thì proposed:false THIẾU THAM SỐ")
         void thieu_tham_so() throws Exception {
             String session = eventSessionId.toString();
             List<Map<String, Object>> bad = List.of(
@@ -573,11 +597,12 @@ class ToolDispatcherResultsTest {
                     args("dem", session, null, 2),
                     args("dem", session, "  ", 2));
             for (Map<String, Object> arguments : bad) {
-                var result = dispatcher().dispatch(call(SupportAgentTools.INITIATE_TICKET_BOOKING, arguments));
+                var result = dispatcher().dispatch(TURN, call(SupportAgentTools.PROPOSE_BOOKING, arguments));
 
                 assertThat(result.outcome().failed()).as("%s", arguments).isFalse();
-                assertThat(json(result).get("booked").asBoolean()).isFalse();
+                assertThat(json(result).get("proposed").asBoolean()).isFalse();
                 assertThat(json(result).get("reason").asText()).isEqualTo("THIẾU THAM SỐ");
+                assertThat(json(result).get("hint").asText()).contains("getEventDetails");
             }
             assertThat(inventory.holdKeys).isEmpty();
         }
@@ -586,77 +611,81 @@ class ToolDispatcherResultsTest {
         @DisplayName("số lượng không phải số là THIẾU SỐ LƯỢNG; mô hình điền '2' dạng chuỗi vẫn hiểu là hai vé")
         void so_luong() throws Exception {
             catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
-            ordering.nextOrder = new PlacedOrder(UUID.randomUUID(), "NT-1", 100L, "https://pay/x", null);
             String session = eventSessionId.toString();
 
             var notNumber = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.INITIATE_TICKET_BOOKING, args("dem-nhac-trinh", session, "A", "hai")));
+                    .dispatch(
+                            TURN, call(SupportAgentTools.PROPOSE_BOOKING, args("dem-nhac-trinh", session, "A", "hai")));
             assertThat(json(notNumber).get("reason").asText()).isEqualTo("THIẾU SỐ LƯỢNG");
 
             var asString = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.INITIATE_TICKET_BOOKING, args("dem-nhac-trinh", session, "A", " 2 ")));
+                    .dispatch(
+                            TURN, call(SupportAgentTools.PROPOSE_BOOKING, args("dem-nhac-trinh", session, "A", " 2 ")));
             JsonNode node = json(asString);
-            assertThat(node.get("booked").asBoolean()).isTrue();
+            assertThat(node.get("proposed").asBoolean()).isTrue();
             assertThat(node.get("quantity").asInt()).isEqualTo(2);
-            // Đơn không có hạn thanh toán thì không bịa ra một mốc.
-            assertThat(node.has("paymentExpiresVietnamTime")).isFalse();
-            assertThat(node.get("checkoutUrl").asText()).isEqualTo("https://pay/x");
-            assertThat(node.get("nextStep").asText()).contains("ĐỪNG tự viết đường dẫn khác");
+            assertThat(node.get("eventTitle").asText()).isEqualTo("Đêm nhạc Trịnh");
+            assertThat(node.get("zoneCode").asText()).isEqualTo("A");
+            assertThat(node.get("unitPriceVnd").asLong()).isEqualTo(1_800_000L);
+            assertThat(node.get("totalVnd").asLong()).isEqualTo(3_600_000L);
+            assertThat(node.get("proposalId").asText()).isNotBlank();
+            assertThat(node.get("sessionVietnamTime").asText()).contains("ngày");
+            assertThat(node.get("expiresVietnamTime").asText()).contains("ngày");
+            assertThat(node.get("nextStep").asText()).contains("ĐỪNG nói là đã đặt");
+            // Kết quả tool không có đường dẫn thanh toán nào để mô hình chép lại.
+            assertThat(node.has("checkoutUrl")).isFalse();
         }
 
         @Test
-        @DisplayName("vượt trần số vé qua chat là booked:false kèm lý do, không phải lỗi")
+        @DisplayName("vượt trần số vé qua chat là proposed:false kèm lý do, không phải lỗi")
         void vuot_tran() throws Exception {
             catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
 
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.INITIATE_TICKET_BOOKING,
-                            args("dem-nhac-trinh", eventSessionId.toString(), "A", 50)));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.PROPOSE_BOOKING,
+                                    args("dem-nhac-trinh", eventSessionId.toString(), "A", 50)));
 
             assertThat(result.outcome().failed()).isFalse();
-            assertThat(json(result).get("booked").asBoolean()).isFalse();
+            assertThat(json(result).get("proposed").asBoolean()).isFalse();
             assertThat(json(result).get("reason").asText()).contains("tối đa 6 vé");
             assertThat(inventory.holdKeys).isEmpty();
         }
 
         @Test
-        @DisplayName("ordering không phản hồi cả hai lần: chưa xác nhận được đơn — giữ chỗ và dặn đừng đặt lại (6.12)")
-        void ordering_hong_luc_dat_don() throws Exception {
-            catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
-            ordering.placeFailure = new RemoteCallException("ordering-service", "giả: hỏng", null);
+        @DisplayName("catalog không phản hồi là LỖI dặn đừng nói 'hết vé'")
+        void catalog_hong() throws Exception {
+            catalog.down = true;
 
             var result = dispatcher()
-                    .dispatch(call(
-                            SupportAgentTools.INITIATE_TICKET_BOOKING,
-                            args("dem-nhac-trinh", eventSessionId.toString(), "A", 2)));
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.PROPOSE_BOOKING,
+                                    args("dem-nhac-trinh", eventSessionId.toString(), "A", 2)));
 
-            // 6.12: quá hạn là "chưa biết", không phải "không" — đơn có thể đã được tạo. Không nhả chỗ,
-            // không đặt lại; mô hình đọc lý do và bảo khách kiểm "đơn của tôi".
-            assertThat(result.outcome().failed()).isFalse();
-            assertThat(json(result).get("booked").asBoolean()).isFalse();
-            assertThat(json(result).get("reason").asText()).isEqualTo(TicketBookingUseCase.UNCONFIRMED_REASON);
-            assertThat(inventory.released).isEmpty();
+            assertThat(result.outcome().failed()).isTrue();
+            assertThat(result.outcome().payload()).contains("ĐỪNG nói là hết vé");
         }
 
         @Test
-        @DisplayName("khoá idempotency suy từ callId của lời gọi: cùng lời gọi lặp lại không đặt hai đơn")
-        void khoa_idempotency_theo_call_id() {
+        @DisplayName("cùng lời gọi lặp lại: đề xuất sau thay đề xuất trước, không bao giờ có hold hay đơn")
+        void lap_lai_khong_tao_don() throws Exception {
             catalog.details.put(FakeCommerce.sampleEvent(eventSessionId), ZoneAdmission.SEATED);
-            ordering.nextOrder = new PlacedOrder(UUID.randomUUID(), "NT-1", 100L, "https://pay/x", null);
-            ToolInvocation call = call(
-                    SupportAgentTools.INITIATE_TICKET_BOOKING,
-                    args("dem-nhac-trinh", eventSessionId.toString(), "A", 1));
+            ToolInvocation call =
+                    call(SupportAgentTools.PROPOSE_BOOKING, args("dem-nhac-trinh", eventSessionId.toString(), "A", 1));
             ToolDispatcher dispatcher = dispatcher();
 
-            dispatcher.dispatch(call);
-            dispatcher.dispatch(call);
+            String first =
+                    json(dispatcher.dispatch(TURN, call)).get("proposalId").asText();
+            String second =
+                    json(dispatcher.dispatch(TURN, call)).get("proposalId").asText();
 
-            assertThat(inventory.holdKeys).containsExactly("chat-hold-" + call.callId(), "chat-hold-" + call.callId());
-            assertThat(ordering.placeKeys)
-                    .containsExactly("chat-order-" + call.callId(), "chat-order-" + call.callId());
+            assertThat(second).isNotEqualTo(first);
+            assertThat(inventory.holdKeys).isEmpty();
+            assertThat(ordering.placeKeys).isEmpty();
         }
     }
 }

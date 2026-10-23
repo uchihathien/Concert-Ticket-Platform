@@ -91,6 +91,23 @@ public enum AiChatboxErrorCode implements ErrorCode {
      */
     HANDOFF_TARGET_AGENT_NOT_FOUND(422),
 
+    // --- Đề xuất đặt vé -------------------------------------------------------
+
+    /** Không có đề xuất mang id này cho người đang gọi — gộp "không tồn tại" và "của người khác". */
+    PROPOSAL_NOT_FOUND(404),
+
+    /** Đề xuất đã quá 10 phút: 410 chứ không 404, vì nó từng tồn tại và khách cần biết lý do. */
+    PROPOSAL_EXPIRED(410),
+
+    /** Bấm Xác nhận lần hai: 409 kèm đơn cũ trong body, không tạo đơn thứ hai. */
+    PROPOSAL_ALREADY_CONFIRMED(409),
+
+    /** Inventory/ordering từ chối lúc xác nhận (hết chỗ, mã khuyến mãi…): 422, là nghiệp vụ, không phải sự cố. */
+    BOOKING_REJECTED(422),
+
+    /** Một service phía sau không phản hồi lúc xác nhận: 503 để giao diện mời thử lại. */
+    REMOTE_UNAVAILABLE(503),
+
     // --- Kho tri thức ------------------------------------------------------
 
     KNOWLEDGE_CHUNK_NOT_FOUND(404),

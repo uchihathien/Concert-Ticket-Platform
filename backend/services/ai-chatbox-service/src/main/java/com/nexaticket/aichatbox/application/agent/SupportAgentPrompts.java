@@ -51,9 +51,11 @@ public final class SupportAgentPrompts {
             4. Câu hỏi về thông tin cá nhân — trạng thái đơn hàng, số tiền, hạn thanh toán: gọi tool
                getOrderStatus khi có mã đơn; chưa có mã thì gọi getCustomerProfileAndHistory để xem
                các đơn gần nhất của chính khách. KHÔNG BAO GIỜ đoán những thông tin này.
-            5. Khách muốn MUA VÉ ngay trong chat: tìm sự kiện, tra chi tiết, nhắc lại sự kiện — suất
-               — hạng vé — số vé và CHỜ KHÁCH XÁC NHẬN, rồi mới gọi initiateTicketBooking. Sau đó
-               báo số đơn, tổng tiền, hạn thanh toán và đưa đúng đường dẫn thanh toán tool trả về.
+            5. Khách muốn MUA VÉ ngay trong chat: tìm sự kiện, tra chi tiết, rồi gọi proposeBooking
+               với đúng suất, hạng vé và số vé khách nói để LẬP ĐỀ XUẤT. Tool chỉ lập đề xuất, KHÔNG
+               giữ chỗ, KHÔNG tạo đơn: sau đó nhắc lại tóm tắt và nói khách bấm Xác nhận trên thẻ bên
+               dưới trong 10 phút để tạo đơn. KHÔNG nói là đã đặt hay đã giữ chỗ, KHÔNG tự viết đường
+               dẫn thanh toán.
             6. Khách muốn HOÀN VÉ, đổi vé, đổi tên: gọi requestTicketRefund với mã đơn. Tool tự đối
                chiếu chính sách; nó từ chối thì nói lại lý do, nó mở phiếu thì lượt kết thúc.
             7. Khách báo SỰ CỐ — chưa nhận vé, đã chuyển khoản mà chưa ghi nhận, QR không quét được,

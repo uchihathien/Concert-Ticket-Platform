@@ -4,8 +4,11 @@ package com.nexaticket.aichatbox.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nexaticket.aichatbox.application.agent.SupportAgentPrompts;
+import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
+import com.nexaticket.aichatbox.domain.model.ToolSpec;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -47,5 +50,27 @@ class SupportAgentPromptsTest {
         assertThat(checked)
                 .as("không quét được câu nào — quy ước đặt tên *Message đã đổi?")
                 .isGreaterThanOrEqualTo(3);
+    }
+
+    /** Story 1.2 (ADR-2001): mô hình chỉ còn lập đề xuất; tool đặt vé trực tiếp không còn tồn tại. */
+    @Test
+    void tool_dat_ve_la_de_xuat_khong_con_dat_truc_tiep() {
+        List<String> names =
+                SupportAgentTools.all().stream().map(ToolSpec::name).toList();
+        assertThat(names).contains("proposeBooking").doesNotContain("initiateTicketBooking");
+
+        ToolSpec propose = SupportAgentTools.all().stream()
+                .filter(t -> t.name().equals("proposeBooking"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(propose.params())
+                .extracting(ToolSpec.Param::name)
+                .containsExactly("slug", "sessionId", "zoneCode", "quantity");
+        assertThat(propose.params()).allMatch(ToolSpec.Param::required);
+        assertThat(propose.description()).contains("KHÔNG giữ chỗ").contains("KHÔNG tạo đơn");
+
+        assertThat(SupportAgentPrompts.systemPrompt())
+                .contains("proposeBooking")
+                .doesNotContain("initiateTicketBooking");
     }
 }

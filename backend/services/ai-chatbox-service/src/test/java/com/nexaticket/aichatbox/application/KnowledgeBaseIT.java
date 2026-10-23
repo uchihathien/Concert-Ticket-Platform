@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
+import com.nexaticket.aichatbox.application.agent.TurnContext;
 import com.nexaticket.aichatbox.application.knowledge.KnowledgeBaseUseCase;
 import com.nexaticket.aichatbox.application.knowledge.KnowledgeViews;
 import com.nexaticket.aichatbox.domain.model.KnowledgeChunk;
@@ -155,8 +156,10 @@ class KnowledgeBaseIT extends AiChatboxTestBase {
         UUID eventId = UUID.randomUUID();
         knowledge.upsertRules(eventId, "Đêm nhạc Hạ", "Cửa mở trước 60 phút.", false, 0, true);
 
-        ToolOutcome outcome = tools.dispatch(new ToolInvocation(
-                        "call-1", SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())))
+        ToolOutcome outcome = tools.dispatch(
+                        new TurnContext(UUID.randomUUID(), UUID.randomUUID()),
+                        new ToolInvocation(
+                                "call-1", SupportAgentTools.GET_EVENT_RULES, Map.of("eventId", eventId.toString())))
                 .outcome();
 
         assertThat(outcome.failed()).isFalse();

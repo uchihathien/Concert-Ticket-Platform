@@ -27,7 +27,7 @@ public final class SupportAgentTools {
     public static final String FIND_EVENTS = "findEvents";
     public static final String GET_EVENT_DETAILS = "getEventDetails";
     public static final String GET_CUSTOMER_PROFILE_AND_HISTORY = "getCustomerProfileAndHistory";
-    public static final String INITIATE_TICKET_BOOKING = "initiateTicketBooking";
+    public static final String PROPOSE_BOOKING = "proposeBooking";
 
     /**
      * Tool <b>điều khiển</b>, không phải tool dữ liệu.
@@ -78,7 +78,7 @@ public final class SupportAgentTools {
                     Tra chi tiết MỘT sự kiện theo slug: địa chỉ đầy đủ của địa điểm, từng suất diễn kèm \
                     sessionId, giá của từng hạng vé kèm zoneCode, hạn bán vé. Chỉ gọi sau khi đã có slug \
                     từ findEvents — đừng tự dựng slug từ tên sự kiện. sessionId và zoneCode ở đây là \
-                    thứ initiateTicketBooking cần.""",
+                    thứ proposeBooking cần.""",
                     List.of(ToolSpec.Param.requiredString(
                             "slug", "Mã slug lấy từ kết quả findEvents, ví dụ dem-nhac-trinh"))),
             new ToolSpec(
@@ -107,14 +107,14 @@ public final class SupportAgentTools {
                     được câu hỏi và khách đang nói về một sự kiện cụ thể có mã UUID.""",
                     List.of(ToolSpec.Param.requiredString("eventId", "Mã sự kiện dạng UUID"))),
             new ToolSpec(
-                    INITIATE_TICKET_BOOKING,
+                    PROPOSE_BOOKING,
                     """
-                    Giữ chỗ và tạo đơn hàng cho khách: hệ thống giữ chỗ trong 10 phút rồi lập đơn với \
-                    hạn thanh toán 15 phút, trả về số đơn, tổng tiền và đường dẫn thanh toán. CHỈ gọi \
-                    sau khi khách đã XÁC NHẬN rõ ràng ba thứ: sự kiện nào, suất nào, hạng vé nào và mấy \
-                    vé — nhắc lại cho khách và chờ họ đồng ý trước. Đừng gọi khi khách mới hỏi giá hay \
-                    "còn vé không". sessionId và zoneCode lấy từ getEventDetails, đừng tự dựng. Hệ thống \
-                    tự chọn chỗ tốt nhất trong khu; khách muốn tự chọn ghế thì mời họ vào trang sự kiện.""",
+                    Lập ĐỀ XUẤT đặt vé để khách xem lại và bấm Xác nhận trên thẻ. Tool KHÔNG giữ chỗ, \
+                    KHÔNG tạo đơn — chỉ ghi lại sự kiện, suất, hạng vé, số vé và tổng tiền, hiệu lực 10 \
+                    phút. Gọi khi khách đã nói rõ sự kiện nào, suất nào, hạng vé nào và mấy vé; chưa rõ \
+                    thì hỏi lại trước. Đừng gọi khi khách mới hỏi giá hay "còn vé không". sessionId và \
+                    zoneCode lấy từ getEventDetails, đừng tự dựng. Sau khi gọi, nói khách bấm Xác nhận trên \
+                    thẻ — ĐỪNG nói là đã đặt hay đã giữ chỗ.""",
                     List.of(
                             ToolSpec.Param.requiredString("slug", "Mã slug của sự kiện, từ findEvents"),
                             ToolSpec.Param.requiredString(
