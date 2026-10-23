@@ -3,9 +3,11 @@ package com.nexaticket.aichatbox.domain.port;
 
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
+import com.nexaticket.aichatbox.domain.model.SessionEvent;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Tra danh mục sự kiện ở catalog-service.
@@ -60,4 +62,13 @@ public interface CatalogClientPort {
      * @throws RemoteCallException catalog-service quá hạn hoặc trả 5xx
      */
     Optional<ZoneAdmission> findZoneAdmission(String slug, String zoneCode);
+
+    /**
+     * Sự kiện của một suất diễn — để biết khách đã mua vé sự kiện nào từ đơn hàng (đơn chỉ mang
+     * {@code eventSessionId}). Gọi đường nội bộ {@code GET /internal/sessions/{id}} của catalog.
+     *
+     * @return rỗng khi suất không còn
+     * @throws RemoteCallException catalog-service quá hạn hoặc trả 5xx
+     */
+    Optional<SessionEvent> findSessionEvent(UUID eventSessionId);
 }

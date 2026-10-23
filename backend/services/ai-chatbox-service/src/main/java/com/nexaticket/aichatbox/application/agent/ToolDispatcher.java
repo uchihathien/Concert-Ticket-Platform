@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.booking.ActionCards;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
+import com.nexaticket.aichatbox.application.preference.CustomerPreferenceUseCase;
 import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.CustomerProfile;
 import com.nexaticket.aichatbox.domain.model.EventBrief;
@@ -12,6 +13,7 @@ import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.EventRef;
 import com.nexaticket.aichatbox.domain.model.EventRules;
 import com.nexaticket.aichatbox.domain.model.OrderSummary;
+import com.nexaticket.aichatbox.domain.model.SessionEvent;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ToolOutcome;
 import com.nexaticket.aichatbox.domain.port.CallerCredentialsPort;
@@ -23,10 +25,13 @@ import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import com.nexaticket.aichatbox.domain.port.VectorStorePort;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,6 +84,7 @@ public class ToolDispatcher {
     private final CallerCredentialsPort credentials;
     private final CustomerProfilePort profiles;
     private final BookingProposalUseCase proposals;
+    private final CustomerPreferenceUseCase preferences;
     private final ObjectMapper json;
     private final AgentMetrics metrics;
 
@@ -89,6 +95,7 @@ public class ToolDispatcher {
             CallerCredentialsPort credentials,
             CustomerProfilePort profiles,
             BookingProposalUseCase proposals,
+            CustomerPreferenceUseCase preferences,
             ObjectMapper json,
             AgentMetrics metrics) {
         this.ordering = ordering;
@@ -97,6 +104,7 @@ public class ToolDispatcher {
         this.credentials = credentials;
         this.profiles = profiles;
         this.proposals = proposals;
+        this.preferences = preferences;
         this.json = json;
         this.metrics = metrics;
     }
@@ -146,7 +154,9 @@ public class ToolDispatcher {
                 case SupportAgentTools.GET_EVENT_RULES -> getEventRules(call);
                 case SupportAgentTools.FIND_EVENTS -> findEvents(call);
                 case SupportAgentTools.GET_EVENT_DETAILS -> getEventDetails(call);
-                case SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY -> getCustomerProfileAndHistory(call);
+                case SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY -> getCustomerProfileAndHistory(turn, call);
+                case SupportAgentTools.REMEMBER_CUSTOMER_PREFERENCES -> rememberPreferences(turn, call);
+                case SupportAgentTools.FORGET_CUSTOMER_PREFERENCES -> forgetPreferences(turn, call);
                 case SupportAgentTools.PROPOSE_BOOKING -> proposeBooking(turn, call);
                     // Mô hình gọi một tool không tồn tại. Hiếm, nhưng xảy ra — và im lặng ở đây
                     // biến nó thành một request sai định dạng ở vòng sau.
@@ -204,7 +214,7 @@ public class ToolDispatcher {
      * lưu; "th***@gmail.com" đủ để khách nhận ra tài khoản mà không chép trọn một địa chỉ vào hai
      * nơi không cần nó.
      */
-    private DispatchResult getCustomerProfileAndHistory(ToolInvocation call) {
+    private DispatchResult getCustomerProfileAndHistory(TurnContext turn, ToolInvocation call) {
         String token = credentials.currentAccessToken();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("found", true);
@@ -231,6 +241,10 @@ public class ToolDispatcher {
                 out.put(
                         "orders",
                         orders.stream().map(ToolDispatcher::describeBrief).toList());
+                List<String> purchased = purchasedEventTitles(orders);
+                if (!purchased.isEmpty()) {
+                    out.put("purchasedEvents", purchased);
+                }
             }
         } catch (RemoteCallException e) {
             log.warn("Không tra được danh sách đơn: {}", e.getMessage());
@@ -239,7 +253,110 @@ public class ToolDispatcher {
                     "Hệ thống đơn hàng tạm thời không phản hồi. ĐỪNG nói là khách không có đơn — "
                             + "hãy mời khách thử lại sau ít phút."));
         }
+        out.put("preferences", preferencesFor(turn));
         return DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
+    }
+
+    /**
+     * Sở thích khách đã tự nói, hoặc một gợi ý hỏi khi chưa có.
+     *
+     * <p>Không có thì vẫn có khoá {@code preferences} — với lời dặn hỏi một hai câu — thay vì bỏ trống:
+     * mô hình thấy khoá vắng thì không biết là "chưa có" hay "quên tra".
+     */
+    private Object preferencesFor(TurnContext turn) {
+        return preferences
+                .view(turn.userId())
+                .<Object>map(view -> {
+                    Map<String, Object> p = new LinkedHashMap<>();
+                    p.put("categories", view.categories());
+                    p.put("cities", view.cities());
+                    if (view.maxBudgetVnd() != null) {
+                        p.put("maxBudgetVnd", view.maxBudgetVnd());
+                    }
+                    if (view.note() != null) {
+                        p.put("note", view.note());
+                    }
+                    return p;
+                })
+                .orElse(Map.of(
+                        "none",
+                        true,
+                        "hint",
+                        "Chưa biết sở thích. Khách muốn gợi ý thì hỏi 1–2 câu (thể loại, thành phố, ngân sách), "
+                                + "rồi gọi rememberCustomerPreferences với điều khách nói."));
+    }
+
+    /**
+     * Tên các sự kiện khách đã mua vé, mới nhất trước, không trùng — từ suất diễn của các đơn ĐÃ THANH TOÁN.
+     *
+     * <p>Đơn chỉ mang {@code eventSessionId}, nên mỗi suất là một lần hỏi catalog. Catalog sập thì bỏ phần
+     * này đi chứ không làm hỏng cả hồ sơ: khách hỏi về đơn vẫn nhận câu trả lời về đơn.
+     */
+    private List<String> purchasedEventTitles(List<OrderSummary> orders) {
+        Set<String> titles = new LinkedHashSet<>();
+        for (OrderSummary order : orders) {
+            if (!"PAID".equals(order.status()) || order.eventSessionId() == null) {
+                continue;
+            }
+            try {
+                catalog.findSessionEvent(order.eventSessionId())
+                        .map(SessionEvent::eventTitle)
+                        .ifPresent(titles::add);
+            } catch (RemoteCallException e) {
+                log.warn("Không tra được sự kiện của suất {}: {}", order.eventSessionId(), e.getMessage());
+                return List.copyOf(titles);
+            }
+        }
+        return List.copyOf(titles);
+    }
+
+    /**
+     * Ghi nhớ điều khách vừa nói về sở thích. Giá trị lạ không làm hỏng lời gọi: phần hợp lệ được lưu,
+     * phần còn lại trả về trong {@code ignored} để mô hình hỏi lại khách.
+     */
+    private DispatchResult rememberPreferences(TurnContext turn, ToolInvocation call) {
+        String rawCategories = call.stringArg("categories");
+        List<String> categories = rawCategories == null
+                ? List.of()
+                : Arrays.stream(rawCategories.split("[,;/]"))
+                        .map(String::trim)
+                        .filter(c -> !c.isEmpty())
+                        .toList();
+        Integer budget = call.intArg("maxBudgetVnd");
+
+        CustomerPreferenceUseCase.Remembered result = preferences.remember(
+                turn.userId(),
+                new CustomerPreferenceUseCase.Update(
+                        categories,
+                        call.stringArg("city"),
+                        budget == null ? null : budget.longValue(),
+                        call.stringArg("note")));
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("saved", result.saved().isPresent());
+        result.saved().ifPresent(view -> out.put("preferences", view));
+        if (!result.ignored().isEmpty()) {
+            out.put("ignored", result.ignored());
+        }
+        if (result.saved().isEmpty()) {
+            out.put("hint", "Không có gì hợp lệ để lưu. Hỏi lại khách cho rõ, đừng nói là đã ghi nhớ.");
+        }
+        return DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
+    }
+
+    private DispatchResult forgetPreferences(TurnContext turn, ToolInvocation call) {
+        boolean deleted = preferences.forget(turn.userId());
+        return DispatchResult.of(
+                ToolOutcome.ok(
+                        call.callId(),
+                        write(
+                                Map.of(
+                                        "deleted",
+                                        deleted,
+                                        "hint",
+                                        deleted
+                                                ? "Đã xoá hết sở thích đã lưu. Xác nhận với khách."
+                                                : "Không có sở thích nào được lưu. Nói với khách là trợ lý không lưu gì về sở thích của họ."))));
     }
 
     /**

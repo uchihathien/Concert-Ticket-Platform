@@ -68,7 +68,7 @@ public abstract class AiChatboxTestBase {
      */
     @BeforeEach
     void resetChatbox() {
-        jdbc.sql("TRUNCATE chat_handoffs, chat_messages, chat_sessions, booking_proposals, "
+        jdbc.sql("TRUNCATE chat_handoffs, chat_messages, chat_sessions, booking_proposals, customer_preferences, "
                         + "event_knowledge_embeddings, event_rules, idempotency_records CASCADE")
                 .update();
     }

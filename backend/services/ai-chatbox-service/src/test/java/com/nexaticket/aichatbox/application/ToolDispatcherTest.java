@@ -9,6 +9,7 @@ import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.agent.TurnContext;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
+import com.nexaticket.aichatbox.application.preference.CustomerPreferenceUseCase;
 import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
@@ -16,6 +17,7 @@ import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.support.FakeCommerce;
 import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
+import com.nexaticket.aichatbox.support.InMemoryCustomerPreferences;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.time.Instant;
@@ -43,6 +45,7 @@ class ToolDispatcherTest {
             profiles,
             new BookingProposalUseCase(
                     catalog, proposals, Clock.fixed(Instant.parse("2026-10-23T10:00:00Z"), ZoneOffset.UTC)),
+            new CustomerPreferenceUseCase(new InMemoryCustomerPreferences(), java.time.Clock.systemUTC()),
             new ObjectMapper(),
             new AgentMetrics(new SimpleMeterRegistry()));
 
@@ -185,6 +188,7 @@ class ToolDispatcherTest {
                 profiles,
                 new BookingProposalUseCase(
                         catalog, proposals, Clock.fixed(Instant.parse("2026-10-23T10:00:00Z"), ZoneOffset.UTC)),
+                new CustomerPreferenceUseCase(new InMemoryCustomerPreferences(), java.time.Clock.systemUTC()),
                 new ObjectMapper(),
                 new AgentMetrics(new SimpleMeterRegistry()));
 

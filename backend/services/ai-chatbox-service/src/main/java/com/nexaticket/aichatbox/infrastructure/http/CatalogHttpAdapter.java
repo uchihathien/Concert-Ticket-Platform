@@ -3,6 +3,7 @@ package com.nexaticket.aichatbox.infrastructure.http;
 
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
+import com.nexaticket.aichatbox.domain.model.SessionEvent;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
@@ -274,4 +275,29 @@ public class CatalogHttpAdapter implements CatalogClientPort {
     private record FloorPlanResponse(List<ZoneResponse> zones) {}
 
     private record ZoneResponse(String zoneCode, String kind) {}
+
+    @Override
+    public Optional<SessionEvent> findSessionEvent(UUID eventSessionId) {
+        try {
+            return client.get().uri("/internal/sessions/{id}", eventSessionId).exchange((request, response) -> {
+                HttpStatusCode status = response.getStatusCode();
+                if (status.value() == 404) {
+                    return Optional.<SessionEvent>empty();
+                }
+                if (!status.is2xxSuccessful()) {
+                    throw new RemoteCallException(SERVICE, "Catalog trả " + status, null);
+                }
+                SessionEventResponse body = response.bodyTo(SessionEventResponse.class);
+                return Optional.ofNullable(body)
+                        .map(b -> new SessionEvent(b.eventSessionId(), b.eventId(), b.eventTitle()));
+            });
+        } catch (RemoteCallException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new RemoteCallException(SERVICE, "Không gọi được catalog-service", e);
+        }
+    }
+
+    /** Khớp {@code InternalCatalogController.SessionResponse} của catalog-service (bỏ trường không dùng). */
+    record SessionEventResponse(UUID eventSessionId, UUID eventId, String eventTitle) {}
 }

@@ -15,6 +15,7 @@ import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
+import com.nexaticket.aichatbox.application.preference.CustomerPreferenceUseCase;
 import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
@@ -27,6 +28,7 @@ import com.nexaticket.aichatbox.support.FakeAiProviders;
 import com.nexaticket.aichatbox.support.FakeCommerce;
 import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
 import com.nexaticket.aichatbox.support.InMemoryChatHistory;
+import com.nexaticket.aichatbox.support.InMemoryCustomerPreferences;
 import com.nexaticket.aichatbox.support.InMemoryHandoffRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -76,7 +78,15 @@ class CustomerSupportAgentUseCaseTest {
         SupportCaseUseCase cases = new SupportCaseUseCase(ordering, knowledge, credentials, handoffs, clock, json);
         BookingProposalUseCase booking = new BookingProposalUseCase(catalog, proposals, clock);
         ToolDispatcher tools = new ToolDispatcher(
-                ordering, catalog, knowledge, credentials, new FakeCommerce.Profiles(), booking, json, metrics);
+                ordering,
+                catalog,
+                knowledge,
+                credentials,
+                new FakeCommerce.Profiles(),
+                booking,
+                new CustomerPreferenceUseCase(new InMemoryCustomerPreferences(), java.time.Clock.systemUTC()),
+                json,
+                metrics);
         return new CustomerSupportAgentUseCase(
                 history,
                 new FakeAiProviders.FakeEmbeddings(),

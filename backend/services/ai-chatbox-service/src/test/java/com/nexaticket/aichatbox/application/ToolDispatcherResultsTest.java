@@ -10,12 +10,14 @@ import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.agent.TurnContext;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
+import com.nexaticket.aichatbox.application.preference.CustomerPreferenceUseCase;
 import com.nexaticket.aichatbox.domain.model.CustomerProfile;
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.EventRef;
 import com.nexaticket.aichatbox.domain.model.OrderSummary;
 import com.nexaticket.aichatbox.domain.model.RefundPolicy;
+import com.nexaticket.aichatbox.domain.model.SessionEvent;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
@@ -23,6 +25,7 @@ import com.nexaticket.aichatbox.domain.port.OrderingClientPort;
 import com.nexaticket.aichatbox.domain.port.RemoteCallException;
 import com.nexaticket.aichatbox.support.FakeCommerce;
 import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
+import com.nexaticket.aichatbox.support.InMemoryCustomerPreferences;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -75,6 +78,11 @@ class ToolDispatcherResultsTest {
             }
             return details.findZoneAdmission(slug, zoneCode);
         }
+
+        @Override
+        public Optional<SessionEvent> findSessionEvent(UUID eventSessionId) {
+            return details.findSessionEvent(eventSessionId);
+        }
     }
 
     private final ScriptedCatalog catalog = new ScriptedCatalog();
@@ -84,6 +92,9 @@ class ToolDispatcherResultsTest {
     private final FakeCommerce.Profiles profiles = new FakeCommerce.Profiles();
     private final FakeCommerce.Credentials credentials = new FakeCommerce.Credentials();
     private final UUID sessionId = UUID.randomUUID();
+    private final InMemoryCustomerPreferences preferenceRows = new InMemoryCustomerPreferences();
+    private final CustomerPreferenceUseCase preferenceUseCase =
+            new CustomerPreferenceUseCase(preferenceRows, java.time.Clock.systemUTC());
 
     private ToolDispatcher dispatcher() {
         return dispatcher(ordering);
@@ -98,6 +109,7 @@ class ToolDispatcherResultsTest {
                 profiles,
                 new BookingProposalUseCase(
                         catalog, new InMemoryBookingProposalRepository(), java.time.Clock.systemUTC()),
+                preferenceUseCase,
                 JSON,
                 new AgentMetrics(new SimpleMeterRegistry()));
     }
@@ -686,6 +698,119 @@ class ToolDispatcherResultsTest {
             assertThat(second).isNotEqualTo(first);
             assertThat(inventory.holdKeys).isEmpty();
             assertThat(ordering.placeKeys).isEmpty();
+        }
+    }
+
+    @Nested
+    @DisplayName("sở thích khách: ghi nhớ, xoá, và hồ sơ kèm sở thích + sự kiện đã mua")
+    class Preferences {
+
+        @Test
+        @DisplayName("ghi nhớ: lưu phần hợp lệ của đúng người đang chat, báo lại phần bị bỏ")
+        void ghi_nho() throws Exception {
+            JsonNode node = json(dispatcher()
+                    .dispatch(
+                            TURN,
+                            call(
+                                    SupportAgentTools.REMEMBER_CUSTOMER_PREFERENCES,
+                                    Map.of(
+                                            "categories",
+                                            "nhac-song, nhạc trẻ",
+                                            "city",
+                                            "Đà Nẵng",
+                                            "maxBudgetVnd",
+                                            500000))));
+
+            assertThat(node.get("saved").asBoolean()).isTrue();
+            assertThat(node.get("preferences").get("categories"))
+                    .extracting(JsonNode::asText)
+                    .containsExactly("nhac-song");
+            assertThat(node.get("preferences").get("maxBudgetVnd").asLong()).isEqualTo(500_000L);
+            assertThat(node.get("ignored").get(0).asText()).contains("nhạc trẻ");
+            assertThat(preferenceRows.rows).containsOnlyKeys(TURN.userId());
+        }
+
+        @Test
+        @DisplayName("ghi nhớ mà không có gì hợp lệ: saved=false kèm lời dặn đừng nói là đã nhớ")
+        void ghi_nho_khong_co_gi() throws Exception {
+            JsonNode node = json(dispatcher()
+                    .dispatch(
+                            TURN,
+                            call(SupportAgentTools.REMEMBER_CUSTOMER_PREFERENCES, Map.of("note", "gọi 0905123456"))));
+
+            assertThat(node.get("saved").asBoolean()).isFalse();
+            assertThat(node.get("hint").asText()).contains("đừng nói là đã ghi nhớ");
+            assertThat(preferenceRows.rows).isEmpty();
+        }
+
+        @Test
+        @DisplayName("xoá: deleted=true lần đầu, false lần sau")
+        void xoa() throws Exception {
+            preferenceUseCase.remember(
+                    TURN.userId(), new CustomerPreferenceUseCase.Update(List.of("the-thao"), null, null, null));
+
+            JsonNode first =
+                    json(dispatcher().dispatch(TURN, call(SupportAgentTools.FORGET_CUSTOMER_PREFERENCES, Map.of())));
+            JsonNode second =
+                    json(dispatcher().dispatch(TURN, call(SupportAgentTools.FORGET_CUSTOMER_PREFERENCES, Map.of())));
+
+            assertThat(first.get("deleted").asBoolean()).isTrue();
+            assertThat(second.get("deleted").asBoolean()).isFalse();
+            assertThat(preferenceRows.rows).isEmpty();
+        }
+
+        @Test
+        @DisplayName("hồ sơ chưa có sở thích: preferences.none kèm gợi ý hỏi 1–2 câu")
+        void ho_so_chua_co_so_thich() throws Exception {
+            JsonNode prefs = json(dispatcher()
+                            .dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of())))
+                    .get("preferences");
+
+            assertThat(prefs.get("none").asBoolean()).isTrue();
+            assertThat(prefs.get("hint").asText()).contains("1–2 câu");
+        }
+
+        @Test
+        @DisplayName("hồ sơ có sở thích đã lưu và tên sự kiện của các đơn ĐÃ THANH TOÁN, không trùng")
+        void ho_so_co_so_thich_va_su_kien_da_mua() throws Exception {
+            preferenceUseCase.remember(
+                    TURN.userId(), new CustomerPreferenceUseCase.Update(List.of("nhac-song"), "Huế", 400_000L, null));
+            OrderSummary paid1 = FakeCommerce.paidOrder(UUID.randomUUID(), Instant.parse("2026-10-07T03:00:00Z"));
+            OrderSummary paid2 = FakeCommerce.paidOrder(UUID.randomUUID(), Instant.parse("2026-10-08T03:00:00Z"));
+            OrderSummary unpaid = FakeCommerce.unpaidOrder(UUID.randomUUID());
+            ordering.mine.addAll(List.of(paid1, paid2, unpaid));
+            catalog.details.sessionEvents.put(
+                    paid1.eventSessionId(),
+                    new SessionEvent(paid1.eventSessionId(), paid1.eventId(), "Đêm nhạc Trịnh"));
+            catalog.details.sessionEvents.put(
+                    paid2.eventSessionId(),
+                    new SessionEvent(paid2.eventSessionId(), paid2.eventId(), "Đêm nhạc Trịnh"));
+            catalog.details.sessionEvents.put(
+                    unpaid.eventSessionId(), new SessionEvent(unpaid.eventSessionId(), unpaid.eventId(), "Chưa trả"));
+
+            JsonNode node = json(
+                    dispatcher().dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of())));
+
+            assertThat(node.get("purchasedEvents")).extracting(JsonNode::asText).containsExactly("Đêm nhạc Trịnh");
+            assertThat(node.get("preferences").get("categories").get(0).asText())
+                    .isEqualTo("nhac-song");
+            assertThat(node.get("preferences").get("cities").get(0).asText()).isEqualTo("Huế");
+            assertThat(node.get("preferences").get("maxBudgetVnd").asLong()).isEqualTo(400_000L);
+        }
+
+        @Test
+        @DisplayName("catalog sập ở bước tra sự kiện đã mua: hồ sơ vẫn trả đơn, chỉ thiếu purchasedEvents")
+        void catalog_sap_van_tra_don() throws Exception {
+            ordering.mine.add(FakeCommerce.paidOrder(UUID.randomUUID(), Instant.parse("2026-10-07T03:00:00Z")));
+            catalog.details.sessionLookupFails = true;
+
+            var result =
+                    dispatcher().dispatch(TURN, call(SupportAgentTools.GET_CUSTOMER_PROFILE_AND_HISTORY, Map.of()));
+            JsonNode node = json(result);
+
+            assertThat(result.outcome().failed()).isFalse();
+            assertThat(node.get("orders")).hasSize(1);
+            assertThat(node.has("purchasedEvents")).isFalse();
         }
     }
 }

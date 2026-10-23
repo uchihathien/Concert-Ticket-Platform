@@ -28,6 +28,8 @@ public final class SupportAgentTools {
     public static final String GET_EVENT_DETAILS = "getEventDetails";
     public static final String GET_CUSTOMER_PROFILE_AND_HISTORY = "getCustomerProfileAndHistory";
     public static final String PROPOSE_BOOKING = "proposeBooking";
+    public static final String REMEMBER_CUSTOMER_PREFERENCES = "rememberCustomerPreferences";
+    public static final String FORGET_CUSTOMER_PREFERENCES = "forgetCustomerPreferences";
 
     /**
      * Tool <b>điều khiển</b>, không phải tool dữ liệu.
@@ -123,6 +125,33 @@ public final class SupportAgentTools {
                                     "zoneCode",
                                     "Mã khu của hạng vé khách chọn, lấy từ trường zoneCode của getEventDetails"),
                             new ToolSpec.Param("quantity", "integer", "Số vé, từ 1 đến 6", true))),
+            new ToolSpec(
+                    REMEMBER_CUSTOMER_PREFERENCES,
+                    """
+                    Ghi nhớ sở thích mua vé mà khách TỰ NÓI ra: nhóm sự kiện thích, thành phố hay đi xem, \
+                    giá tối đa cho một vé, hoặc một ghi chú ngắn (ví dụ "thích ngồi gần sân khấu"). Lần \
+                    sau trợ lý đọc lại qua getCustomerProfileAndHistory để gợi ý đúng hơn. Chỉ gọi khi khách \
+                    vừa nói ra điều đó — ĐỪNG tự suy, ĐỪNG ghi số điện thoại, email hay thông tin cá nhân \
+                    khác. Điền trường nào khách nói, bỏ trống trường còn lại.""",
+                    List.of(
+                            ToolSpec.Param.optionalString(
+                                    "categories",
+                                    "Nhóm sự kiện, cách nhau bằng dấu phẩy. Chỉ dùng: nhac-song, san-khau, "
+                                            + "the-thao, hoi-thao"),
+                            ToolSpec.Param.optionalString("city", "Một thành phố khách nói, ví dụ \"Đà Nẵng\""),
+                            new ToolSpec.Param(
+                                    "maxBudgetVnd",
+                                    "integer",
+                                    "Giá tối đa cho MỘT vé, đơn vị đồng, ví dụ 500000 khi khách nói \"tầm 500 nghìn\"",
+                                    false),
+                            ToolSpec.Param.optionalString(
+                                    "note", "Một câu ngắn bằng lời khách, không chứa thông tin liên lạc"))),
+            new ToolSpec(
+                    FORGET_CUSTOMER_PREFERENCES,
+                    """
+                    Xoá toàn bộ sở thích đã ghi nhớ của khách. Gọi khi khách bảo quên đi, xoá sở thích, \
+                    hoặc không muốn trợ lý nhớ gì về họ. Sau khi gọi, xác nhận với khách là đã xoá.""",
+                    List.of()),
             new ToolSpec(
                     REQUEST_TICKET_REFUND,
                     """

@@ -11,6 +11,7 @@ import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
+import com.nexaticket.aichatbox.application.preference.CustomerPreferenceUseCase;
 import com.nexaticket.aichatbox.domain.model.ChatMessage;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Exchange;
@@ -21,6 +22,7 @@ import com.nexaticket.aichatbox.support.FakeAiProviders;
 import com.nexaticket.aichatbox.support.FakeCommerce;
 import com.nexaticket.aichatbox.support.InMemoryBookingProposalRepository;
 import com.nexaticket.aichatbox.support.InMemoryChatHistory;
+import com.nexaticket.aichatbox.support.InMemoryCustomerPreferences;
 import com.nexaticket.aichatbox.support.InMemoryHandoffRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
@@ -68,6 +70,7 @@ class PromptInjectionTest {
                 credentials,
                 new FakeCommerce.Profiles(),
                 booking,
+                new CustomerPreferenceUseCase(new InMemoryCustomerPreferences(), java.time.Clock.systemUTC()),
                 json,
                 metrics);
         return new CustomerSupportAgentUseCase(

@@ -11,6 +11,7 @@ import com.nexaticket.aichatbox.domain.model.OrderSummary;
 import com.nexaticket.aichatbox.domain.model.PlacedOrder;
 import com.nexaticket.aichatbox.domain.model.RefundPolicy;
 import com.nexaticket.aichatbox.domain.model.RulesEntry;
+import com.nexaticket.aichatbox.domain.model.SessionEvent;
 import com.nexaticket.aichatbox.domain.model.TicketHold;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
 import com.nexaticket.aichatbox.domain.port.CallerCredentialsPort;
@@ -97,6 +98,20 @@ public final class FakeCommerce {
     }
 
     public static class Catalog implements CatalogClientPort {
+
+        /** Suất → sự kiện, cho {@link #findSessionEvent}. Mặc định rỗng: đơn không gắn với sự kiện nào. */
+        public final Map<UUID, SessionEvent> sessionEvents = new HashMap<>();
+
+        /** Đặt true để giả catalog sập ở đường tra suất. */
+        public boolean sessionLookupFails;
+
+        @Override
+        public Optional<SessionEvent> findSessionEvent(UUID eventSessionId) {
+            if (sessionLookupFails) {
+                throw new RemoteCallException("catalog-service", "giả sập", null);
+            }
+            return Optional.ofNullable(sessionEvents.get(eventSessionId));
+        }
 
         public final Map<String, EventDetail> events = new HashMap<>();
         /** Khoá {@code slug|zoneCode}. */
