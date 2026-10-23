@@ -83,6 +83,45 @@ Rồi lần lượt:
 - Hai tin cùng lúc trong một phiên → tin thứ hai bị 409 `TURN_IN_PROGRESS` "Câu hỏi trước đang được
   trả lời" (story 6.10). Giao diện web chỉ cho gửi tuần tự nên cũng chỉ thấy bằng `curl`.
 
+## Đặt 1 vé ngay trong chat (Phase 1)
+
+Đã chạy trọn ngày 23/10/2026 với `qwen2.5:7b-instruct`: đơn NT-261023-YCFNQE, 1 vé, 350.000đ, trạng
+thái PAID. Cần **ai-chatbox build từ nhánh `feat/ai-chatbox-phase1`** (backend) và **web-customer từ
+nhánh `feat/ai-chatbox-phase1`** (repo frontend); 7 service còn lại dùng jar nhánh Epic 6 như trên.
+
+Sự kiện dùng để demo: **Giải chạy Marathon Đà Nẵng**, hạng **Cự ly 5km**, 350.000đ, vé đứng, một suất
+(05:00 ngày 29/10/2026), đang mở bán. Chọn sự kiện một suất để trợ lý không phải hỏi "suất nào".
+
+Mở cửa sổ khách (`customer`/`customer`) ở `http://localhost:3000/support`. Nên bắt đầu phiên mới: mở tab
+ẩn danh, hoặc xoá phiên cũ trong DevTools (`sessionStorage.removeItem('nexaticket.support.session')`).
+
+| Bước | Gõ đúng câu này | Kỳ vọng |
+|---|---|---|
+| 1 | `Mình muốn đặt 1 vé hạng Cự ly 5km của Giải chạy Marathon Đà Nẵng` | Trợ lý gọi `findEvents`, nhắc giá 350.000đ, ngày 29/10, rồi hỏi lại có muốn đặt không. Chưa có thẻ. |
+| 2 | `Có, lập đề xuất 1 vé Cự ly 5km giúp mình` | Trợ lý gọi `proposeBooking`, tóm tắt, và **thẻ "Đề xuất đặt vé"** hiện dưới câu trả lời: tổng 350.000 ₫, đồng hồ 10 phút, nút Đồng ý/Huỷ. |
+| 3 | Bấm **Đồng ý** trên thẻ | Không qua mô hình, trả ngay: lượt "Đã tạo đơn NT-… (1 vé Cự ly 5km…)" và **thẻ Thanh toán** có VietQR, nội dung chuyển khoản, nút "Thanh toán qua payOS", đồng hồ 15 phút. |
+| 4 | Giả lập tiền về (lệnh bên dưới) | Trong ~5 giây thẻ đổi thành **"Đã nhận được thanh toán"** kèm nút **Xem vé ngay**. |
+
+Lệnh giả lập chuyển khoản (sandbox, không có đồng nào thật) — thay mã đơn hiện trên thẻ:
+
+```bash
+OID=$(docker exec nexaticket-infra-postgres-1 psql -U postgres -d ordering_db -Atc "select id from orders where order_number='NT-XXXXXX-XXXXXX'")
+curl -s -X POST http://localhost:8095/internal/payment-intents/$OID/simulate-transfer
+```
+
+Điểm nói với thầy ở mỗi bước:
+
+- **Bước 2 — mô hình chỉ ĐỀ XUẤT** (ADR-2001). Nó không có tool giữ chỗ hay tạo đơn. Tool tự tra suất và
+  mã khu từ tên hạng vé, nên mô hình không bao giờ phải hỏi khách "mã sessionId".
+- **Bước 3 — đơn chỉ ra đời khi người bấm.** Nút Đồng ý gọi thẳng `POST /v1/chat/agent/proposals/{id}/confirm`,
+  idempotent theo id đề xuất: bấm hai lần vẫn một đơn (lần hai trả lại đúng thẻ thanh toán cũ).
+- **Chốt chặn**: nếu mô hình *nói* "đã lập đề xuất, bấm trên thẻ" mà không gọi tool, câu đó bị trả lại cho
+  mô hình sửa (đo được thật trong lúc dựng demo); sửa vẫn hỏng thì khách nhận câu hướng dẫn nhắn lại.
+
+Nếu bước 2 không ra thẻ (mô hình 7B thỉnh thoảng hỏi lại thêm một lượt): gõ lại đúng câu ở bước 2. Mỗi lượt
+mất 30 giây tới 2 phút trên máy này (lâu hơn khi chốt chặn bắt mô hình sửa). Đề xuất sống 10 phút, nên
+bấm Đồng ý ngay khi thẻ hiện. Nhớ là mỗi lần chạy tạo một đơn thật trong DB dev và trừ chỗ của suất đó.
+
 ## Trước giờ demo (checklist)
 
 1. Bật hạ tầng: `docker compose -p nexaticket-infra -f deploy/compose/infra.yml -f deploy/compose/infra.gpu.yml --profile ai up -d`
