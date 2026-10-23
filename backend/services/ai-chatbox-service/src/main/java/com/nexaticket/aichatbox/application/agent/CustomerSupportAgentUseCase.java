@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
+import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.EventRef;
 import com.nexaticket.aichatbox.domain.model.Exchange;
@@ -206,6 +207,9 @@ public class CustomerSupportAgentUseCase {
         // Sự kiện tra được trong lượt này, theo slug. Dùng để gắn đường dẫn mua vé vào câu trả lời —
         // xem SupportAgentPrompts.withTicketLinks.
         Map<String, EventRef> eventRefs = new LinkedHashMap<>();
+        // Thẻ hành động CUỐI CÙNG của lượt: mô hình gọi proposeBooking hai lần thì đề xuất sau đã thay
+        // đề xuất trước (1.2), và thẻ phải là của đề xuất còn sống.
+        ActionCard action = null;
         String answer = null;
         // Đếm vòng ĐÃ BẮT ĐẦU, ghi trong `finally`: lượt kết thúc sớm bằng tool điều khiển (return
         // giữa vòng) hay bằng ngoại lệ trước đây không được ghi, nên phân bố số vòng thiếu đúng những
@@ -249,6 +253,9 @@ public class CustomerSupportAgentUseCase {
                             ToolDispatcher.DispatchResult result =
                                     tools.dispatch(new TurnContext(sessionId, userId), call);
                             outcomes.add(result.outcome());
+                            if (result.action() != null) {
+                                action = result.action();
+                            }
                             // Gom sự kiện tra được, theo slug để không trùng khi mô hình gọi findEvents
                             // rồi getEventDetails trên cùng một sự kiện. LinkedHashMap giữ thứ tự tìm
                             // thấy — sự kiện khớp nhất đứng đầu, và đó là thứ tự khách nên thấy.
@@ -312,7 +319,7 @@ public class CustomerSupportAgentUseCase {
         // Một lệnh cho cả lượt, không phải hai: hỏng ở giữa để lại một câu hỏi không có câu trả
         // lời, và lượt sau mô hình đọc lại hội thoại ấy như thể khách đã bị bỏ qua.
         history.appendTurn(sessionId, userId, userQuery, ChatRole.ASSISTANT, withLinks);
-        return new AgentReply(sessionId, withLinks, List.copyOf(toolsUsed));
+        return new AgentReply(sessionId, withLinks, List.copyOf(toolsUsed), action);
     }
 
     /**

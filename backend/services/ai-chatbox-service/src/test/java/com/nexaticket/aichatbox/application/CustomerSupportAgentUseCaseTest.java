@@ -13,6 +13,7 @@ import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
+import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.Handoff;
@@ -218,6 +219,8 @@ class CustomerSupportAgentUseCaseTest {
         assertThat(inventory.holdKeys).isEmpty();
         assertThat(ordering.placedHolds).isEmpty();
         assertThat(proposals.countByStatus()).containsEntry(BookingProposalStatus.PROPOSED, 1L);
+        assertThat(reply.action()).isInstanceOf(ActionCard.BookingProposal.class);
+        assertThat(((ActionCard.BookingProposal) reply.action()).totalVnd()).isEqualTo(3_600_000L);
         assertThat(history.transcript(sessionId, userId, 10))
                 .extracting(m -> m.role())
                 .containsExactly(ChatRole.USER, ChatRole.ASSISTANT);
@@ -253,6 +256,7 @@ class CustomerSupportAgentUseCaseTest {
         assertThat(llm.calls).hasValue(4);
         // Hết vòng thì chuyển người thật, như mọi lần hết vòng khác.
         assertThat(reply.toolsUsed()).containsExactly(SupportAgentTools.ESCALATE_TO_HUMAN);
+        assertThat(reply.action()).isNull();
         assertThat(handoffRepository.openBySession(sessionId)).isPresent();
     }
 }

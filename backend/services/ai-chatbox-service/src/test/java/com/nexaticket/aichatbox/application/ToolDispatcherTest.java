@@ -9,6 +9,8 @@ import com.nexaticket.aichatbox.application.agent.SupportAgentTools;
 import com.nexaticket.aichatbox.application.agent.ToolDispatcher;
 import com.nexaticket.aichatbox.application.agent.TurnContext;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
+import com.nexaticket.aichatbox.domain.model.ActionCard;
+import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.model.ToolInvocation;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
@@ -124,6 +126,12 @@ class ToolDispatcherTest {
         assertThat(ordering.placedHolds).isEmpty();
         assertThat(result.events()).isEmpty();
         assertThat(proposals.countByStatus()).containsEntry(BookingProposalStatus.PROPOSED, 1L);
+        // Thẻ đi theo kênh có kiểu, khớp đúng đề xuất vừa ghi (1.3).
+        ActionCard.BookingProposal card = (ActionCard.BookingProposal) result.action();
+        BookingProposal saved = proposals.findById(card.id()).orElseThrow();
+        assertThat(card.totalVnd()).isEqualTo(saved.totalVnd()).isEqualTo(3_600_000L);
+        assertThat(card.expiresAt()).isEqualTo(saved.expiresAt());
+        assertThat(card.summary()).startsWith("2 vé VIP · Đêm nhạc Trịnh");
     }
 
     @Test
@@ -160,6 +168,7 @@ class ToolDispatcherTest {
         assertThat(result.outcome().failed()).isFalse();
         assertThat(result.outcome().payload()).contains("\"proposed\":false").contains("tối đa 6 vé");
         assertThat(inventory.holdKeys).isEmpty();
+        assertThat(result.action()).isNull();
     }
 
     @Test

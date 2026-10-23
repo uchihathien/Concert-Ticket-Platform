@@ -2,6 +2,7 @@
 package com.nexaticket.aichatbox.interfaces.rest;
 
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
+import com.nexaticket.aichatbox.application.agent.ActionCardView;
 import com.nexaticket.aichatbox.application.agent.AgentReply;
 import com.nexaticket.aichatbox.application.agent.CustomerSupportAgentUseCase;
 import com.nexaticket.aichatbox.application.agent.SessionTurnLock;
@@ -83,7 +84,16 @@ public class SupportChatController {
      */
     public record AskRequest(UUID sessionId, @NotBlank @Size(max = 2000) String message) {}
 
-    public record AskResponse(UUID sessionId, String answer, List<String> toolsUsed) {}
+    /**
+     * @param action thẻ cho giao diện vẽ nút (đề xuất đặt vé, thanh toán) — {@code null} khi lượt
+     *     không có thẻ; luôn có mặt trong JSON để client phân biệt "không thẻ" với "bản cũ"
+     */
+    public record AskResponse(UUID sessionId, String answer, List<String> toolsUsed, ActionCardView action) {
+
+        public AskResponse(UUID sessionId, String answer, List<String> toolsUsed) {
+            this(sessionId, answer, toolsUsed, null);
+        }
+    }
 
     /**
      * Lượt chat — <b>chạy trên pool riêng, không giữ luồng của Tomcat</b>.
@@ -203,7 +213,8 @@ public class SupportChatController {
                         AiChatboxErrorCode.ASSISTANT_BUSY, "Trợ lý đang bận, bạn thử lại sau ít phút nhé");
             }
             AgentReply reply = agent.executeAgentProcess(sessionId, userId, message);
-            return new AskResponse(reply.sessionId(), reply.answer(), reply.toolsUsed());
+            return new AskResponse(
+                    reply.sessionId(), reply.answer(), reply.toolsUsed(), ActionCardView.of(reply.action()));
         } finally {
             // Luồng của pool sống rất lâu và được dùng lại cho người khác. Không xoá context thì
             // lượt kế tiếp chạy trên đúng luồng ấy thừa hưởng danh tính của khách trước.

@@ -3,7 +3,9 @@ package com.nexaticket.aichatbox.application.agent;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nexaticket.aichatbox.application.booking.ActionCards;
 import com.nexaticket.aichatbox.application.booking.BookingProposalUseCase;
+import com.nexaticket.aichatbox.domain.model.ActionCard;
 import com.nexaticket.aichatbox.domain.model.CustomerProfile;
 import com.nexaticket.aichatbox.domain.model.EventBrief;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
@@ -107,10 +109,24 @@ public class ToolDispatcher {
      * dẫn mua vé, và chúng phải đi ra khỏi đây dưới dạng dữ liệu có kiểu chứ không phải bằng cách
      * đọc lại chuỗi JSON ở tầng trên.
      */
-    public record DispatchResult(ToolOutcome outcome, List<EventRef> events) {
+    public record DispatchResult(ToolOutcome outcome, List<EventRef> events, ActionCard action) {
+
+        /** Kết quả chỉ có dữ liệu cho mô hình, kèm sự kiện cho giao diện gắn link. */
+        public DispatchResult(ToolOutcome outcome, List<EventRef> events) {
+            this(outcome, events, null);
+        }
 
         static DispatchResult of(ToolOutcome outcome) {
-            return new DispatchResult(outcome, List.of());
+            return new DispatchResult(outcome, List.of(), null);
+        }
+
+        /**
+         * Kết quả kèm THẺ cho giao diện. Thẻ đi theo kênh có kiểu này, không nằm trong
+         * {@code outcome.payload()}: giao diện không parse chữ của mô hình, và chuỗi VietQR (thẻ
+         * PAYMENT) không bao giờ đi qua mô hình.
+         */
+        static DispatchResult withAction(ToolOutcome outcome, ActionCard action) {
+            return new DispatchResult(outcome, List.of(), action);
         }
     }
 
@@ -286,8 +302,10 @@ public class ToolDispatcher {
                             "Nhắc lại tóm tắt và nói khách bấm Xác nhận trên thẻ bên dưới trong 10 phút. "
                                     + "ĐỪNG nói là đã đặt hay đã giữ chỗ, ĐỪNG tự viết đường dẫn thanh toán.");
                     // Không kèm EventRef: thẻ xác nhận là đường đi tiếp; "xem chỗ và mua vé" lúc này là
-                    // mời khách mua lần nữa.
-                    yield DispatchResult.of(ToolOutcome.ok(call.callId(), write(out)));
+                    // mời khách mua lần nữa. Thẻ đi riêng, có kiểu — không nằm trong JSON cho mô hình.
+                    yield DispatchResult.withAction(
+                            ToolOutcome.ok(call.callId(), write(out)),
+                            ActionCards.proposal(proposal, proposed.event()));
                 }
             };
         } catch (RemoteCallException e) {
