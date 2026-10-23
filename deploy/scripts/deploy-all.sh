@@ -547,11 +547,10 @@ $(printf '\033[1m━━━ XONG\033[0m')
     aws ec2 stop-instances  --instance-ids $INST
     aws ec2 start-instances --instance-ids $INST   # rồi: systemctl start nexaticket
 
-  Bật tự động deploy — thêm vào GitHub > Settings > Secrets and variables > Actions:
-    DEPLOY_TARGET   = ubuntu@$EIP
-    AWS_SG_ID       = $SG
-    AWS_DEPLOY_ROLE = arn:aws:iam::$ACCOUNT:role/$NAME-github
-  (cộng DEPLOY_SSH_KEY và DEPLOY_HOST_KEY nếu muốn deploy qua SSH)
+  Bật tự động deploy (kiểu kéo — không cần secret nào trên GitHub, không cần mở cổng 22):
+    aws ssm start-session --target $INST
+    sudo -u ubuntu bash -lc 'cd /srv/nexaticket && bash deploy/scripts/install-pull-deploy.sh'
+  Sau đó mỗi lần Release được duyệt dời tag production, máy chủ tự kéo bản đó về trong ~2 phút.
 
   Vào máy chủ, không cần khoá và không cần mở cổng 22:
     aws ssm start-session --target $INST

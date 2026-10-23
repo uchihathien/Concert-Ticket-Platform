@@ -248,10 +248,17 @@ ghim một bản frontend cụ thể thì chạy `Release` bằng tay với `fro
 
 | Tên | Repo | Nội dung |
 | --- | --- | --- |
-| `DEPLOY_SSH_KEY` | backend | khoá riêng ed25519, public key nằm trong `~/.ssh/authorized_keys` của máy chủ |
-| `DEPLOY_HOST_KEY` | backend | `ssh-keyscan -H <host>` — ghim vân tay, đừng dùng `StrictHostKeyChecking=no` |
-| `DEPLOY_TARGET` | backend | `user@host` |
 | `PUBLIC_API_BASE_URL` | frontend (**variable**, không phải secret) | nhúng vào bundle lúc build |
+
+**Deploy kiểu kéo — backend không cần secret deploy nào.** Job `promote` của `release.yml` dời tag git
+`production` tới commit vừa build (sau khi ảnh đã lên GHCR, và sau khi environment `production` được
+duyệt nếu có khai người duyệt). Trên máy chủ, timer `nexaticket-deploy` hỏi tag đó 2 phút một lần và
+tự deploy khi nó dời (`deploy/scripts/pull-deploy.sh`). Cài một lần:
+`sudo -u ubuntu bash -lc 'cd /srv/nexaticket && bash deploy/scripts/install-pull-deploy.sh'`.
+
+Không dùng SSH từ runner: SCP của Organization chặn OIDC nên runner không mở được cổng 22 cho chính
+nó, và Security Group chỉ mở 22 cho một IP quản trị. Các secret `DEPLOY_SSH_KEY`, `DEPLOY_HOST_KEY`,
+`DEPLOY_TARGET`, `AWS_SG_ID`, `AWS_DEPLOY_ROLE` không còn được đọc.
 
 `GITHUB_TOKEN` đủ để đẩy ảnh lên GHCR của chính tổ chức — không cần PAT.
 

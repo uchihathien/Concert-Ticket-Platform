@@ -1,11 +1,12 @@
 # Đường từ một commit trên `main` tới hệ thống đang chạy.
 #
-# `backend.yml` chứng minh mã nguồn đúng; file này biến nó thành ảnh container và đưa lên máy chủ.
+# `backend.yml` chứng minh mã nguồn đúng; file này biến nó thành ảnh container và đánh dấu bản được
+# đưa ra (tag `production`). Máy chủ tự kéo bản đó về — xem deploy/scripts/pull-deploy.sh.
 # Hai việc tách làm hai workflow vì chúng hỏng vì những lý do khác nhau và cần chạy lại độc lập:
 # test đỏ là lỗi mã nguồn, push ảnh hỏng thường là lỗi registry hoặc mạng.
 #
 # Frontend KHÔNG nằm ở đây. Nó là repo riêng, có `release.yml` của chính nó, và đẩy ảnh vào cùng
-# một registry. Deploy ở dưới chỉ kéo ảnh xuống, nên nó không cần mã nguồn frontend — điều này đã
+# một registry. Máy chủ chỉ kéo ảnh xuống, nên nó không cần mã nguồn frontend — điều này đã
 # kiểm bằng `docker compose config` với một build context không tồn tại: compose chỉ đọc context
 # khi thực sự build.
 name: Release
@@ -89,106 +90,38 @@ jobs:
             "ghcr.io/${{ github.repository_owner }}/${{ matrix.service }}:${{ github.sha }}" \
             -c 'test -f /app/application.jar'
 
-  deploy:
+  # Duyệt = dời tag `production` tới commit vừa build. Máy chủ tự kéo về (deploy/scripts/pull-deploy.sh,
+  # timer 2 phút) — workflow này KHÔNG chạm vào máy chủ.
+  #
+  # Trước đây job này SSH vào EC2. Trên tài khoản AWS này nó không chạy được lần nào: SCP của
+  # Organization chặn OIDC nên runner không mở được cổng 22 cho chính nó, và Security Group chỉ mở 22
+  # cho IP đã chạy aws-bootstrap.sh. Kéo thì không cần cổng nào mở vào, không cần khoá SSH hay
+  # credential AWS nằm trên GitHub.
+  promote:
     needs: images
+    # workflow_dispatch chạy được trên mọi nhánh; chỉ commit của main mới được đưa ra người dùng thật.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Environment `production` là chỗ khai người duyệt. Không có nó thì mọi commit vào main đi
     # thẳng ra người dùng thật — với một hệ thống giữ tiền hộ người khác thì đó là quá nhanh.
     environment: production
-    # id-token: write cho OIDC — không lưu access key AWS trong secret.
     permissions:
-      contents: read
-      id-token: write
-    # Secret phải đi qua `env` ở cấp job để các bước dưới kiểm được "đã khai chưa".
-    #
-    # Context `secrets` KHÔNG dùng được trong `if` ở cấp step — GitHub chỉ cho phép
-    # github/needs/strategy/matrix/job/runner/env/vars/steps/inputs ở đó. Viết
-    # `if: ${{ secrets.X != '' }}` làm cả workflow chết ngay lúc xác thực, với 0 job và không một
-    # dòng log nào: lỗi không nằm ở bước nào cả nên không có chỗ để đọc. `env` thì được phép.
-    env:
-      AWS_SG_ID: ${{ secrets.AWS_SG_ID }}
+      contents: write   # đẩy tag; không cần gì khác
     steps:
-      # Mở cổng 22 cho ĐÚNG runner này, rồi đóng lại ở bước cuối.
-      #
-      # Cách khác là mở 22 cho 0.0.0.0/0 vì dải IP của GitHub Actions quá rộng và đổi liên tục.
-      # Mở như vậy thì trong vài giờ sẽ có hàng nghìn lượt dò; mở đúng một /32 trong vài chục giây
-      # thì không.
-      #
-      # Cả ba bước này TỰ BỎ QUA nếu chưa khai secret AWS_SG_ID — để bạn chạy được pipeline trước,
-      # rồi siết sau, mà không phải sửa file này.
-      - name: Lấy credential AWS (OIDC)
-        if: ${{ env.AWS_SG_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE }}
-          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+      - uses: actions/checkout@v4
 
-      - name: Mở cổng 22 cho runner
-        if: ${{ env.AWS_SG_ID != '' }}
-        run: |
-          RUNNER_IP=$(curl -s --max-time 10 https://checkip.amazonaws.com)
-          echo "RUNNER_IP=$RUNNER_IP" >> "$GITHUB_ENV"
-          aws ec2 authorize-security-group-ingress \
-            --group-id "$AWS_SG_ID" \
-            --protocol tcp --port 22 --cidr "$RUNNER_IP/32"
-          echo "Đã mở 22 ← $RUNNER_IP/32"
-
-      - name: Khoá SSH
-        run: |
-          install -d -m 700 ~/.ssh
-          install -m 600 /dev/stdin ~/.ssh/id_ed25519 <<< "${{ secrets.DEPLOY_SSH_KEY }}"
-          # ssh-keyscan, không phải StrictHostKeyChecking=no: cái sau chấp nhận BẤT KỲ máy chủ nào
-          # trả lời, kể cả một máy chen vào giữa. Vân tay ghim sẵn trong secret là chốt chặn duy nhất.
-          echo "${{ secrets.DEPLOY_HOST_KEY }}" >> ~/.ssh/known_hosts
-
-      - name: Deploy
+      - name: Dời tag production tới commit này
         env:
-          TARGET: ${{ secrets.DEPLOY_TARGET }}       # dạng user@host
+          # Qua env chứ không nhúng `${{ }}` vào lệnh: giá trị do người bấm Run workflow gõ vào.
           FRONTEND_TAG: ${{ inputs.frontend_tag || 'main' }}
         run: |
-          ssh "$TARGET" bash -euo pipefail <<EOF
-          cd /srv/nexaticket
-
-          # Checkout ĐÚNG commit đã sinh ra ảnh, không phải \`git pull\`. prod.yml và smoke.sh phải
-          # khớp với ảnh đang chạy; kéo nhánh về là lấy bản mới nhất, có thể mới hơn ảnh vài commit.
-          git fetch --depth 1 origin ${{ github.sha }}
-          git checkout --detach ${{ github.sha }}
-
-          export BACKEND_TAG=${{ github.sha }}
-          export FRONTEND_TAG=$FRONTEND_TAG
-          export REGISTRY=ghcr.io/${{ github.repository_owner }}
-
-          compose="docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env"
-
-          # --ignore-buildable: rabbitmq KHÔNG có mặt trên GHCR — ảnh của nó dựng tại chỗ để bật
-          # plugin delayed message (ADR-1009). Thiếu cờ này thì `pull` chết ở đúng ảnh đó và 21 ảnh
-          # còn lại không được kéo.
-          \$compose pull --ignore-buildable
-          # Dựng rabbitmq từ Dockerfile của commit vừa checkout. `up --no-build` bên dưới KHÔNG tự
-          # làm việc này, và vì một ảnh thiếu làm CẢ `compose up` chết, bỏ dòng này nghĩa là không
-          # container nào được tạo — kể cả 21 ảnh vừa kéo xong.
-          \$compose build rabbitmq
-          # Hạ tầng trước, rồi topology, rồi mới tới 19 service. `depends_on: service_healthy`
-          # chỉ bảo đảm broker đã CHẠY, không bảo đảm nó có exchange và queue — mà năm service
-          # có @RabbitListener sẽ crash-loop nếu queue chưa tồn tại.
-          \$compose up -d --no-build --wait rabbitmq postgres redis
-          bash deploy/scripts/apply-topology.sh
-          # --no-build: trên máy chủ không có mã nguồn frontend. Thiếu cờ này thì compose thấy
-          # thiếu ảnh là đi build, và chết ở một build context không tồn tại.
-          # --wait: trả về khi container HEALTHY, không phải khi đã tạo xong.
-          \$compose up -d --no-build --wait --remove-orphans
-
-          # Gọi qua `bash`, không dựa vào bit thực thi: git trên Windows không ghi lại chmod +x,
-          # nên file có thể về máy chủ ở mode 644 và `./script` thất bại với exit 126.
-          bash deploy/scripts/smoke.sh
-          EOF
-
-      # `if: always()` là BẮT BUỘC, không phải cho gọn: deploy hỏng giữa chừng mà không đóng thì
-      # rule nằm lại vĩnh viễn, và sau vài lần Security Group đầy những /32 không ai nhớ của ai.
-      - name: Đóng cổng 22
-        if: ${{ always() && env.AWS_SG_ID != '' && env.RUNNER_IP != '' }}
-        run: |
-          aws ec2 revoke-security-group-ingress \
-            --group-id "$AWS_SG_ID" \
-            --protocol tcp --port 22 --cidr "$RUNNER_IP/32" || true
-          echo "Đã đóng 22 ← $RUNNER_IP/32"
+          case "$FRONTEND_TAG" in
+            *[!A-Za-z0-9_.-]*|'') echo "frontend_tag không hợp lệ: '$FRONTEND_TAG'" >&2; exit 1 ;;
+          esac
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Tag có chú thích (-a): lời nhắn mang frontend_tag cho máy chủ đọc — một commit ở repo này
+          # không có SHA tương ứng ở repo frontend, nên tag ảnh frontend phải đi kèm riêng.
+          git tag -f -a production -m "Release ${GITHUB_SHA}" -m "frontend_tag=${FRONTEND_TAG}" "$GITHUB_SHA"
+          git push -f origin refs/tags/production
+          echo "production → ${GITHUB_SHA::7} (frontend $FRONTEND_TAG). Máy chủ kéo về trong ~2 phút." >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,27 @@
+# Một lần deploy kiểu kéo: lấy tag `production`, đổi ảnh nếu tag đã dời. Timer cùng tên gọi nó.
+#
+#   sudo systemctl start nexaticket-deploy     # chạy ngay, không chờ timer
+#   journalctl -u nexaticket-deploy -f
+#
+# Cài bằng deploy/scripts/install-pull-deploy.sh.
+[Unit]
+Description=NexaTicket — kéo và deploy bản đã duyệt (tag production)
+Requires=docker.service
+After=docker.service network-online.target nexaticket.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# `ubuntu` sở hữu /srv/nexaticket và có thông tin đăng nhập ghcr.io; root thì git từ chối làm việc
+# trong cây đó ("dubious ownership"). Xem pull-deploy.sh.
+User=ubuntu
+Group=ubuntu
+SupplementaryGroups=docker
+WorkingDirectory=/srv/nexaticket
+# systemd tạo /var/lib/nexaticket-deploy thuộc `ubuntu` và đưa đường dẫn vào $STATE_DIRECTORY —
+# nơi ghi SHA đang chạy và SHA hỏng gần nhất, sống qua reboot và qua `git checkout`.
+StateDirectory=nexaticket-deploy
+ExecStart=/usr/bin/bash /srv/nexaticket/deploy/scripts/pull-deploy.sh
+# Kéo 21 ảnh và chờ 22 container healthy: lần đầu tới 10 phút. Mặc định của systemd sẽ giết giữa
+# chừng và để lại cụm nửa cũ nửa mới.
+TimeoutStartSec=1800

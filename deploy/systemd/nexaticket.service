@@ -36,6 +36,14 @@ WorkingDirectory=/srv/nexaticket
 ExecStartPre=/usr/bin/test -s /srv/nexaticket/deploy/compose/.env
 ExecStartPre=-/usr/local/bin/nexa-env
 
+# release.env ghi BACKEND_TAG/FRONTEND_TAG của bản ĐÃ DUYỆT (pull-deploy.sh viết nó). Mọi lệnh compose
+# dưới đây đọc nó SAU .env, nên nó thắng giá trị `main` mà nexa-env vừa sinh lại — reboot bật lại
+# đúng bản đang chạy, không nhảy sang ảnh :main mới nhất mà có thể chưa ai duyệt.
+#
+# Chưa cài deploy kéo thì file chưa có; tạo rỗng (thuộc `ubuntu`, để pull-deploy.sh ghi đè được) để
+# `--env-file` không làm compose chết. File rỗng nghĩa là giữ nguyên hành vi cũ: tag lấy từ .env.
+ExecStartPre=/usr/bin/sh -c 'test -e deploy/compose/release.env || install -o ubuntu -g ubuntu -m 644 /dev/null deploy/compose/release.env'
+
 # Build rabbitmq TẠI CHỖ. Đây là service DUY NHẤT trong prod.yml được dựng trên máy chủ.
 #
 # Ảnh của nó tự dựng để bật plugin delayed message (cần cho retry backoff — ADR-1009) và KHÔNG được
@@ -52,7 +60,7 @@ ExecStartPre=-/usr/local/bin/nexa-env
 # đi tiếp thì ExecStart chết sau đó với một thông điệp nói về ảnh thiếu, không nói về build hỏng.
 #
 # Build có cache nên mỗi lần khởi động chỉ mất vài giây.
-ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env build rabbitmq
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env --env-file deploy/compose/release.env build rabbitmq
 # ÁP TOPOLOGY RABBITMQ TRƯỚC KHI 19 SERVICE KHỞI ĐỘNG.
 #
 # `depends_on: rabbitmq: service_healthy` chỉ bảo đảm BROKER đã chạy, không bảo đảm nó có exchange và
@@ -66,13 +74,13 @@ ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deplo
 #
 # Hai dòng, theo thứ tự này: dựng hạ tầng và CHỜ nó healthy, rồi áp topology. Sau đó ExecStart bật
 # phần còn lại, lúc queue đã có mặt — nên không service nào phải crash-loop để chờ.
-ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --no-build --wait rabbitmq postgres redis
+ExecStartPre=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env --env-file deploy/compose/release.env up -d --no-build --wait rabbitmq postgres redis
 ExecStartPre=/usr/bin/bash /srv/nexaticket/deploy/scripts/apply-topology.sh
 # --no-build: máy chủ KHÔNG có mã nguồn frontend (repo riêng). Thiếu cờ này thì compose thấy thiếu
 # ảnh là đi build, và chết ở một build context không tồn tại.
 # --wait: trả về khi container HEALTHY, không phải khi vừa tạo xong.
-ExecStart=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env up -d --no-build --wait --remove-orphans
-ExecStop=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env down
+ExecStart=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env --env-file deploy/compose/release.env up -d --no-build --wait --remove-orphans
+ExecStop=/usr/bin/docker compose -f deploy/compose/prod.yml --env-file deploy/compose/.env --env-file deploy/compose/release.env down
 
 # 22 container khởi động theo chuỗi healthcheck; riêng Keycloak đã ~60s, Postgres chạy migration
 # của 12 service. Mặc định 90s của systemd sẽ giết giữa chừng và để lại cụm nửa vời.

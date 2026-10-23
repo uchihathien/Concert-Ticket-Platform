@@ -348,16 +348,8 @@ cat <<SUMMARY
   XONG. Instance : $INST
         Elastic IP: $EIP
         SG        : $SG
-        GitHub secrets cần tạo:
-          DEPLOY_TARGET    = ubuntu@$EIP
-          AWS_SG_ID        = $(if [ "$OIDC_OK" = 1 ]; then echo "$SG"; else echo "ĐỪNG khai — xem bên dưới"; fi)
-          AWS_DEPLOY_ROLE  = $GH_ROLE_ARN
-$(if [ "$OIDC_OK" != 1 ]; then cat <<'NOTE'
-        SCP của Organization chặn OIDC, nên CI không tự mở/đóng được cổng 22.
-        ĐỪNG khai AWS_SG_ID — release.yml tự nhảy qua ba bước đó và deploy bằng SSH.
-        Khi đó cổng 22 phải mở cho runner bằng cách khác (xem mục 5.2 trong hướng dẫn).
-NOTE
-fi)
+        Tự động deploy: KHÔNG cần secret nào trên GitHub. Máy chủ tự kéo bản đã duyệt
+        (tag production) — cài một lần bằng deploy/scripts/install-pull-deploy.sh.
 
   BƯỚC TIẾP THEO — theo đúng thứ tự:
 

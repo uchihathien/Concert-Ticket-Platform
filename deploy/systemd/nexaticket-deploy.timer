@@ -1,0 +1,16 @@
+# Hỏi tag `production` hai phút một lần.
+#
+# Mỗi lần chỉ là một `git fetch` một ref — vài KB, không đụng docker khi tag chưa dời. Hai phút là
+# độ trễ tối đa từ lúc bấm duyệt trên GitHub tới lúc máy chủ bắt đầu kéo ảnh.
+[Unit]
+Description=NexaTicket — hỏi bản đã duyệt mỗi 2 phút
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=2min
+# Tính từ lúc lần trước KẾT THÚC (Inactive), không phải bắt đầu: một lần deploy dài 10 phút không
+# làm các lần sau dồn lại.
+Unit=nexaticket-deploy.service
+
+[Install]
+WantedBy=timers.target

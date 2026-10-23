@@ -17,6 +17,8 @@ dist/
 .env.local
 .env.*.local
 !.env.example
+# Tag ảnh của bản đã duyệt, do pull-deploy.sh viết trên máy chủ — trạng thái của máy, không phải mã nguồn.
+deploy/compose/release.env
 
 # --- IDE / OS ---
 .idea/
