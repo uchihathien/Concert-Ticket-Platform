@@ -4,12 +4,14 @@ package com.nexaticket.aichatbox.application.booking;
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
 import com.nexaticket.aichatbox.application.agent.ActionCardView;
 import com.nexaticket.aichatbox.domain.model.ActionCard;
+import com.nexaticket.aichatbox.domain.model.BookingDraft;
 import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.BookingProposalStatus;
 import com.nexaticket.aichatbox.domain.model.ChatRole;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.PlacedOrder;
 import com.nexaticket.aichatbox.domain.model.ZoneAdmission;
+import com.nexaticket.aichatbox.domain.port.BookingDraftRepository;
 import com.nexaticket.aichatbox.domain.port.BookingProposalRepository;
 import com.nexaticket.aichatbox.domain.port.CatalogClientPort;
 import com.nexaticket.aichatbox.domain.port.ChatHistoryPort;
@@ -76,10 +78,21 @@ public class BookingProposalUseCase {
     private final Clock clock;
     private final TicketBookingUseCase booking;
     private final ChatHistoryPort history;
+    /** Lựa chọn đang dở của phiên (V0111) — {@code null} ở các test chỉ lập/xác nhận đề xuất. */
+    private final BookingDraftRepository drafts;
 
     /** Chỉ lập đề xuất (tool của mô hình) — không xác nhận được; test của dispatcher dùng bản này. */
     public BookingProposalUseCase(CatalogClientPort catalog, BookingProposalRepository proposals, Clock clock) {
-        this(catalog, proposals, clock, null, null);
+        this(catalog, proposals, clock, null, null, null);
+    }
+
+    public BookingProposalUseCase(
+            CatalogClientPort catalog,
+            BookingProposalRepository proposals,
+            Clock clock,
+            TicketBookingUseCase booking,
+            ChatHistoryPort history) {
+        this(catalog, proposals, clock, booking, history, null);
     }
 
     @Autowired
@@ -88,12 +101,14 @@ public class BookingProposalUseCase {
             BookingProposalRepository proposals,
             Clock clock,
             TicketBookingUseCase booking,
-            ChatHistoryPort history) {
+            ChatHistoryPort history,
+            BookingDraftRepository drafts) {
         this.catalog = catalog;
         this.proposals = proposals;
         this.clock = clock;
         this.booking = booking;
         this.history = history;
+        this.drafts = drafts;
     }
 
     /** Kết quả lập đề xuất — hoặc một đề xuất đã ghi, hoặc một lý do để mô hình nói lại với khách. */
@@ -291,7 +306,9 @@ public class BookingProposalUseCase {
                             order.orderNumber());
                 }
                 BookingProposal current = proposals.findById(proposalId).orElse(proposal);
-                yield new Confirmed(current, order, ActionCards.payment(order), announcement);
+                ActionCard.Payment card =
+                        ActionCards.payment(order).withEvent(ActionCards.orderEvent(proposal, started.event()));
+                yield new Confirmed(current, order, card, announcement);
             }
         };
     }
@@ -320,6 +337,22 @@ public class BookingProposalUseCase {
     public Optional<ActionCard> openCardFor(UUID chatSessionId, UUID userId) {
         Instant now = clock.instant();
         List<BookingProposal> recent = proposals.recentForSession(chatSessionId, userId, RECENT);
+
+        // Khách đang chọn dở (chip suất/khu/số vé) SAU đề xuất gần nhất: chip là thứ đang chờ họ bấm.
+        Optional<BookingDraft> draft = drafts == null
+                ? Optional.empty()
+                : drafts.find(chatSessionId, userId)
+                        .filter(d -> d.isFresh(now) && !d.choices().isEmpty());
+        if (draft.isPresent()) {
+            Instant latestProposal = recent.stream()
+                    .map(p -> p.confirmedAt() != null ? p.confirmedAt() : p.createdAt())
+                    .max(Instant::compareTo)
+                    .orElse(Instant.MIN);
+            if (draft.get().updatedAt().isAfter(latestProposal)) {
+                return Optional.of(ActionCards.choices(draft.get()));
+            }
+        }
+
         Optional<BookingProposal> open =
                 recent.stream().filter(p -> p.isOpen(now)).findFirst();
         if (open.isPresent()) {
@@ -337,7 +370,23 @@ public class BookingProposalUseCase {
                         && p.order().paymentExpiresAt() != null
                         && p.order().paymentExpiresAt().isAfter(now))
                 .findFirst()
-                .map(ActionCards::payment);
+                .map(this::paymentWithEvent);
+    }
+
+    /**
+     * Thẻ thanh toán của đề xuất đã xác nhận, kèm dòng mô tả sự kiện khi catalog trả lời. Catalog hỏng
+     * thì vẫn trả thẻ — thiếu dòng mô tả không phải lý do để khách không thanh toán được.
+     */
+    public ActionCard.Payment paymentWithEvent(BookingProposal confirmed) {
+        ActionCard.Payment card = ActionCards.payment(confirmed);
+        try {
+            return catalog.findEventBySlug(confirmed.eventSlug())
+                    .map(event -> card.withEvent(ActionCards.orderEvent(confirmed, event)))
+                    .orElse(card);
+        } catch (RemoteCallException e) {
+            log.warn("Không dựng được dòng sự kiện cho đơn {}: catalog không phản hồi", card.orderNumber());
+            return card;
+        }
     }
 
     private BookingProposal owned(UUID userId, UUID proposalId) {

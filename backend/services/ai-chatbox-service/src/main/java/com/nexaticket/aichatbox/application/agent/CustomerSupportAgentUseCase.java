@@ -4,6 +4,7 @@ package com.nexaticket.aichatbox.application.agent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nexaticket.aichatbox.application.AiChatboxErrorCode;
+import com.nexaticket.aichatbox.application.booking.ChatBookingFlow;
 import com.nexaticket.aichatbox.application.handoff.HandoffUseCase;
 import com.nexaticket.aichatbox.application.handoff.SupportCaseUseCase;
 import com.nexaticket.aichatbox.domain.model.ActionCard;
@@ -34,6 +35,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -78,6 +80,8 @@ public class CustomerSupportAgentUseCase {
     private final AgentProperties properties;
     private final AgentMetrics metrics;
     private final ObjectMapper json;
+    /** Luồng đặt vé bằng chip — {@code null} ở các test chỉ thử vòng ReAct. */
+    private final ChatBookingFlow bookingFlow;
 
     public CustomerSupportAgentUseCase(
             ChatHistoryPort history,
@@ -90,6 +94,23 @@ public class CustomerSupportAgentUseCase {
             AgentProperties properties,
             AgentMetrics metrics,
             ObjectMapper json) {
+        this(history, embeddings, knowledge, llm, tools, handoffs, supportCases, properties, metrics, json, null);
+    }
+
+    @Autowired
+    public CustomerSupportAgentUseCase(
+            ChatHistoryPort history,
+            EmbeddingPort embeddings,
+            VectorStorePort knowledge,
+            LlmProviderPort llm,
+            ToolDispatcher tools,
+            HandoffUseCase handoffs,
+            SupportCaseUseCase supportCases,
+            AgentProperties properties,
+            AgentMetrics metrics,
+            ObjectMapper json,
+            ChatBookingFlow bookingFlow) {
+        this.bookingFlow = bookingFlow;
         this.history = history;
         this.embeddings = embeddings;
         this.knowledge = knowledge;
@@ -188,6 +209,26 @@ public class CustomerSupportAgentUseCase {
         // bắt một người đang bực phải chờ thêm một lượt suy luận để nhận đúng thứ họ vừa yêu cầu.
         if (HandoffIntent.isExplicitRequest(userQuery)) {
             return escalate(sessionId, userId, userQuery, HandoffTrigger.CUSTOMER_REQUEST, "Khách yêu cầu gặp người");
+        }
+
+        // Bước 1d — đặt vé bằng chip: "cho mình 2 vé …", khách bấm chip suất/khu/số vé, "mình thanh
+        // toán chưa". Không hỏi mô hình — xem ChatBookingFlow: mỗi bước là một tra cứu có đáp án duy
+        // nhất, và mô hình 7B làm sai đúng những bước ấy. Câu không thuộc luồng thì đi tiếp như cũ.
+        if (bookingFlow != null) {
+            Optional<ChatBookingFlow.Turn> booking = bookingFlow.handle(sessionId, userId, userQuery);
+            if (booking.isPresent()) {
+                history.appendTurn(
+                        sessionId,
+                        userId,
+                        userQuery,
+                        ChatRole.ASSISTANT,
+                        booking.get().answer());
+                return new AgentReply(
+                        sessionId,
+                        booking.get().answer(),
+                        List.of(),
+                        booking.get().card());
+            }
         }
 
         // Bước 2 — RAG.

@@ -2,12 +2,14 @@
 package com.nexaticket.aichatbox.application.booking;
 
 import com.nexaticket.aichatbox.domain.model.ActionCard;
+import com.nexaticket.aichatbox.domain.model.BookingDraft;
 import com.nexaticket.aichatbox.domain.model.BookingProposal;
 import com.nexaticket.aichatbox.domain.model.EventDetail;
 import com.nexaticket.aichatbox.domain.model.PlacedOrder;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -73,5 +75,36 @@ public final class ActionCards {
                 null,
                 order.checkoutUrl(),
                 order.paymentExpiresAt());
+    }
+
+    /**
+     * Sự kiện của đơn, cho dòng mô tả trên thẻ thanh toán: tên, suất, địa điểm và hạng vé — đều lấy từ
+     * đề xuất đã xác nhận và bản catalog, không từ chữ của mô hình.
+     */
+    public static ActionCard.OrderEvent orderEvent(BookingProposal p, EventDetail event) {
+        Optional<EventDetail.Session> session = event.sessions().stream()
+                .filter(s -> p.eventSessionId().equals(s.id()))
+                .findFirst();
+        String tierName = session.flatMap(s -> s.tiers().stream()
+                        .filter(t -> p.zoneCode().equalsIgnoreCase(t.zoneCode()))
+                        .findFirst())
+                .map(EventDetail.Tier::name)
+                .orElse(p.zoneCode());
+        return new ActionCard.OrderEvent(
+                event.title(),
+                event.slug(),
+                session.map(EventDetail.Session::startsAt).orElse(null),
+                event.venueName(),
+                List.of(new ActionCard.OrderLine(tierName, p.quantity(), p.unitPriceVnd())));
+    }
+
+    /** Thẻ chip của bản nháp — cùng một hàm cho lượt chat và cho đường tải lại trang. */
+    public static ActionCard.Choices choices(BookingDraft draft) {
+        return new ActionCard.Choices(
+                draft.awaiting().name(),
+                draft.prompt() == null ? "" : draft.prompt(),
+                draft.choices().stream()
+                        .map(c -> new ActionCard.Option(c.label(), c.value(), c.hint()))
+                        .toList());
     }
 }

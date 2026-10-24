@@ -83,6 +83,44 @@ Rồi lần lượt:
 - Hai tin cùng lúc trong một phiên → tin thứ hai bị 409 `TURN_IN_PROGRESS` "Câu hỏi trước đang được
   trả lời" (story 6.10). Giao diện web chỉ cho gửi tuần tự nên cũng chỉ thấy bằng `curl`.
 
+## Đặt vé bằng chip trong chat (web và mobile)
+
+Nhánh `feat/chatbot-dat-ve` (cả hai repo). Luồng đặt vé do `ChatBookingFlow` dẫn, **không qua mô hình**:
+mỗi bước trả lời dưới 0,5 giây, kể cả trên máy chạy mô hình 7B. Danh sách thẻ và ví dụ JSON:
+[05-ai-scale/chatbox-the-hanh-dong.md](05-ai-scale/chatbox-the-hanh-dong.md).
+
+Đã chạy đầu-cuối ngày 23/10/2026 qua API với tài khoản `customer`: đơn NT-261023-C6AYZ8, 2 vé Tầng trệt
+"Đêm nhạc Trịnh · Ru Đời Đi Nhé", 1.900.000đ, sau giả lập chuyển khoản hỏi "mình thanh toán chưa" nhận
+thẻ trạng thái PAID.
+
+### Trên web (`http://localhost:3000`, `customer`/`customer`)
+
+| Bước | Làm gì | Kỳ vọng |
+|---|---|---|
+| 1 | Mở khung **Hỗ trợ**, gõ `cho mình 2 vé đêm nhạc Trịnh` | Trả ngay. Sự kiện còn một suất nên hỏi thẳng hạng vé: chip **Tầng trệt / Tầng lửng / Ban công** kèm giá và "còn N chỗ". (Sự kiện nhiều suất thì có thêm một bước chip chọn suất.) |
+| 2 | Bấm chip hạng vé | Thẻ **Đề xuất đặt vé**: 2 vé, tạm tính, đồng hồ 10 phút, nút Đồng ý / Đổi lựa chọn / Huỷ. Chưa giữ chỗ nào. |
+| 3 | (tuỳ chọn) Bấm **Đổi lựa chọn** | Đề xuất bị huỷ, chip hạng vé hiện lại — giữ nguyên sự kiện, suất, số vé. |
+| 4 | Bấm **Đồng ý** | Thẻ **Thanh toán**: tên sự kiện, suất, nhà hát, "2 × Tầng trệt", đồng hồ 15 phút, nút payOS, mã VietQR, nút **Huỷ giữ chỗ**. |
+| 5 | Giả lập tiền về (lệnh ở phần dưới) | Trong ~5 giây thẻ chuyển **xanh**: "Đã thanh toán — vé đã có trong Vé của tôi" + **Xem vé ngay**. |
+| 6 | Gõ `mình thanh toán chưa` | Câu trả lời "Đơn … đã thanh toán" kèm thẻ đơn trạng thái mới. |
+
+Lối vào khác: trang chi tiết sự kiện có nút **Hỏi trợ lý về sự kiện này** — mở khung chat với tên sự kiện
+điền sẵn và lối tắt **Đặt vé sự kiện này**. Đơn hết hạn thì thẻ chuyển xám và có nút **Đặt lại**.
+
+### Trên app mobile (bản khách, Expo Go)
+
+Tab **Tài khoản → Trợ lý AI**, hoặc trang sự kiện → **Hỏi trợ lý về sự kiện này**. Cùng các bước như web;
+ở thẻ đơn, **Thanh toán ngay** mở màn thanh toán có sẵn — thanh toán xong quay lại, thẻ tự cập nhật. Màn
+này chỉ có ở bản khách (nhóm `(customer)` không mở trong bản Staff).
+
+### Lưu ý
+
+- Bấm Đồng ý hai lần (hai tab, mạng chập) vẫn một đơn: lần hai nhận lại đúng thẻ đơn cũ.
+- Mỗi lần chạy đến bước 4 tạo một đơn thật trong DB dev và trừ chỗ của suất. Bấm **Huỷ giữ chỗ** nếu
+  không định giả lập thanh toán, để trả chỗ ngay.
+- Kịch bản "Đặt 1 vé" bên dưới (Phase 1) giờ cũng đi qua luồng chip: câu ở bước 1 có đủ hạng vé và sự
+  kiện, nên ra **ngay** thẻ đề xuất, không cần gõ câu "lập đề xuất" ở bước 2.
+
 ## Đặt 1 vé ngay trong chat (Phase 1)
 
 Đã chạy trọn ngày 23/10/2026 với `qwen2.5:7b-instruct`: đơn NT-261023-YCFNQE, 1 vé, 350.000đ, trạng
