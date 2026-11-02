@@ -11,6 +11,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -20,6 +22,7 @@ import static org.mockito.Mockito.when;
 import com.nexaticket.identity.application.IdentityErrorCode;
 import com.nexaticket.identity.domain.model.Membership;
 import com.nexaticket.identity.domain.model.Organization;
+import com.nexaticket.identity.domain.port.CheckinAssignmentPort;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
 import com.nexaticket.kernel.access.Role;
 import com.nexaticket.kernel.id.UserId;
@@ -43,7 +46,8 @@ class ManageMembersHandlerTest {
 
     private final OrganizationRepository organizations = mock(OrganizationRepository.class);
     private final AuditLogger audit = mock(AuditLogger.class);
-    private final ManageMembersHandler handler = new ManageMembersHandler(organizations, audit);
+    private final CheckinAssignmentPort assignments = mock(CheckinAssignmentPort.class);
+    private final ManageMembersHandler handler = new ManageMembersHandler(organizations, assignments, audit);
 
     private final UserId owner = newUser();
     private final UserId admin = newUser();
@@ -285,6 +289,74 @@ class ManageMembersHandlerTest {
             TenantContextFixture.member(admin, ORG, Role.ORG_ADMIN);
 
             assertThatThrownBy(() -> handler.remove(ORG, newUser())).is(errorCode(IdentityErrorCode.NOT_A_MEMBER));
+        }
+    }
+
+    @Nested
+    @DisplayName("phân công soát vé đi theo vai Staff")
+    class PhanCongSoatVe {
+
+        @Test
+        @DisplayName("gỡ một Staff thì gỡ luôn phân công còn hiệu lực bên ticketing, TRƯỚC khi lưu")
+        void go_staff_huy_phan_cong() {
+            Organization org = stubOrganization();
+            TenantContextFixture.member(admin, ORG, Role.ORG_ADMIN);
+
+            handler.remove(ORG, staff);
+
+            var order = inOrder(assignments, organizations);
+            order.verify(assignments).revokeActive(ORG, staff);
+            order.verify(organizations).save(org);
+            assertThat(org.findMember(staff)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("ticketing không trả lời thì không gỡ ai: 503 CHECKIN_ASSIGNMENTS_UNAVAILABLE")
+        void ticketing_im_lang() {
+            Organization org = stubOrganization();
+            TenantContextFixture.member(admin, ORG, Role.ORG_ADMIN);
+            doThrow(new CheckinAssignmentPort.AssignmentsUnavailableException("down", null))
+                    .when(assignments)
+                    .revokeActive(ORG, staff);
+
+            assertThatThrownBy(() -> handler.remove(ORG, staff))
+                    .is(errorCode(IdentityErrorCode.CHECKIN_ASSIGNMENTS_UNAVAILABLE));
+            verify(organizations, never()).save(any());
+            assertThat(org.findMember(staff)).isPresent();
+        }
+
+        @Test
+        @DisplayName("gỡ người không phải Staff thì không gọi ticketing")
+        void go_nguoi_khac_khong_goi_ticketing() {
+            stubOrganization();
+            TenantContextFixture.member(admin, ORG, Role.ORG_ADMIN);
+
+            handler.remove(ORG, manager);
+
+            verifyNoInteractions(assignments);
+        }
+
+        @Test
+        @DisplayName("đổi Staff sang vai khác thì gỡ phân công; đổi vai giữa các vai quản lý thì không")
+        void doi_vai_khoi_staff() {
+            stubOrganization();
+            TenantContextFixture.member(owner, ORG, Role.ORG_OWNER);
+
+            handler.changeRole(ORG, staff, Role.EVENT_MANAGER);
+            verify(assignments).revokeActive(ORG, staff);
+
+            handler.changeRole(ORG, manager, Role.ORG_ADMIN);
+            verify(assignments, never()).revokeActive(eq(ORG), eq(manager));
+        }
+
+        @Test
+        @DisplayName("không gỡ được chủ sở hữu cuối cùng, và ticketing không bị đụng tới")
+        void chu_so_huu_cuoi() {
+            stubOrganization();
+            TenantContextFixture.superAdmin(newUser());
+
+            assertThatThrownBy(() -> handler.remove(ORG, owner)).is(errorCode(IdentityErrorCode.LAST_OWNER));
+            verifyNoInteractions(assignments);
         }
     }
 }

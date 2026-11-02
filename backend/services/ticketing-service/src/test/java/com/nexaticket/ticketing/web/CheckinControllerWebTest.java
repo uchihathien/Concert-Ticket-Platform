@@ -71,6 +71,30 @@ class CheckinControllerWebTest extends WebSliceTest {
     @MockitoBean
     CheckinAssignmentRepository assignments;
 
+    /**
+     * Có (hoặc không) phân công cả sự kiện cho STAFF. Lịch diễn đặt sau thời điểm chạy test một
+     * ngày, để phân công luôn còn hiệu lực bất kể đồng hồ thật.
+     */
+    private void assigned(boolean yes) {
+        when(assignments.forUserEvent(ORG, STAFF, EVENT))
+                .thenReturn(
+                        yes
+                                ? java.util.List.of(new CheckinAssignmentRepository.Assignment(
+                                        UUID.randomUUID(), STAFF, EVENT, null, null, Instant.now()))
+                                : java.util.List.of());
+        Instant start = Instant.now().plusSeconds(86_400);
+        when(catalog.eventSchedules(java.util.List.of(EVENT)))
+                .thenReturn(java.util.Map.of(
+                        EVENT,
+                        new CatalogPort.EventSchedule(
+                                EVENT,
+                                ORG,
+                                "Đêm nhạc",
+                                "Nhà hát",
+                                java.util.List.of(new com.nexaticket.ticketing.domain.model.AssignmentWindow.Session(
+                                        SESSION, start, start.plusSeconds(3600))))));
+    }
+
     @BeforeEach
     void setUp() {
         when(catalog.sessionInfo(SESSION))
@@ -151,7 +175,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         @Test
         @DisplayName("Nhân viên được gán sự kiện: 200; tổ chức lấy từ đường dẫn, nhân viên lấy từ token")
         void nhan_vien_duoc_gan() throws Exception {
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(true);
+            assigned(true);
 
             mvc.perform(scan("{\"qrToken\":\"a.b.c\",\"deviceId\":\"may-1\",\"direction\":\"IN\",\"gate\":\"Cổng A\"}")
                             .with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
@@ -173,7 +197,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         @Test
         @DisplayName("Nhân viên CHƯA được gán sự kiện: 403 NOT_YOUR_EVENT, không tới handler")
         void nhan_vien_chua_duoc_gan() throws Exception {
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(false);
+            assigned(false);
 
             mvc.perform(scan(QR_BODY).with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
                     .andExpect(status().isForbidden())
@@ -195,12 +219,37 @@ class CheckinControllerWebTest extends WebSliceTest {
         }
 
         @Test
+        @DisplayName("Phân công đã hết hạn (suất cuối xong quá 6 giờ): 403 CHECKIN_ASSIGNMENT_EXPIRED")
+        void phan_cong_het_han() throws Exception {
+            when(assignments.forUserEvent(ORG, STAFF, EVENT))
+                    .thenReturn(java.util.List.of(new CheckinAssignmentRepository.Assignment(
+                            UUID.randomUUID(), STAFF, EVENT, null, null, Instant.now())));
+            Instant start = Instant.now().minusSeconds(3 * 86_400);
+            when(catalog.eventSchedules(java.util.List.of(EVENT)))
+                    .thenReturn(java.util.Map.of(
+                            EVENT,
+                            new CatalogPort.EventSchedule(
+                                    EVENT,
+                                    ORG,
+                                    "Đêm nhạc",
+                                    null,
+                                    java.util.List.of(
+                                            new com.nexaticket.ticketing.domain.model.AssignmentWindow.Session(
+                                                    SESSION, start, start.plusSeconds(3600))))));
+
+            mvc.perform(scan(QR_BODY).with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("CHECKIN_ASSIGNMENT_EXPIRED"));
+            verifyNoInteractions(checkIn);
+        }
+
+        @Test
         @DisplayName("Người quản lý sự kiện: soát được mà không cần gán")
         void quan_ly_khong_can_gan() throws Exception {
             mvc.perform(scan(QR_BODY).with(member(STAFF, ORG, Role.EVENT_MANAGER)))
                     .andExpect(status().isOk());
 
-            verify(assignments, never()).isAssigned(any(), any(), any());
+            verify(assignments, never()).forUserEvent(any(), any(), any());
         }
     }
 
@@ -211,7 +260,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         @Test
         @DisplayName("Nhân viên soát vé thường không được ghi đè: 403")
         void nhan_vien_khong_duoc_ghi_de() throws Exception {
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(true);
+            assigned(true);
 
             mvc.perform(scan("{\"qrToken\":\"a.b.c\",\"direction\":\"IN\",\"override\":true,\"reason\":\"quen quet\"}")
                             .with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
@@ -361,7 +410,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         void nhan_vien_mot_to_chuc_soat_duoc() throws Exception {
             // ts-sdk (scanTicket, useScanTicket) vẫn gọi đường này. Tổ chức lấy từ membership duy
             // nhất của nhân viên — CheckinController tự gọi requireActiveTenant và CheckinAccess.
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(true);
+            assigned(true);
 
             mvc.perform(post(LEGACY_URL)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -379,7 +428,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         @Test
         @DisplayName("Nhân viên chưa được gán sự kiện: 403 NOT_YOUR_EVENT, handler không chạy")
         void chua_duoc_gan() throws Exception {
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(false);
+            assigned(false);
 
             mvc.perform(post(LEGACY_URL)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -407,7 +456,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         @Test
         @DisplayName("Nhân viên được gán: đọc được, tham số phân trang và tìm kiếm đi thẳng xuống query")
         void doc_duoc() throws Exception {
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(true);
+            assigned(true);
             when(history.forSession(ORG, SESSION, "An", 2, 20))
                     .thenReturn(new CheckinHistoryQuery.History(3, 5, List.of(), 2, 20));
 
@@ -424,7 +473,7 @@ class CheckinControllerWebTest extends WebSliceTest {
         @Test
         @DisplayName("Nhân viên chưa được gán: 403 — lịch sử mang tên khách, không lỏng hơn lượt quét")
         void chua_duoc_gan() throws Exception {
-            when(assignments.isAssigned(ORG, STAFF, EVENT)).thenReturn(false);
+            assigned(false);
 
             mvc.perform(get(SCAN_URL).with(member(STAFF, ORG, Role.CHECKIN_STAFF)))
                     .andExpect(status().isForbidden())

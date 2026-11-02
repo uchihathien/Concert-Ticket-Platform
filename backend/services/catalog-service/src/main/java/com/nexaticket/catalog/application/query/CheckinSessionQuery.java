@@ -34,6 +34,15 @@ public class CheckinSessionQuery {
      * <p>Không kiểm quyền ở đây: đường này nằm dưới {@code /internal/**}, không ra khỏi mạng nội
      * bộ, và người gọi là một service chứ không phải một người dùng.
      */
+    /**
+     * Lịch diễn của nhiều sự kiện, cho ticketing-service tính hạn phân công soát vé. Nội bộ, không
+     * kiểm quyền — cùng lý do với {@link #info}.
+     */
+    @Transactional(readOnly = true)
+    public List<CatalogViews.EventSchedule> schedules(java.util.Collection<UUID> eventIds) {
+        return queries.eventSchedules(eventIds);
+    }
+
     @Transactional(readOnly = true)
     public CatalogViews.SessionInfo info(UUID eventSessionId) {
         return queries.sessionInfo(eventSessionId)

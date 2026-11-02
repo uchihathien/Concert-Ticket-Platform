@@ -29,7 +29,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Bảng Nhân sự của ban tổ chức, và danh sách sự kiện mà chính người gọi được soát. */
+/**
+ * Bảng phân công soát vé của ban tổ chức, và danh sách sự kiện mà chính người gọi được soát.
+ *
+ * <p>Mỗi dòng là một thành viên có vai Staff. Các cột lời mời ({@code status}, {@code invitedAt}…)
+ * chỉ còn ý nghĩa với nhân viên được mời theo luồng cũ — luồng đó đã ngừng, xem
+ * {@code StaffInvitationHandler}. Thành viên thêm theo cách mới luôn {@code ACTIVE}.
+ */
 @Service
 public class StaffQueries {
 
@@ -62,6 +68,8 @@ public class StaffQueries {
      *     {@code EXPIRED} liên kết hết hạn · {@code SEND_FAILED} thư chưa đi
      * @param invitedAt {@code null} với nhân viên có từ trước khi có mục Nhân sự
      * @param invitedBy tên người mời, để hiển thị
+     * @param eventIds sự kiện của các phân công CÒN HIỆU LỰC — giữ cho client cũ
+     * @param assignments mọi phân công, kể cả đã hết hạn, kèm trạng thái
      */
     public record StaffRow(
             String userId,
@@ -72,7 +80,29 @@ public class StaffQueries {
             String invitedBy,
             String expiresAt,
             String activatedAt,
-            List<UUID> eventIds) {}
+            List<UUID> eventIds,
+            List<AssignmentRow> assignments) {}
+
+    /**
+     * @param eventSessionId {@code null} khi gán cả sự kiện
+     * @param status {@code UPCOMING} sắp tới · {@code ONGOING} đang diễn ra · {@code EXPIRED} đã hết
+     *     hạn · {@code UNKNOWN} chưa đọc được lịch diễn
+     */
+    public record AssignmentRow(
+            UUID eventId, UUID eventSessionId, String eventTitle, String startsAt, String expiresAt, String status) {
+
+        static AssignmentRow from(CheckinAssignmentPort.Assignment assignment) {
+            return new AssignmentRow(
+                    assignment.eventId(),
+                    assignment.eventSessionId(),
+                    assignment.eventTitle(),
+                    assignment.startsAt() == null ? null : assignment.startsAt().toString(),
+                    assignment.expiresAt() == null
+                            ? null
+                            : assignment.expiresAt().toString(),
+                    assignment.status());
+        }
+    }
 
     /**
      * @param restricted false nghĩa là người gọi quản lý được sự kiện của tổ chức nên soát mọi sự
@@ -107,7 +137,7 @@ public class StaffQueries {
                 .stream()
                 .collect(Collectors.toMap(UserRepository.UserRecord::id, Function.identity()));
 
-        Map<UserId, List<UUID>> events;
+        Map<UserId, List<CheckinAssignmentPort.Assignment>> events;
         try {
             events = assignments.byOrganization(organizationId);
         } catch (CheckinAssignmentPort.AssignmentsUnavailableException e) {
@@ -115,8 +145,8 @@ public class StaffQueries {
             // và ghi đè một danh sách rỗng lên danh sách thật.
             log.warn("Không đọc được việc gán sự kiện: {}", e.getMessage(), e);
             throw new ApiException(
-                    IdentityErrorCode.STAFF_INVITE_UNAVAILABLE,
-                    "Chưa tải được danh sách nhân sự. Thử lại sau ít phút.");
+                    IdentityErrorCode.CHECKIN_ASSIGNMENTS_UNAVAILABLE,
+                    "Chưa tải được danh sách phân công. Thử lại sau ít phút.");
         }
 
         Instant now = clock.instant();
@@ -128,6 +158,7 @@ public class StaffQueries {
                     UserRepository.UserRecord inviter = invitation == null || invitation.invitedBy() == null
                             ? null
                             : inviters.get(invitation.invitedBy());
+                    List<CheckinAssignmentPort.Assignment> mine = events.getOrDefault(id, List.of());
                     return new StaffRow(
                             id.value().toString(),
                             user.email(),
@@ -141,7 +172,12 @@ public class StaffQueries {
                             invitation == null || invitation.activatedAt() == null
                                     ? null
                                     : invitation.activatedAt().toString(),
-                            events.getOrDefault(id, List.of()));
+                            mine.stream()
+                                    .filter(CheckinAssignmentPort.Assignment::active)
+                                    .map(CheckinAssignmentPort.Assignment::eventId)
+                                    .distinct()
+                                    .toList(),
+                            mine.stream().map(AssignmentRow::from).toList());
                 })
                 .toList();
     }
@@ -157,7 +193,8 @@ public class StaffQueries {
         } catch (CheckinAssignmentPort.AssignmentsUnavailableException e) {
             log.warn("Không đọc được sự kiện được gán: {}", e.getMessage(), e);
             throw new ApiException(
-                    IdentityErrorCode.STAFF_INVITE_UNAVAILABLE, "Chưa tải được sự kiện được gán. Thử lại sau ít phút.");
+                    IdentityErrorCode.CHECKIN_ASSIGNMENTS_UNAVAILABLE,
+                    "Chưa tải được sự kiện được gán. Thử lại sau ít phút.");
         }
     }
 

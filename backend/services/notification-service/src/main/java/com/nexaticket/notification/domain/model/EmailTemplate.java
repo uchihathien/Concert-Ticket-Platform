@@ -15,6 +15,8 @@ import java.util.Map;
  */
 public enum EmailTemplate {
     ORGANIZATION_INVITATION("Lời mời tham gia %s trên NexaTicket"),
+    /** Ban tổ chức đã thêm một tài khoản có sẵn vào tổ chức — không cần chấp nhận gì. */
+    MEMBER_ADDED("Bạn đã được thêm vào %s trên NexaTicket"),
     ORDER_PAID("Đơn hàng %s đã thanh toán thành công"),
     ORDER_EXPIRED("Đơn hàng %s đã hết hạn thanh toán"),
     TICKETS_ISSUED("Vé của bạn cho %s đã sẵn sàng"),
@@ -47,6 +49,16 @@ public enum EmailTemplate {
                     Mở ứng dụng NexaTicket, đăng nhập bằng địa chỉ email này và chấp nhận lời mời đang chờ.
                     """
                     .formatted(payload.getOrDefault("headline", ""));
+            case MEMBER_ADDED -> """
+                    Bạn đã được thêm vào %s trên NexaTicket với vai trò %s.
+
+                    Đăng nhập bằng chính tài khoản NexaTicket của bạn là dùng được ngay, không cần tạo tài khoản mới.
+                    Nếu vai trò của bạn là Staff (soát vé), ban tổ chức sẽ gán sự kiện trước ngày diễn và sự kiện đó
+                    sẽ hiện trong ứng dụng NexaTicket Staff.
+
+                    Nếu bạn không quen tổ chức này, hãy báo cho bộ phận hỗ trợ NexaTicket.
+                    """
+                    .formatted(payload.getOrDefault("headline", ""), payload.getOrDefault("detail", "thành viên"));
             case ORDER_PAID -> """
                     Đơn hàng %s đã được thanh toán.
 

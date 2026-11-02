@@ -135,6 +135,11 @@ class GatewayRouteTableTest {
         "GET,    /v1/orders/0f8c/tickets,                                            ticketing, 8097",
         "POST,   /v1/sessions/0f8c/checkins,                                         ticketing, 8097",
         "GET,    /v1/organizations/0f8c/tickets,                                     ticketing, 8097",
+        // Phân công soát vé của chính người gọi nằm ở ticketing, không rơi vào identity.
+        "GET,    /v1/organizations/0f8c/checkin-assignments/me,                      ticketing, 8097",
+        // Thêm thành viên và tìm theo email/SĐT vẫn là identity.
+        "GET,    /v1/organizations/0f8c/members/lookup,                              identity, 8090",
+        "POST,   /v1/organizations/0f8c/members,                                     identity, 8090",
         "POST,   /v1/organizations/0f8c/sessions/1a/checkins,                        ticketing, 8097",
         // ordering-service (8093)
         "POST,   /v1/orders,                                                         ordering, 8093",

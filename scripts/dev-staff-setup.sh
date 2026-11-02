@@ -67,7 +67,7 @@ assign_existing_staff() {
     return 1
   fi
   # Ba database riêng nên không JOIN được: đọc hai phía rồi ghép ở đây. Sự kiện tạo SAU lần chạy
-  # này không tự được gán — đó là chủ đích, ban tổ chức gán tay trong mục Nhân sự.
+  # này không tự được gán — đó là chủ đích, ban tổ chức gán tay ở trang Phân công soát vé (/staff) của web Tổ chức.
   local staff events
   staff="$(psql_at identity identity_db -F ' ' -c \
     "SELECT organization_id, user_id FROM organization_members WHERE role = 'CHECKIN_STAFF'")"

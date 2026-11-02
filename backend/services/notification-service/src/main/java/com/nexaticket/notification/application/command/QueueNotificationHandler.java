@@ -35,13 +35,22 @@ public class QueueNotificationHandler {
     /**
      * @param eventId id sự kiện, dùng làm khoá chống trùng
      * @param headline tên hiển thị trong tiêu đề thư: mã đơn, tên sự kiện, tên tổ chức
+     * @param detail thông tin phụ cho thân thư (ví dụ vai trò được cấp); {@code null} nếu mẫu không cần
      */
-    public record Command(UUID eventId, String eventType, String recipient, EmailTemplate template, String headline) {}
+    public record Command(
+            UUID eventId, String eventType, String recipient, EmailTemplate template, String headline, String detail) {
+
+        public Command(UUID eventId, String eventType, String recipient, EmailTemplate template, String headline) {
+            this(eventId, eventType, recipient, template, headline, null);
+        }
+    }
 
     /** @return true nếu đây là lần đầu thấy sự kiện này */
     @Transactional
     public boolean handle(Command cmd) {
-        Map<String, Object> payload = Map.of("headline", cmd.headline() == null ? "" : cmd.headline());
+        Map<String, Object> payload = cmd.detail() == null
+                ? Map.of("headline", cmd.headline() == null ? "" : cmd.headline())
+                : Map.of("headline", cmd.headline() == null ? "" : cmd.headline(), "detail", cmd.detail());
         boolean queued = notifications.queueIfNew(
                 Notification.queue(cmd.eventId(), cmd.eventType(), cmd.recipient(), cmd.template(), payload));
         if (!queued) {

@@ -15,8 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.nexaticket.identity.application.IdentityErrorCode;
+import com.nexaticket.identity.application.command.CheckinAssignmentHandler;
 import com.nexaticket.identity.application.command.RecordExternalAuditHandler;
-import com.nexaticket.identity.application.command.StaffInvitationHandler;
 import com.nexaticket.identity.application.query.StaffQueries;
 import com.nexaticket.identity.application.query.UserContactView;
 import com.nexaticket.kernel.access.Role;
@@ -48,21 +48,44 @@ class StaffAndInternalControllersTest extends RestSliceTestBase {
     class NhanSu {
 
         @Test
-        @DisplayName("mời nhân viên: 200 với kết quả và id; tổ chức lấy từ đường dẫn")
+        @DisplayName("mời nhân viên (luồng cũ): 410 STAFF_INVITE_RETIRED, không tạo tài khoản nào")
         void moi() throws Exception {
             UUID event = UUID.randomUUID();
-            UUID created = UUID.randomUUID();
-            when(staffInvitations.invite(ORG, "Nhân Viên", "nv@example.com", List.of(event)))
-                    .thenReturn(new StaffInvitationHandler.Result("INVITED", created));
 
             mvc.perform(post(STAFF, org(ORG))
                             .header(AUTH, as(Role.ORG_ADMIN, ORG))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"fullName\":\"Nhân Viên\",\"email\":\"nv@example.com\",\"eventIds\":[\"" + event
-                                    + "\"],\"role\":\"ORG_OWNER\"}"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.outcome").value("INVITED"))
-                    .andExpect(jsonPath("$.userId").value(created.toString()));
+                                    + "\"]}"))
+                    .andExpect(status().isGone())
+                    .andExpect(jsonPath("$.code").value("STAFF_INVITE_RETIRED"));
+            verifyNoInteractions(staffInvitations);
+        }
+
+        @Test
+        @DisplayName("gán sự kiện: gộp eventIds (cả sự kiện) và assignments (theo suất) thành từng mục")
+        void gan_su_kien() throws Exception {
+            UUID event = UUID.randomUUID();
+            UUID other = UUID.randomUUID();
+            UUID session = UUID.randomUUID();
+            UUID user = UUID.randomUUID();
+            when(staffQueries.staffOf(ORG)).thenReturn(List.of());
+
+            mvc.perform(put(STAFF + "/{user}/events", org(ORG), user)
+                            .header(AUTH, as(Role.ORG_ADMIN, ORG))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"eventIds\":[\"" + event + "\"],\"assignments\":[{\"eventId\":\"" + other
+                                    + "\",\"eventSessionId\":\"" + session + "\"}]}"))
+                    .andExpect(status().isOk());
+
+            verify(checkinAssignments)
+                    .assign(
+                            ORG,
+                            UserId.of(user),
+                            List.of(
+                                    new CheckinAssignmentHandler.Item(event, null),
+                                    new CheckinAssignmentHandler.Item(other, session)));
+            verifyNoInteractions(staffInvitations);
         }
 
         @ParameterizedTest
@@ -116,7 +139,7 @@ class StaffAndInternalControllersTest extends RestSliceTestBase {
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"eventIds\":[]}"))
                     .andExpect(status().isForbidden());
-            verifyNoInteractions(staffInvitations, staffQueries);
+            verifyNoInteractions(staffInvitations, staffQueries, checkinAssignments);
         }
 
         @Test

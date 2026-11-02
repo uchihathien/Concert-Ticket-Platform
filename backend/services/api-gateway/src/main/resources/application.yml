@@ -61,6 +61,7 @@ spring:
             #   /v1/orders/*/tickets                <  /v1/orders/**                   (ticketing trước ordering)
             #   /v1/sessions/*/checkins             <  /v1/sessions/**                 (ticketing trước inventory)
             #   /v1/organizations/*/tickets         <  /v1/organizations/**            (ticketing trước identity)
+            #   /v1/organizations/*/checkin-assignments/** < /v1/organizations/**    (ticketing trước identity)
             #   /v1/organizations/*/uploads/**      <  /v1/organizations/**            (catalog trước identity)
             #   /v1/platform/organizations/*/balance <  /v1/platform/organizations/**  (ledger trước identity)
             #   POST /v1/sessions/*/holds           <  /v1/sessions/**                (hold-create trước inventory)
@@ -80,7 +81,7 @@ spring:
             - id: ticketing
               uri: ${TICKETING_URL:http://localhost:8097}
               predicates:
-                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets,/v1/organizations/*/sessions/*/checkins
+                - Path=/v1/me/tickets,/v1/orders/*/tickets,/v1/sessions/*/checkins,/v1/organizations/*/tickets,/v1/organizations/*/sessions/*/checkins,/v1/organizations/*/checkin-assignments/**
             - id: ordering
               uri: ${ORDERING_URL:http://localhost:8093}
               predicates:

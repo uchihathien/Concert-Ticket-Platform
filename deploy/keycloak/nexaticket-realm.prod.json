@@ -7,6 +7,12 @@
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
   "resetPasswordAllowed": true,
+  "loginTheme": "nexaticket",
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "vi"
+  ],
+  "defaultLocale": "vi",
   "accessTokenLifespan": 900,
   "ssoSessionIdleTimeout": 2592000,
   "ssoSessionMaxLifespan": 2592000,
@@ -53,7 +59,8 @@
       ],
       "webOrigins": [],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "login_theme": "nexaticket-lime"
       }
     },
     {
@@ -94,7 +101,8 @@
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "+##${WEB_ADMIN_URL}/##${WEB_ADMIN_URL}/login"
+        "post.logout.redirect.uris": "+##${WEB_ADMIN_URL}/##${WEB_ADMIN_URL}/login",
+        "login_theme": "nexaticket-lime"
       }
     },
     {

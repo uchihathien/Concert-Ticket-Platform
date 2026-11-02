@@ -37,6 +37,18 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Ban tổ chức mời nhân viên soát vé.
  *
+ * <h2>ĐÃ NGỪNG</h2>
+ *
+ * <p>Hệ thống không tạo tài khoản hộ nữa: nhân viên tự đăng ký tài khoản NexaTicket như khách, rồi
+ * ban tổ chức thêm họ vào tổ chức với vai Staff ở mục Thành viên ({@link AddMemberHandler}) và gán
+ * sự kiện ở {@link CheckinAssignmentHandler}. {@code POST /staff} giờ trả 410
+ * ({@code STAFF_INVITE_RETIRED}) và không gọi tới {@link #invite}.
+ *
+ * <p>Lớp này còn lại vì {@link #resend} và {@link #cancel} vẫn phục vụ những lời mời đã gửi trước
+ * khi đổi quy trình — người được mời vẫn kích hoạt được, và ban tổ chức vẫn huỷ được lời mời chưa
+ * dùng. Tài khoản nhân viên đã kích hoạt theo cách cũ là tài khoản bình thường, đăng nhập và soát vé
+ * như mọi thành viên Staff khác.
+ *
  * <h2>Khác luồng lời mời bằng mã ở đâu</h2>
  *
  * <p>Nhân viên soát vé <b>không tự đăng ký</b>. Tài khoản của họ được tạo sẵn ở đây — chưa có mật
@@ -52,6 +64,7 @@ import org.springframework.transaction.annotation.Transactional;
  * ticketing-service ({@link CheckinAssignmentPort}); lệnh này chỉ chuyển nó sang đó.
  */
 @Service
+@Deprecated(since = "2026-11", forRemoval = true)
 public class StaffInvitationHandler {
 
     private static final Logger log = LoggerFactory.getLogger(StaffInvitationHandler.class);
@@ -225,7 +238,12 @@ public class StaffInvitationHandler {
         audit.record("STAFF_INVITATION_CANCELLED", "user", userId.value(), null, null);
     }
 
-    /** Đặt lại những sự kiện một nhân viên được soát. Rỗng là gỡ khỏi mọi sự kiện, giữ tài khoản. */
+    /**
+     * Đặt lại những sự kiện một nhân viên được soát. Rỗng là gỡ khỏi mọi sự kiện, giữ tài khoản.
+     *
+     * @deprecated dùng {@link CheckinAssignmentHandler#assign}, gán được cả theo suất diễn
+     */
+    @Deprecated(since = "2026-11", forRemoval = true)
     @Transactional
     public void setEvents(TenantId organizationId, UserId userId, Collection<UUID> eventIds) {
         TenantScope actor = TenantContext.requirePermission(Permission.ORG_MEMBERS_MANAGE, organizationId);

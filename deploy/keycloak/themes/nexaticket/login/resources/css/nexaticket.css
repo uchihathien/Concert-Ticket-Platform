@@ -1,0 +1,819 @@
+/*
+ * NexaTicket — giao diện trang đăng nhập Keycloak.
+ *
+ * ĐỔI MÀU Ở ĐÂU
+ * -------------
+ * Chỉ sửa khối `:root` ngay bên dưới. Phần còn lại của file đọc biến, không gõ mã màu thẳng.
+ * Tên biến cố ý trùng với token của web; giá trị chép từ `apps/web-customer/src/app/customer-theme.css`
+ * (KHÔNG phải `tokens.css` — bộ đỏ/vàng ở đó đã bị theme từng app ghi đè). Đổi màu ở web thì chép
+ * đúng giá trị đó sang đây.
+ *
+ * Biến thể xanh chanh (`nexaticket-lime`) chỉ ghi đè khối `:root` này trong file riêng của nó.
+ *
+ * VÌ SAO NHIỀU SELECTOR CÓ `.nt-body` ĐỨNG TRƯỚC
+ * ----------------------------------------------
+ * Theme cha nạp PatternFly 3 + 4 và login.css, cả ba đều đặt màu nền, viền dưới của ô nhập và
+ * bóng đổ. Thêm `.nt-body` cho đủ độ ưu tiên để thắng mà không phải rải `!important`.
+ */
+
+/* Be Vietnam Pro tự host — không có request nào sang Google lúc chạy, giống `next/font` ở web.
+   Tách ba bộ ký tự theo unicode-range: trang tiếng Việt chỉ tải bộ vietnamese + latin. */
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 400; font-display: swap; src: url(../fonts/be-vietnam-pro-vietnamese-400-normal.woff2) format('woff2'); unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 600; font-display: swap; src: url(../fonts/be-vietnam-pro-vietnamese-600-normal.woff2) format('woff2'); unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 700; font-display: swap; src: url(../fonts/be-vietnam-pro-vietnamese-700-normal.woff2) format('woff2'); unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 800; font-display: swap; src: url(../fonts/be-vietnam-pro-vietnamese-800-normal.woff2) format('woff2'); unicode-range: U+0102-0103,U+0110-0111,U+0128-0129,U+0168-0169,U+01A0-01A1,U+01AF-01B0,U+0300-0301,U+0303-0304,U+0308-0309,U+0323,U+0329,U+1EA0-1EF9,U+20AB; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 400; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-ext-400-normal.woff2) format('woff2'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 600; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-ext-600-normal.woff2) format('woff2'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 700; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-ext-700-normal.woff2) format('woff2'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 800; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-ext-800-normal.woff2) format('woff2'); unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 400; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-400-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 600; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-600-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 700; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-700-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+@font-face { font-family: 'Be Vietnam Pro'; font-style: normal; font-weight: 800; font-display: swap; src: url(../fonts/be-vietnam-pro-latin-800-normal.woff2) format('woff2'); unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }
+
+:root {
+  /* Nền & chữ — lấy nguyên từ apps/web-customer/src/app/customer-theme.css (tông xanh lá + xanh
+     chanh mà cả bốn web và app mobile đang dùng). Chiều sâu dựng bằng bề mặt sáng dần. */
+  --nt-bg: #111713;
+  --nt-bg-subtle: #0d120f;
+  --nt-surface: #19221b;
+  --nt-elevated: #1f2a22;
+  --nt-border: #344238;
+  --nt-text: #f1f5f1;
+  --nt-text-muted: #a6b1a8;
+  --nt-hover: #212c23;
+
+  /* Ô nhập lõm xuống so với thẻ: thẻ là --nt-surface nên ô nhập lấy màu nền sâu hơn. */
+  --nt-input-bg: var(--nt-bg-subtle);
+  --nt-input-border: #3b493f;
+
+  /* Thương hiệu — nút xanh chanh chữ tối (chữ trắng trên nền này không đọc được). */
+  --nt-primary: #d5ff66;
+  --nt-primary-hover: #c4f04f;
+  --nt-primary-ink: #17210d;
+  --nt-primary-text: #d5ff66;
+  --nt-accent: #d5ff66;
+  --nt-accent-ink: #17210d;
+
+  /* Trạng thái — đỏ giữ nguyên nghĩa "lỗi", không đổi theo tông. */
+  --nt-success-text: #5dd39e;
+  --nt-warn-text: #ffd36b;
+  --nt-danger: #c53030;
+  --nt-danger-text: #ff8c79;
+
+  /* Cột giới thiệu (chỉ hiện từ 900px): xanh đậm, chữ sáng, tick xanh chanh. */
+  --nt-panel-bg: linear-gradient(150deg, #26342a 0%, #0d120f 100%);
+  --nt-panel-ink: #f1f5f1;
+  --nt-panel-muted: #c4cec5;
+
+  /* Hình khối */
+  --nt-radius: 10px;
+  --nt-radius-lg: 16px;
+  --nt-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --nt-focus: 0 0 0 2px var(--nt-bg), 0 0 0 4px var(--nt-primary);
+
+  /* Chữ */
+  --nt-font: 'Be Vietnam Pro', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  color-scheme: dark;
+}
+
+/* Trang ---------------------------------------------------------------------
+   Web chỉ có nền tối (tokens.css không có bản sáng), nên theme cũng chỉ có nền tối. */
+
+html.nt-html,
+.nt-html body.nt-body {
+  min-height: 100%;
+  background: var(--nt-bg-subtle);
+  /* Theme cha đặt ảnh nền keycloak-bg.png lên `.login-pf body`. */
+  background-image: none;
+  color: var(--nt-text);
+  font-family: var(--nt-font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Chỉ các phần tử form mới phải ép kế thừa font — trình duyệt cho chúng font hệ thống riêng.
+   Không dùng `*`: nó đè luôn font biểu tượng (`.fa`, `.pficon`) và con mắt hiện/ẩn mật khẩu
+   biến thành ô vuông. */
+.nt-body :is(input, button, select, textarea) {
+  font-family: inherit;
+}
+
+.nt-body a {
+  color: var(--nt-primary-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.nt-body a:hover,
+.nt-body a:focus-visible {
+  color: var(--nt-primary-text);
+  text-decoration: underline;
+}
+
+.nt-body :focus-visible {
+  outline: none;
+  box-shadow: var(--nt-focus);
+  border-radius: 4px;
+}
+
+/* Bố cục ----------------------------------------------------------------------
+   Cùng tỉ lệ cột với `.screenSplit` trong signin.module.css: cột giới thiệu hẹp hơn cột form. */
+
+.nt-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+}
+
+.nt-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+}
+
+.nt-body .nt-card {
+  width: min(440px, 100%);
+  margin: 0;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--nt-surface);
+  border: 1px solid transparent;
+  border-top: 1px solid transparent;
+  border-radius: var(--nt-radius-lg);
+  box-shadow: var(--nt-shadow-card);
+}
+
+.nt-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nt-brand img {
+  display: block;
+  height: 36px;
+  width: auto;
+}
+
+.nt-trust {
+  max-width: 440px;
+  margin: 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--nt-text-muted);
+}
+
+/* Cột giới thiệu ------------------------------------------------------------- */
+
+.nt-panel {
+  display: grid;
+  align-content: center;
+  padding: 48px;
+  color: var(--nt-panel-ink);
+  background: var(--nt-panel-bg);
+}
+
+.nt-panel-inner {
+  max-width: 34ch;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.nt-panel-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: var(--nt-panel-muted);
+}
+
+.nt-panel-title {
+  margin: 0;
+  font-size: clamp(26px, 2.4vw, 34px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.nt-panel-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 15px;
+  color: var(--nt-panel-muted);
+}
+
+.nt-panel-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  line-height: 1.5;
+}
+
+/* Dấu tick vẽ bằng CSS: ::before không lọt vào cây accessibility. */
+.nt-panel-list li::before {
+  content: '✓';
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--nt-accent-ink);
+  background: var(--nt-accent);
+}
+
+/* Dưới 900px bỏ cột giới thiệu — gồm cả popup 480px của web-customer và trình duyệt trong app
+   mobile. Xếp chồng nó lên trên sẽ đẩy ô nhập xuống dưới màn hình đầu tiên. */
+@media (max-width: 899px) {
+  .nt-screen {
+    grid-template-columns: 1fr;
+  }
+
+  .nt-panel {
+    display: none;
+  }
+
+  .nt-body .nt-card {
+    box-shadow: none;
+    border-color: var(--nt-border);
+  }
+}
+
+/* Điện thoại và popup hẹp: thẻ chiếm hết chiều ngang, không còn viền nổi giữa nền.
+   Nền trang lấy đúng màu thẻ để không lộ ra một khung viền thừa ở hai bên. */
+@media (max-width: 520px) {
+  html.nt-html,
+  .nt-html body.nt-body {
+    background: var(--nt-surface);
+  }
+
+  .nt-pane {
+    justify-content: flex-start;
+    padding: 0 0 24px;
+  }
+
+  .nt-body .nt-card {
+    width: 100%;
+    padding: 24px 20px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .nt-trust {
+    padding: 0 20px;
+  }
+}
+
+/* Đầu thẻ -------------------------------------------------------------------- */
+
+.nt-body .login-pf-header,
+.nt-body .nt-header {
+  margin: 0;
+  padding: 0;
+}
+
+.nt-body #kc-page-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-align: left;
+  color: var(--nt-text);
+}
+
+.nt-required-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--nt-text-muted);
+}
+
+.nt-body .required {
+  color: var(--nt-danger-text);
+}
+
+/* Tài khoản đang đăng nhập ở bước thứ hai (OTP, mật khẩu) — dạng chip có nút làm lại. */
+.nt-body #kc-username {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px solid var(--nt-border);
+  border-radius: var(--nt-radius);
+  background: var(--nt-input-bg);
+}
+
+.nt-body #kc-attempted-username {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nt-text);
+  overflow-wrap: anywhere;
+}
+
+.nt-body #reset-login {
+  color: var(--nt-primary-text);
+}
+
+.nt-body .kc-login-tooltip .kc-tooltip-text {
+  background: var(--nt-elevated);
+  color: var(--nt-text);
+  border-radius: 6px;
+}
+
+/* Chọn ngôn ngữ: chữ nhỏ ở góc thẻ, không phải nút lớn. */
+.nt-body .nt-locale #kc-current-locale-link {
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nt-text-muted);
+  background: transparent;
+  border: 1px solid var(--nt-border);
+  border-radius: var(--nt-radius);
+  cursor: pointer;
+}
+
+.nt-body .nt-locale .pf-c-dropdown__menu {
+  min-width: 140px;
+  padding: 4px 0;
+  background: var(--nt-elevated);
+  border: 1px solid var(--nt-border);
+  border-radius: var(--nt-radius);
+  box-shadow: var(--nt-shadow-card);
+}
+
+.nt-body .nt-locale .pf-c-dropdown__menu-item {
+  color: var(--nt-text);
+  font-weight: 400;
+}
+
+.nt-body .nt-locale .pf-c-dropdown__menu-item:hover,
+.nt-body .nt-locale .pf-c-dropdown__menu-item:focus {
+  background: var(--nt-hover);
+  text-decoration: none;
+}
+
+/* Form ------------------------------------------------------------------------
+   Keycloak gắn lớp lưới của Bootstrap (col-*, row, form-horizontal) vào form đăng ký và đặt lại
+   mật khẩu. Trong thẻ 440px chúng chỉ gây lệch lề, nên tất cả về một cột. */
+
+.nt-body .nt-card .row,
+.nt-body .nt-card .form-horizontal .form-group {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.nt-body .nt-card [class*='col-'] {
+  float: none;
+  width: 100%;
+  margin-left: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.nt-body #kc-content,
+.nt-body #kc-content-wrapper,
+.nt-body #kc-form,
+.nt-body #kc-form-wrapper {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.nt-body .form-group {
+  margin: 0 0 16px;
+}
+
+.nt-body .pf-c-form__label,
+.nt-body .pf-c-form__label-text,
+.nt-body .nt-card label.control-label {
+  display: inline-block;
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nt-text);
+}
+
+/* Ô nhập: cao ≥ 48px và chữ 16px — iOS tự phóng to trang khi focus vào ô có chữ nhỏ hơn 16px,
+   và trong trình duyệt của app mobile điều đó làm lệch cả bố cục. */
+.nt-body input.pf-c-form-control,
+.nt-body select.pf-c-form-control,
+.nt-body textarea.pf-c-form-control,
+.nt-body .nt-card input.form-control {
+  width: 100%;
+  min-height: 48px;
+  height: auto;
+  padding: 10px 14px;
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--nt-text);
+  background: var(--nt-input-bg);
+  border: 1px solid var(--nt-input-border);
+  border-radius: var(--nt-radius);
+  box-shadow: none;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+
+.nt-body input.pf-c-form-control::placeholder {
+  color: var(--nt-text-muted);
+}
+
+.nt-body input.pf-c-form-control:hover:not(:focus) {
+  border-color: var(--nt-text-muted);
+}
+
+.nt-body input.pf-c-form-control:focus,
+.nt-body select.pf-c-form-control:focus {
+  padding-bottom: 10px;
+  border-color: var(--nt-accent);
+  border-bottom-width: 1px;
+  outline: none;
+  box-shadow: 0 0 0 1px var(--nt-accent);
+}
+
+.nt-body input.pf-c-form-control[aria-invalid='true'] {
+  border-color: var(--nt-danger-text);
+  /* PatternFly 4 vẽ thêm icon cảnh báo trong ô — câu báo lỗi bên dưới đã đủ. */
+  background-image: none;
+  padding-right: 14px;
+}
+
+/* Trình duyệt tự điền: bỏ nền vàng/trắng mặc định của Chrome, giữ nền tối. */
+.nt-body input.pf-c-form-control:-webkit-autofill {
+  -webkit-text-fill-color: var(--nt-text);
+  -webkit-box-shadow: 0 0 0 1000px var(--nt-input-bg) inset;
+  caret-color: var(--nt-text);
+}
+
+/* Ô mật khẩu + nút hiện/ẩn: ghép thành một khối, bo góc ở hai đầu. */
+.nt-body .pf-c-input-group {
+  display: flex;
+  width: 100%;
+  /* PatternFly 4 tô nền trắng cho cả khối — lộ ra thành viền trắng quanh ô mật khẩu. */
+  background: transparent;
+}
+
+.nt-body .pf-c-input-group > input.pf-c-form-control {
+  flex: 1;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.nt-body .pf-c-input-group > .pf-c-button.pf-m-control {
+  min-width: 48px;
+  min-height: 48px;
+  color: var(--nt-text-muted);
+  background: var(--nt-input-bg);
+  border: 1px solid var(--nt-input-border);
+  border-left: 0;
+  border-radius: 0 var(--nt-radius) var(--nt-radius) 0;
+}
+
+.nt-body .pf-c-input-group > .pf-c-button.pf-m-control::after {
+  /* PatternFly vẽ viền bằng ::after — đã có viền thật ở trên. */
+  border: 0;
+}
+
+.nt-body .pf-c-input-group > .pf-c-button.pf-m-control:hover {
+  color: var(--nt-text);
+}
+
+/* Focus vào ô mật khẩu thì viền sáng bao cả khối, không chỉ nửa trái. */
+.nt-body .pf-c-input-group:focus-within > input.pf-c-form-control,
+.nt-body .pf-c-input-group:focus-within > .pf-c-button.pf-m-control {
+  border-color: var(--nt-accent);
+  box-shadow: none;
+}
+
+.nt-body .pf-c-input-group:focus-within {
+  border-radius: var(--nt-radius);
+  box-shadow: 0 0 0 1px var(--nt-accent);
+}
+
+/* Câu báo lỗi dưới ô — cùng cỡ chữ và màu với `.error` của Input ở web. */
+.nt-body .pf-c-form__helper-text {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--nt-text-muted);
+}
+
+.nt-body .pf-c-form__helper-text.pf-m-error,
+.nt-body .kc-feedback-text.required {
+  color: var(--nt-danger-text);
+}
+
+/* Ghi nhớ đăng nhập + quên mật khẩu trên cùng một hàng. */
+.nt-body .login-pf-settings,
+.nt-body #kc-form-options-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.nt-body .login-pf-settings > * {
+  margin: 0;
+}
+
+.nt-body .checkbox label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--nt-text);
+  cursor: pointer;
+}
+
+.nt-body .checkbox input[type='checkbox'] {
+  position: static;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--nt-primary);
+}
+
+.nt-body #kc-form-options .checkbox {
+  margin: 0;
+}
+
+.nt-body .login-pf-settings a,
+.nt-body #kc-form-options a {
+  font-size: 14px;
+}
+
+/* Nút ------------------------------------------------------------------------
+   Nút chính = Button size="lg" của web: cao 52px, chữ 17px, đậm 600, rộng hết thẻ. */
+
+.nt-body #kc-form-buttons {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nt-body .pf-c-button.pf-m-primary,
+.nt-body input[type='submit'].pf-c-button,
+.nt-body .nt-card .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 24px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--nt-primary-ink);
+  background: var(--nt-primary);
+  border: 1px solid transparent;
+  border-radius: var(--nt-radius);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color 200ms ease, box-shadow 200ms ease;
+}
+
+.nt-body .pf-c-button.pf-m-primary::after {
+  border: 0;
+}
+
+.nt-body .pf-c-button.pf-m-primary:hover,
+.nt-body input[type='submit'].pf-c-button:hover {
+  background: var(--nt-primary-hover);
+  color: var(--nt-primary-ink);
+}
+
+.nt-body .pf-c-button.pf-m-primary:focus-visible,
+.nt-body input[type='submit'].pf-c-button:focus-visible {
+  box-shadow: var(--nt-focus);
+}
+
+.nt-body .pf-c-button.pf-m-primary:disabled,
+.nt-body input[type='submit'].pf-c-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Nút phụ (Huỷ, Đăng xuất ở trang xác nhận…) = variant="secondary" của web. */
+.nt-body .nt-card .btn-default,
+.nt-body .nt-card .pf-c-button.pf-m-secondary,
+.nt-body .nt-card .pf-c-button.btn-default {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 24px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nt-text);
+  background: transparent;
+  background-image: none;
+  border: 1px solid var(--nt-border);
+  border-radius: var(--nt-radius);
+  box-shadow: none;
+  text-shadow: none;
+}
+
+.nt-body .nt-card .btn-default:hover,
+.nt-body .nt-card .pf-c-button.pf-m-secondary:hover {
+  background: var(--nt-hover);
+}
+
+/* Thông báo ------------------------------------------------------------------
+   Một kiểu cho mọi trang: nền tối hơn thẻ, vạch màu trạng thái bên trái, chữ sáng. */
+
+.nt-body .pf-c-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  color: var(--nt-text);
+  background: var(--nt-input-bg);
+  border: 1px solid var(--nt-border);
+  border-left: 4px solid var(--nt-text-muted);
+  border-radius: var(--nt-radius);
+  box-shadow: none;
+}
+
+.nt-body .pf-c-alert::before {
+  display: none;
+}
+
+.nt-body .pf-c-alert__icon {
+  margin: 1px 0 0;
+  font-size: 16px;
+}
+
+.nt-body .pf-c-alert__title,
+.nt-body .pf-c-alert .kc-feedback-text {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--nt-text);
+}
+
+.nt-body .pf-c-alert.pf-m-danger { border-left-color: var(--nt-danger-text); }
+.nt-body .pf-c-alert.pf-m-danger .pf-c-alert__icon { color: var(--nt-danger-text); }
+.nt-body .pf-c-alert.pf-m-warning { border-left-color: var(--nt-warn-text); }
+.nt-body .pf-c-alert.pf-m-warning .pf-c-alert__icon { color: var(--nt-warn-text); }
+.nt-body .pf-c-alert.pf-m-success { border-left-color: var(--nt-success-text); }
+.nt-body .pf-c-alert.pf-m-success .pf-c-alert__icon { color: var(--nt-success-text); }
+.nt-body .pf-c-alert.pf-m-info { border-left-color: var(--nt-primary-text); }
+.nt-body .pf-c-alert.pf-m-info .pf-c-alert__icon { color: var(--nt-primary-text); }
+
+/* Khối phụ cuối thẻ ------------------------------------------------------------
+   "Chưa có tài khoản? Đăng ký", hướng dẫn quên mật khẩu, "Quay lại đăng nhập". */
+
+.nt-body #kc-info {
+  margin: 20px 0 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--nt-border);
+  background: transparent;
+  text-align: center;
+  font-size: 14px;
+  color: var(--nt-text-muted);
+}
+
+.nt-body #kc-info-wrapper {
+  padding: 0;
+  /* login.css vẽ thêm một đường kẻ ở màn hẹp — #kc-info đã có đường kẻ của nó. */
+  border-top: 0;
+  background: transparent;
+  font-size: 14px;
+  color: var(--nt-text-muted);
+}
+
+.nt-body #kc-registration,
+.nt-body #kc-registration-container {
+  margin: 0;
+}
+
+/* Đoạn văn trong thân thẻ (info.ftl, error.ftl, xác minh email, hết hạn trang). */
+.nt-body .instruction,
+.nt-body #kc-info-message p,
+.nt-body #kc-error-message p,
+.nt-body #kc-content-wrapper > p {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--nt-text);
+}
+
+.nt-body #kc-info-message,
+.nt-body #kc-error-message {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nt-body #kc-info-message ul,
+.nt-body #kc-info-message b {
+  color: var(--nt-text);
+}
+
+/* Liên kết "Tiếp tục" / "Quay lại ứng dụng" ở info.ftl và error.ftl: trông như nút chính, vì
+   đó là việc duy nhất người dùng cần làm tiếp trên trang. */
+.nt-body #kc-info-message > p:last-child > a,
+.nt-body #kc-error-message > p:last-child > a,
+.nt-body #backToApplication {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nt-primary-ink);
+  background: var(--nt-primary);
+  border-radius: var(--nt-radius);
+  text-decoration: none;
+}
+
+.nt-body #kc-info-message > p:last-child > a:hover,
+.nt-body #kc-error-message > p:last-child > a:hover {
+  background: var(--nt-primary-hover);
+  color: var(--nt-primary-ink);
+  text-decoration: none;
+}
+
+/* Thiết lập OTP: mã QR cần nền trắng để camera đọc được, các bước cách nhau rõ. */
+.nt-body #kc-totp-settings {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  color: var(--nt-text);
+}
+
+.nt-body #kc-totp-settings li {
+  margin-bottom: 12px;
+}
+
+.nt-body #kc-totp-secret-qr-code {
+  display: block;
+  max-width: 180px;
+  margin: 12px 0;
+  padding: 8px;
+  background: #ffffff;
+  border-radius: var(--nt-radius);
+}
+
+.nt-body #kc-totp-secret-key {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  overflow-wrap: anywhere;
+}
+
+/* Đăng nhập mạng xã hội (khi bật Google ở realm). */
+.nt-body #kc-social-providers hr {
+  border-color: var(--nt-border);
+}
+
+.nt-body #kc-social-providers h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nt-text-muted);
+  text-align: center;
+}
+
+.nt-body .kc-social-item {
+  min-height: 52px;
+  color: #e3e3e3;
+  background: #131314;
+  border: 1px solid #8e918f;
+  border-radius: var(--nt-radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-body * {
+    transition: none !important;
+  }
+}

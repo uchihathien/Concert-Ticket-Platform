@@ -112,6 +112,79 @@ class OrganizationControllerTest extends RestSliceTestBase {
     }
 
     @Nested
+    @DisplayName("thêm thành viên đã đăng ký")
+    class ThemThanhVien {
+
+        @Test
+        @DisplayName("tìm theo email/SĐT: 200 với thông tin đã che")
+        void tim() throws Exception {
+            when(addMember.find(ORG, "lan@example.com"))
+                    .thenReturn(new com.nexaticket.identity.application.command.AddMemberHandler.Candidate(
+                            "u-1", "Trần Lan", "la*@example.com", null, false, null));
+
+            mvc.perform(get(MEMBERS + "/lookup", org(ORG))
+                            .param("contact", "lan@example.com")
+                            .header(AUTH, as(Role.ORG_ADMIN, ORG)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.maskedEmail").value("la*@example.com"))
+                    .andExpect(jsonPath("$.alreadyMember").value(false));
+        }
+
+        @Test
+        @DisplayName("chưa đăng ký: 404 USER_NOT_REGISTERED để giao diện nhắc đăng ký trước")
+        void chua_dang_ky() throws Exception {
+            when(addMember.find(ORG, "moi@example.com"))
+                    .thenThrow(new ApiException(IdentityErrorCode.USER_NOT_REGISTERED, "chưa có tài khoản"));
+
+            mvc.perform(get(MEMBERS + "/lookup", org(ORG))
+                            .param("contact", "moi@example.com")
+                            .header(AUTH, as(Role.ORG_ADMIN, ORG)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("USER_NOT_REGISTERED"));
+        }
+
+        @Test
+        @DisplayName("thêm: 201 với bảng thành viên mới, vai lấy từ thân request")
+        void them() throws Exception {
+            when(organizationQueries.members(ORG)).thenReturn(List.of());
+
+            mvc.perform(post(MEMBERS, org(ORG))
+                            .header(AUTH, as(Role.ORG_ADMIN, ORG))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"contact\":\"0901234567\",\"role\":\"CHECKIN_STAFF\"}"))
+                    .andExpect(status().isCreated());
+            verify(addMember).add(ORG, "0901234567", Role.CHECKIN_STAFF);
+        }
+
+        @Test
+        @DisplayName("Staff và quản lý sự kiện không tìm, không thêm được ai")
+        void vai_thap() throws Exception {
+            String token = as(Role.CHECKIN_STAFF, ORG);
+            mvc.perform(get(MEMBERS + "/lookup", org(ORG))
+                            .param("contact", "a@b.vn")
+                            .header(AUTH, token))
+                    .andExpect(status().isForbidden());
+            mvc.perform(post(MEMBERS, org(ORG))
+                            .header(AUTH, as(Role.EVENT_MANAGER, ORG))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"contact\":\"a@b.vn\",\"role\":\"CHECKIN_STAFF\"}"))
+                    .andExpect(status().isForbidden());
+            verifyNoInteractions(addMember);
+        }
+
+        @Test
+        @DisplayName("thiếu contact hoặc vai: 400")
+        void dau_vao_sai() throws Exception {
+            mvc.perform(post(MEMBERS, org(ORG))
+                            .header(AUTH, as(Role.ORG_ADMIN, ORG))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"contact\":\" \"}"))
+                    .andExpect(status().isBadRequest());
+            verifyNoInteractions(addMember);
+        }
+    }
+
+    @Nested
     @DisplayName("quản lý thành viên")
     class ThanhVien {
 

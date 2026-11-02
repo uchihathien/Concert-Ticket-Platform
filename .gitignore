@@ -40,3 +40,11 @@ logs/
 # Python bytecode của script tiện ích trong scripts/
 __pycache__/
 *.pyc
+
+# Ticketbox: môi trường ảo và dữ liệu cào, không đưa lên git
+scripts/ticketbox/.venv/
+scripts/ticketbox/data/
+scripts/ticketbox/.pytest_cache/
+
+# Ảnh chụp giao diện chỉ để xem ở máy, không đưa lên git
+docs/screenshots/

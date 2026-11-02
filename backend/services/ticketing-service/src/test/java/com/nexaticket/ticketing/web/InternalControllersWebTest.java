@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -15,8 +16,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.nexaticket.platform.security.tenant.InternalApiFilter;
 import com.nexaticket.ticketing.application.CheckinAssignments;
 import com.nexaticket.ticketing.application.command.IssueTicketsHandler;
+import com.nexaticket.ticketing.domain.model.AssignmentWindow;
 import com.nexaticket.ticketing.interfaces.rest.InternalCheckinAssignmentController;
 import com.nexaticket.ticketing.interfaces.rest.InternalTicketController;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -130,49 +133,82 @@ class InternalControllersWebTest extends WebSliceTest {
     @DisplayName("Gán nhân viên soát vé")
     class GanNhanVien {
 
+        private CheckinAssignments.Assigned assigned(UUID event, UUID session, AssignmentWindow.Status status) {
+            return new CheckinAssignments.Assigned(
+                    STAFF,
+                    event,
+                    session,
+                    "Đêm nhạc",
+                    "Nhà hát",
+                    Instant.parse("2026-12-01T12:00:00Z"),
+                    Instant.parse("2026-12-01T21:00:00Z"),
+                    status.name(),
+                    List.of());
+        }
+
         @Test
-        @DisplayName("Đọc việc gán của một nhân viên")
+        @DisplayName("Đọc phân công của một nhân viên: kèm suất, khung giờ và trạng thái")
         void doc_viec_gan() throws Exception {
             UUID event = UUID.randomUUID();
-            when(assignments.list(ORG, STAFF)).thenReturn(List.of(new CheckinAssignments.Assigned(STAFF, event)));
+            UUID session = UUID.randomUUID();
+            when(assignments.list(ORG, STAFF))
+                    .thenReturn(List.of(assigned(event, session, AssignmentWindow.Status.EXPIRED)));
 
             mvc.perform(internal(get("/internal/checkin-assignments/" + ORG)).param("userId", STAFF.toString()))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].eventId").value(event.toString()));
+                    .andExpect(jsonPath("$[0].eventId").value(event.toString()))
+                    .andExpect(jsonPath("$[0].eventSessionId").value(session.toString()))
+                    .andExpect(jsonPath("$[0].expiresAt").value("2026-12-01T21:00:00Z"))
+                    .andExpect(jsonPath("$[0].status").value("EXPIRED"));
         }
 
         @Test
-        @DisplayName("Đặt lại danh sách sự kiện: truyền đúng người gán, trả trạng thái sau khi ghi")
+        @DisplayName("Gán: gộp eventIds (cả sự kiện) và assignments (theo suất), truyền đúng người gán")
         void dat_lai() throws Exception {
             UUID event = UUID.randomUUID();
+            UUID other = UUID.randomUUID();
+            UUID session = UUID.randomUUID();
             UUID admin = UUID.randomUUID();
-            when(assignments.replace(ORG, STAFF, List.of(event), admin))
-                    .thenReturn(List.of(new CheckinAssignments.Assigned(STAFF, event)));
+            List<CheckinAssignments.Target> scopes =
+                    List.of(new CheckinAssignments.Target(event, null), new CheckinAssignments.Target(other, session));
+            when(assignments.assign(ORG, STAFF, scopes, admin))
+                    .thenReturn(List.of(assigned(event, null, AssignmentWindow.Status.UPCOMING)));
 
             mvc.perform(internal(put("/internal/checkin-assignments/" + ORG + "/users/" + STAFF))
-                            .content("{\"eventIds\":[\"" + event + "\"],\"assignedBy\":\"" + admin + "\"}"))
+                            .content("{\"eventIds\":[\"" + event + "\"],\"assignments\":[{\"eventId\":\"" + other
+                                    + "\",\"eventSessionId\":\"" + session + "\"}],\"assignedBy\":\"" + admin + "\"}"))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$[0].userId").value(STAFF.toString()));
+                    .andExpect(jsonPath("$[0].userId").value(STAFF.toString()))
+                    .andExpect(jsonPath("$[0].status").value("UPCOMING"));
         }
 
         @Test
-        @DisplayName("Danh sách rỗng là gỡ khỏi mọi sự kiện — hợp lệ")
+        @DisplayName("Danh sách rỗng là gỡ mọi phân công còn hiệu lực — hợp lệ")
         void danh_sach_rong() throws Exception {
             mvc.perform(internal(put("/internal/checkin-assignments/" + ORG + "/users/" + STAFF))
-                            .content("{\"eventIds\":[]}"))
+                            .content("{\"assignments\":[]}"))
                     .andExpect(status().isOk());
 
-            verify(assignments).replace(ORG, STAFF, List.of(), null);
+            verify(assignments).assign(ORG, STAFF, List.of(), null);
         }
 
         @Test
-        @DisplayName("Thiếu eventIds: 400 — không được hiểu nhầm thành 'gỡ hết'")
+        @DisplayName("Thiếu cả assignments lẫn eventIds: 400 — không được hiểu nhầm thành 'gỡ hết'")
         void thieu_event_ids() throws Exception {
             mvc.perform(internal(put("/internal/checkin-assignments/" + ORG + "/users/" + STAFF))
                             .content("{}"))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.meta.fields.eventIds").exists());
+                    .andExpect(jsonPath("$.meta.fields.targetsPresent").exists());
             verifyNoInteractions(assignments);
+        }
+
+        @Test
+        @DisplayName("Gỡ phân công còn hiệu lực khi người này rời tổ chức: 204")
+        void go_con_hieu_luc() throws Exception {
+            mvc.perform(internal(delete("/internal/checkin-assignments/" + ORG + "/users/" + STAFF + "/active")))
+                    .andExpect(status().isNoContent());
+
+            verify(assignments).revokeActive(ORG, STAFF);
         }
 
         @Test

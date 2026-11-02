@@ -46,6 +46,17 @@ public interface UserRepository {
 
     Optional<UserRecord> findById(UserId id);
 
+    /**
+     * Người dùng có số điện thoại trùng {@code digits} sau khi bỏ mọi ký tự không phải chữ số.
+     *
+     * <p>Trả danh sách chứ không {@code Optional}: số điện thoại do người dùng tự khai ở hồ sơ và
+     * KHÔNG duy nhất — hai người khai cùng một số là chuyện có thật (số của bố mẹ, số công ty).
+     * Người gọi phải tự xử lý trường hợp nhiều kết quả thay vì âm thầm lấy người đầu tiên.
+     *
+     * @param digits chỉ gồm chữ số, dạng nội địa ({@code 0901234567}); bản {@code +84} được tra kèm
+     */
+    java.util.List<UserRecord> findByPhone(String digits);
+
     /** Tạo nếu chưa có, dùng ở lần request đầu tiên sau khi đăng nhập OIDC. */
     UserRecord upsertByIdpSubject(String idpSubject, String email, String fullName);
 

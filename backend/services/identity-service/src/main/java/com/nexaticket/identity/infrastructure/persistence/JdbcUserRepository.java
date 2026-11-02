@@ -47,6 +47,25 @@ public class JdbcUserRepository implements UserRepository {
                 .findFirst();
     }
 
+    /**
+     * So trên số đã bỏ dấu cách, dấu chấm, gạch ngang — cột {@code phone} lưu đúng như người dùng gõ
+     * ở hồ sơ ("090 123 4567", "+84 90-123-4567"). Tra cả dạng {@code 0…} lẫn {@code 84…} vì cùng
+     * một thuê bao.
+     *
+     * <p>Không có index trên biểu thức này: tra theo số điện thoại chỉ chạy khi ban tổ chức bấm Tìm
+     * ở màn hình Thành viên, không nằm trên đường nóng nào.
+     */
+    @Override
+    public java.util.List<UserRecord> findByPhone(String digits) {
+        String local = digits.startsWith("84") ? "0" + digits.substring(2) : digits;
+        String international = local.startsWith("0") ? "84" + local.substring(1) : local;
+        return jdbc.query(
+                SELECT + "WHERE phone IS NOT NULL AND regexp_replace(phone, '[^0-9]', '', 'g') IN (?, ?)",
+                MAPPER,
+                local,
+                international);
+    }
+
     @Override
     public Optional<UserRecord> findById(UserId id) {
         return jdbc.query(SELECT + "WHERE id = ?", MAPPER, id.value()).stream().findFirst();

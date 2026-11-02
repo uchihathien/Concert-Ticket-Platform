@@ -89,6 +89,9 @@ public interface CatalogQueries {
      */
     Optional<CatalogViews.SessionInfo> sessionInfo(UUID eventSessionId);
 
+    /** Lịch diễn của nhiều sự kiện một lần. Sự kiện không tồn tại thì không có trong kết quả. */
+    List<CatalogViews.EventSchedule> eventSchedules(java.util.Collection<UUID> eventIds);
+
     /**
      * Suất diễn này có thật không.
      *

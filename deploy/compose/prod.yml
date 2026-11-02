@@ -663,6 +663,10 @@ services:
       # CHỈ bản .prod.json. Bản dev có bốn tài khoản mật khẩu bằng tên đăng nhập và
       # `registrationAllowed: true` cho mọi client.
       - ../keycloak/nexaticket-realm.prod.json:/opt/keycloak/data/import/realm.json:ro
+      # Theme đăng nhập. Production GIỮ cache theme (mặc định của `start`): sửa theme thì phải
+      # restart container, đổi lại trang đăng nhập không phải đọc lại đĩa ở mỗi request.
+      # Realm đã import từ trước thì chạy thêm deploy/scripts/keycloak-set-theme.sh.
+      - ../keycloak/themes:/opt/keycloak/themes:ro
     depends_on:
       postgres: {condition: service_healthy}
     healthcheck:

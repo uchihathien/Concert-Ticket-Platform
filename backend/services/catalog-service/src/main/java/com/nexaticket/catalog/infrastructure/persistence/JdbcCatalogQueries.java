@@ -57,6 +57,53 @@ public class JdbcCatalogQueries implements CatalogQueries {
                 .findFirst();
     }
 
+    /**
+     * Một câu cho cả lô: LEFT JOIN để sự kiện chưa có suất nào vẫn có mặt (với danh sách suất rỗng)
+     * — ban tổ chức gán nhân viên trước rồi mới thêm suất là chuyện bình thường.
+     */
+    @Override
+    public List<CatalogViews.EventSchedule> eventSchedules(java.util.Collection<UUID> eventIds) {
+        if (eventIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, CatalogViews.EventSchedule> byEvent = new java.util.LinkedHashMap<>();
+        jdbc.query(
+                """
+                SELECT e.id AS event_id, e.organization_id, e.title AS event_title, v.name AS venue_name,
+                       s.id AS event_session_id, s.starts_at, s.ends_at
+                  FROM events e
+                  JOIN venues v ON v.id = e.venue_id
+                  LEFT JOIN event_sessions s ON s.event_id = e.id
+                 WHERE e.id = ANY (?)
+                 ORDER BY e.id, s.starts_at, s.id
+                """,
+                rs -> {
+                    UUID eventId = rs.getObject("event_id", UUID.class);
+                    UUID organizationId = rs.getObject("organization_id", UUID.class);
+                    String title = rs.getString("event_title");
+                    String venue = rs.getString("venue_name");
+                    CatalogViews.EventSchedule schedule = byEvent.computeIfAbsent(
+                            eventId,
+                            id -> new CatalogViews.EventSchedule(
+                                    id, organizationId, title, venue, new java.util.ArrayList<>()));
+                    UUID sessionId = rs.getObject("event_session_id", UUID.class);
+                    if (sessionId != null) {
+                        schedule.sessions()
+                                .add(new CatalogViews.ScheduledSession(
+                                        sessionId, instant(rs, "starts_at"), instant(rs, "ends_at")));
+                    }
+                },
+                (Object) eventIds.toArray(UUID[]::new));
+        return byEvent.values().stream()
+                .map(schedule -> new CatalogViews.EventSchedule(
+                        schedule.eventId(),
+                        schedule.organizationId(),
+                        schedule.eventTitle(),
+                        schedule.venueName(),
+                        List.copyOf(schedule.sessions())))
+                .toList();
+    }
+
     @Override
     public List<CatalogViews.CheckinSession> checkinSessions(UUID organizationId) {
         return jdbc.query(

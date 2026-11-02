@@ -28,6 +28,11 @@ queues:
   - name: notification.identity.member-invited
     exchange: nexaticket.identity
     routing_key: member.invited
+  # Ban tổ chức thêm một tài khoản đã đăng ký vào tổ chức (mục Thành viên). Payload KHÔNG mang
+  # email — notification tra địa chỉ theo userId lúc xếp thư.
+  - name: notification.identity.member-added
+    exchange: nexaticket.identity
+    routing_key: member.added
   # CHƯA CÓ CONSUMER, và đó là chuyện có chủ đích: read model của analytics chỉ có doanh thu theo
   # suất diễn (ADR-1010), không có gì để ghi từ sự kiện của identity. Giữ queue lại vì nó là chỗ
   # đậu sẵn cho báo cáo tăng trưởng tổ chức sau này — nhưng cho tới lúc đó nó chỉ tích message.

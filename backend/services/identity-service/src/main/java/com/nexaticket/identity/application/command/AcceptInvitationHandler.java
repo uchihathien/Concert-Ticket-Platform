@@ -83,7 +83,7 @@ public class AcceptInvitationHandler {
             // một tài khoản tự đăng ký — đúng đường vòng mà luồng mời nhân viên đóng lại.
             throw new ApiException(
                     IdentityErrorCode.STAFF_INVITE_REQUIRED,
-                    "Lời mời này không còn dùng được. Hãy nhờ ban tổ chức mời lại ở mục Nhân sự.");
+                    "Lời mời này không còn dùng được. Hãy nhờ ban tổ chức thêm bạn ở mục Thành viên.");
         }
 
         Instant now = clock.instant();

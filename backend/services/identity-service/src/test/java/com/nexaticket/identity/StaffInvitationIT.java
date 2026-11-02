@@ -9,12 +9,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nexaticket.identity.application.command.StaffInvitationHandler;
 import com.nexaticket.identity.domain.port.CheckinAssignmentPort;
 import com.nexaticket.identity.domain.port.IdentityProviderPort;
 import com.nexaticket.identity.domain.port.UserRepository;
 import com.nexaticket.identity.support.PostgresTestBase;
+import com.nexaticket.kernel.access.Role;
 import com.nexaticket.kernel.id.TenantId;
 import com.nexaticket.kernel.id.UserId;
+import com.nexaticket.platform.security.tenant.TenantContextFixture;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -43,19 +46,29 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
-/** Ban tổ chức mời nhân viên soát vé — với PostgreSQL thật, Keycloak và ticketing giả. */
+/**
+ * Nhân viên soát vé — với PostgreSQL thật, Keycloak và ticketing giả.
+ *
+ * <p>Hai phần: luồng MỚI (nhân viên tự đăng ký, ban tổ chức thêm ở mục Thành viên rồi gán sự kiện)
+ * và luồng mời CŨ đã ngừng. Lời mời cũ không tạo mới được qua API nữa ({@code POST /staff} trả 410),
+ * nên ở đây chúng được dựng thẳng bằng {@code StaffInvitationHandler} — đúng như dữ liệu đã có sẵn
+ * trong database — để chứng minh kích hoạt, gửi lại, huỷ và soát vé của dữ liệu cũ vẫn chạy.
+ */
 @AutoConfigureMockMvc
+@SuppressWarnings("removal")
 @Import(StaffInvitationIT.Fakes.class)
 class StaffInvitationIT extends PostgresTestBase {
 
     private static final String OWNER_TOKEN = "owner-token";
     private static final String OTHER_OWNER_TOKEN = "other-owner-token";
     private static final String STAFF_TOKEN = "staff-token";
+    private static final String LAN_TOKEN = "lan-token";
 
     private static final String OWNER_EMAIL = "chu-staffit@example.com";
     private static final String OTHER_OWNER_EMAIL = "chu-khac-staffit@example.com";
     private static final String CUSTOMER_EMAIL = "khach-staffit@example.com";
     private static final String MINH = "minh-staffit@example.com";
+    private static final String LAN = "lan-staffit@example.com";
 
     @TestConfiguration
     static class Fakes {
@@ -69,6 +82,10 @@ class StaffInvitationIT extends PostgresTestBase {
                 if (OWNER_TOKEN.equals(token)) {
                     subject = "sub-owner-staffit";
                     email = OWNER_EMAIL;
+                } else if (LAN_TOKEN.equals(token)) {
+                    // Nhân viên theo luồng mới: tự đăng ký bằng tài khoản của chính mình.
+                    subject = "sub-lan-staffit";
+                    email = LAN;
                 } else if (OTHER_OWNER_TOKEN.equals(token)) {
                     subject = "sub-other-owner-staffit";
                     email = OTHER_OWNER_EMAIL;
@@ -174,31 +191,46 @@ class StaffInvitationIT extends PostgresTestBase {
         }
     }
 
-    /** ticketing thu nhỏ: sự kiện theo (tổ chức, người). */
+    /** ticketing thu nhỏ: sự kiện theo (tổ chức, người). Mọi phân công coi như còn hiệu lực. */
     static class FakeAssignments implements CheckinAssignmentPort {
 
         final Map<String, List<UUID>> events = new HashMap<>();
 
         @Override
-        public Map<UserId, List<UUID>> byOrganization(TenantId organizationId) {
-            Map<UserId, List<UUID>> result = new HashMap<>();
+        public Map<UserId, List<Assignment>> byOrganization(TenantId organizationId) {
+            Map<UserId, List<Assignment>> result = new HashMap<>();
             events.forEach((key, value) -> {
                 String[] parts = key.split("/");
                 if (parts[0].equals(organizationId.value().toString()) && !value.isEmpty()) {
-                    result.put(UserId.of(UUID.fromString(parts[1])), value);
+                    result.put(
+                            UserId.of(UUID.fromString(parts[1])),
+                            value.stream().map(FakeAssignments::of).toList());
                 }
             });
             return result;
         }
 
         @Override
-        public List<UUID> eventsOf(TenantId organizationId, UserId userId) {
-            return events.getOrDefault(organizationId.value() + "/" + userId.value(), List.of());
+        public List<Assignment> assignmentsOf(TenantId organizationId, UserId userId) {
+            return events.getOrDefault(organizationId.value() + "/" + userId.value(), List.of()).stream()
+                    .map(FakeAssignments::of)
+                    .toList();
         }
 
         @Override
-        public void replace(TenantId organizationId, UserId userId, Collection<UUID> eventIds, UserId assignedBy) {
-            events.put(organizationId.value() + "/" + userId.value(), List.copyOf(eventIds));
+        public void assign(TenantId organizationId, UserId userId, Collection<Target> targets, UserId assignedBy) {
+            events.put(
+                    organizationId.value() + "/" + userId.value(),
+                    targets.stream().map(Target::eventId).distinct().toList());
+        }
+
+        @Override
+        public void revokeActive(TenantId organizationId, UserId userId) {
+            events.remove(organizationId.value() + "/" + userId.value());
+        }
+
+        private static Assignment of(UUID eventId) {
+            return new Assignment(eventId, null, null, null, null, "UPCOMING");
         }
     }
 
@@ -220,6 +252,11 @@ class StaffInvitationIT extends PostgresTestBase {
     @Autowired
     FakeAssignments assignments;
 
+    @Autowired
+    StaffInvitationHandler legacyInvitations;
+
+    private UserRepository.UserRecord owner;
+
     private UUID organizationId;
     private UUID otherOrganizationId;
     private final UUID eventA = UUID.randomUUID();
@@ -238,8 +275,8 @@ class StaffInvitationIT extends PostgresTestBase {
 
         organizationId = organization("staffit-a");
         otherOrganizationId = organization("staffit-b");
-        addMember(
-                organizationId, users.upsertByIdpSubject("sub-owner-staffit", OWNER_EMAIL, "Chu To Chuc"), "ORG_OWNER");
+        owner = users.upsertByIdpSubject("sub-owner-staffit", OWNER_EMAIL, "Chu To Chuc");
+        addMember(organizationId, owner, "ORG_OWNER");
         addMember(
                 otherOrganizationId,
                 users.upsertByIdpSubject("sub-other-owner-staffit", OTHER_OWNER_EMAIL, "Chu Khac"),
@@ -326,38 +363,18 @@ class StaffInvitationIT extends PostgresTestBase {
     }
 
     @Test
-    @DisplayName("Email đã là khách, hoặc thuộc tổ chức khác: cùng một lỗi chung, không lộ lý do")
-    void email_khong_moi_duoc() throws Exception {
-        // Khách đã từng đăng nhập: có bản ghi người dùng, không thuộc tổ chức nào.
-        users.upsertByIdpSubject("sub-khach-staffit", CUSTOMER_EMAIL, "Khach A");
-        // Khách mới tự đăng ký bên Keycloak, chưa từng đăng nhập vào hệ thống.
-        idp.createInvitedAccount("khach-moi-staffit@example.com", "Khach Moi");
+    @DisplayName("POST /staff đã ngừng: 410 STAFF_INVITE_RETIRED, không tạo tài khoản Keycloak, không gửi thư")
+    void tao_tai_khoan_nhan_vien_da_ngung() throws Exception {
+        MvcResult result = as(OWNER_TOKEN, inviteRequest(MINH, "Nguyễn Văn Minh", eventA));
 
-        MvcResult customer = as(OWNER_TOKEN, inviteRequest(CUSTOMER_EMAIL, "Khach A", eventA));
-        MvcResult registered = as(OWNER_TOKEN, inviteRequest("khach-moi-staffit@example.com", "Khach Moi", eventA));
-        MvcResult otherOrg = as(OWNER_TOKEN, inviteRequest(OTHER_OWNER_EMAIL, "Chu Khac", eventA));
-        // Người đang giữ vai trò khác ở chính tổ chức này cũng không "mời làm nhân viên" được.
-        MvcResult self = as(OWNER_TOKEN, inviteRequest(OWNER_EMAIL, "Chu To Chuc", eventA));
-
-        for (MvcResult result : List.of(customer, registered, otherOrg, self)) {
-            assertThat(result.getResponse().getStatus()).isEqualTo(409);
-            String body = result.getResponse().getContentAsString();
-            assertThat(json.readTree(body).path("code").asText()).isEqualTo("EMAIL_NOT_INVITABLE");
-            // Không nhắc tới tổ chức, vai trò hay việc tài khoản có tồn tại.
-            assertThat(body)
-                    .doesNotContain("Chu Khac")
-                    .doesNotContain("staffit-b")
-                    .doesNotContain("ORG_OWNER");
-        }
-        // Khách và người của tổ chức khác nhận ĐÚNG cùng một câu: không suy ra được ai là ai.
-        assertThat(json.readTree(customer.getResponse().getContentAsString())
-                        .path("detail")
+        assertThat(result.getResponse().getStatus()).isEqualTo(410);
+        assertThat(json.readTree(result.getResponse().getContentAsString())
+                        .path("code")
                         .asText())
-                .isEqualTo(json.readTree(otherOrg.getResponse().getContentAsString())
-                        .path("detail")
-                        .asText());
+                .isEqualTo("STAFF_INVITE_RETIRED");
+        assertThat(idp.emailById).isEmpty();
         assertThat(idp.mailedTo).isEmpty();
-        assertThat(roleOf(CUSTOMER_EMAIL)).isNull();
+        assertThat(users.findByEmail(MINH)).isEmpty();
     }
 
     @Test
@@ -486,6 +503,114 @@ class StaffInvitationIT extends PostgresTestBase {
         assertThat(count("invitations", MINH)).isZero();
     }
 
+    // --- luồng mới: tự đăng ký, thêm ở mục Thành viên, gán sự kiện ---
+
+    @Test
+    @DisplayName(
+            "Thêm người đã tự đăng ký với vai Staff: có quyền soát vé ngay, không tạo tài khoản hộ, có sự kiện báo")
+    void them_staff_da_dang_ky() throws Exception {
+        UserRepository.UserRecord lan = users.upsertByIdpSubject("sub-lan-staffit", LAN, "Trần Thị Lan");
+
+        MvcResult found = as(
+                OWNER_TOKEN,
+                get("/v1/organizations/" + organizationId + "/members/lookup").param("contact", LAN));
+        assertThat(found.getResponse().getStatus()).isEqualTo(200);
+        JsonNode candidate = json.readTree(found.getResponse().getContentAsString());
+        assertThat(candidate.path("fullName").asText()).isEqualTo("Trần Thị Lan");
+        assertThat(candidate.path("maskedEmail").asText()).isEqualTo("la*********@example.com");
+        assertThat(candidate.path("alreadyMember").asBoolean()).isFalse();
+
+        assertThat(addByContact(OWNER_TOKEN, LAN, "CHECKIN_STAFF").getResponse().getStatus())
+                .isEqualTo(201);
+
+        assertThat(roleOf(LAN)).isEqualTo("CHECKIN_STAFF");
+        assertThat(idp.emailById).isEmpty();
+        assertThat(jdbc.queryForObject(
+                        "SELECT count(*) FROM outbox WHERE event_type = 'member.added' AND payload::text LIKE ?",
+                        Integer.class,
+                        "%" + lan.id().value() + "%"))
+                .isEqualTo(1);
+
+        JsonNode permissions = json.readTree(
+                as(LAN_TOKEN, get("/v1/me/permissions")).getResponse().getContentAsString());
+        assertThat(permissions
+                        .path("organizations")
+                        .path(organizationId.toString())
+                        .toString())
+                .contains("CHECKIN_SCAN");
+    }
+
+    @Test
+    @DisplayName("Email chưa đăng ký: 404 USER_NOT_REGISTERED ở cả tìm lẫn thêm, không tạo gì")
+    void chua_dang_ky() throws Exception {
+        MvcResult found = as(
+                OWNER_TOKEN,
+                get("/v1/organizations/" + organizationId + "/members/lookup")
+                        .param("contact", "chua-co-staffit@example.com"));
+        MvcResult added = addByContact(OWNER_TOKEN, "chua-co-staffit@example.com", "CHECKIN_STAFF");
+
+        for (MvcResult result : List.of(found, added)) {
+            assertThat(result.getResponse().getStatus()).isEqualTo(404);
+            assertThat(json.readTree(result.getResponse().getContentAsString())
+                            .path("code")
+                            .asText())
+                    .isEqualTo("USER_NOT_REGISTERED");
+        }
+        assertThat(users.findByEmail("chua-co-staffit@example.com")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Thêm trùng: 409 ALREADY_A_MEMBER")
+    void them_trung() throws Exception {
+        users.upsertByIdpSubject("sub-lan-staffit", LAN, "Trần Thị Lan");
+        addByContact(OWNER_TOKEN, LAN, "CHECKIN_STAFF");
+
+        MvcResult again = addByContact(OWNER_TOKEN, LAN, "EVENT_MANAGER");
+
+        assertThat(again.getResponse().getStatus()).isEqualTo(409);
+        assertThat(roleOf(LAN)).isEqualTo("CHECKIN_STAFF");
+    }
+
+    @Test
+    @DisplayName("Gán sự kiện rồi gỡ khỏi tổ chức: phân công còn hiệu lực bị gỡ theo, membership mất")
+    void go_thanh_vien_huy_phan_cong() throws Exception {
+        UserRepository.UserRecord lan = users.upsertByIdpSubject("sub-lan-staffit", LAN, "Trần Thị Lan");
+        addByContact(OWNER_TOKEN, LAN, "CHECKIN_STAFF");
+        UUID session = UUID.randomUUID();
+
+        MvcResult assigned = as(
+                OWNER_TOKEN,
+                put(staffPath() + "/" + lan.id().value() + "/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(
+                                Map.of("assignments", List.of(Map.of("eventId", eventA, "eventSessionId", session))))));
+        assertThat(assigned.getResponse().getStatus()).isEqualTo(200);
+        assertThat(staffRow(LAN).path("assignments")).hasSize(1);
+
+        MvcResult removed = as(
+                OWNER_TOKEN,
+                delete("/v1/organizations/" + organizationId + "/members/"
+                        + lan.id().value()));
+
+        assertThat(removed.getResponse().getStatus()).isEqualTo(200);
+        assertThat(roleOf(LAN)).isNull();
+        assertThat(assignments.assignmentsOf(TenantId.of(organizationId), lan.id()))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("Không gán sự kiện được cho người không phải Staff")
+    void gan_nguoi_khong_phai_staff() throws Exception {
+        MvcResult result = as(
+                OWNER_TOKEN,
+                put(staffPath() + "/" + owner.id().value() + "/events")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("eventIds", List.of(eventA)))));
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(404);
+        assertThat(assignments.events).isEmpty();
+    }
+
     // --- dựng dữ liệu ---
 
     private String staffPath() {
@@ -500,10 +625,26 @@ class StaffInvitationIT extends PostgresTestBase {
                         Map.of("email", email, "fullName", fullName, "eventIds", List.of(events))));
     }
 
-    private JsonNode invite(String email, String fullName, UUID... events) throws Exception {
-        MvcResult result = as(OWNER_TOKEN, inviteRequest(email, fullName, events));
-        assertThat(result.getResponse().getStatus()).isEqualTo(200);
-        return json.readTree(result.getResponse().getContentAsString());
+    /** Dựng một lời mời theo luồng cũ, như dữ liệu đã có trong database trước khi đổi quy trình. */
+    private JsonNode invite(String email, String fullName, UUID... events) {
+        TenantContextFixture.member(owner.id(), TenantId.of(organizationId), Role.ORG_OWNER);
+        try {
+            StaffInvitationHandler.Result result =
+                    legacyInvitations.invite(TenantId.of(organizationId), fullName, email, List.of(events));
+            return json.createObjectNode()
+                    .put("outcome", result.outcome())
+                    .put("userId", result.userId().toString());
+        } finally {
+            TenantContextFixture.clear();
+        }
+    }
+
+    private MvcResult addByContact(String token, String contact, String role) throws Exception {
+        return as(
+                token,
+                post("/v1/organizations/" + organizationId + "/members")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(Map.of("contact", contact, "role", role))));
     }
 
     private JsonNode staff() throws Exception {

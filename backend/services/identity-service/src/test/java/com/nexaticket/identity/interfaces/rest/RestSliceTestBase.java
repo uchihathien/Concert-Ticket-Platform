@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 
 import com.nexaticket.identity.application.command.AcceptInvitationHandler;
+import com.nexaticket.identity.application.command.AddMemberHandler;
+import com.nexaticket.identity.application.command.CheckinAssignmentHandler;
 import com.nexaticket.identity.application.command.CreateOrganizationHandler;
 import com.nexaticket.identity.application.command.GrantMembershipHandler;
 import com.nexaticket.identity.application.command.InviteMemberHandler;
@@ -134,6 +136,12 @@ abstract class RestSliceTestBase {
 
     @MockitoBean
     protected StaffInvitationHandler staffInvitations;
+
+    @MockitoBean
+    protected AddMemberHandler addMember;
+
+    @MockitoBean
+    protected CheckinAssignmentHandler checkinAssignments;
 
     private final Map<String, MembershipLookup.Principal> principals = new ConcurrentHashMap<>();
 

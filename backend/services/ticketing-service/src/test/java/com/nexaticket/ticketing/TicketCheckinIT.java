@@ -4,14 +4,17 @@ package com.nexaticket.ticketing;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.nexaticket.platform.web.error.ApiException;
 import com.nexaticket.ticketing.application.CheckinAccess;
 import com.nexaticket.ticketing.application.CheckinAssignments;
+import com.nexaticket.ticketing.application.TicketingErrorCode;
 import com.nexaticket.ticketing.application.command.CheckInHandler;
 import com.nexaticket.ticketing.application.command.IssueTicketsHandler;
 import com.nexaticket.ticketing.application.query.CheckinHistoryQuery;
+import com.nexaticket.ticketing.domain.model.AssignmentWindow;
 import com.nexaticket.ticketing.domain.model.CheckinResult;
 import com.nexaticket.ticketing.domain.model.QrToken;
 import com.nexaticket.ticketing.domain.port.CatalogPort;
@@ -22,7 +25,9 @@ import com.nexaticket.ticketing.support.TicketingTestBase;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -376,24 +381,48 @@ class TicketCheckinIT extends TicketingTestBase {
 
     // --- dựng dữ liệu ---
 
+    /**
+     * Catalog giả: mỗi sự kiện một suất, thuộc tổ chức của test. {@code sessions} map sự kiện → suất;
+     * {@code startsAt} là giờ bắt đầu của mọi suất.
+     */
+    private void givenSchedules(Map<UUID, UUID> sessions, Instant startsAt, UUID owner) {
+        sessions.forEach((event, session) -> when(catalog.sessionInfo(session))
+                .thenReturn(Optional.of(new CatalogPort.SessionInfo(event, "Đêm nhạc", startsAt, null))));
+        when(catalog.eventSchedules(any())).thenAnswer(call -> {
+            Map<UUID, CatalogPort.EventSchedule> found = new HashMap<>();
+            for (Object id : (java.util.Collection<?>) call.getArgument(0)) {
+                UUID event = (UUID) id;
+                if (sessions.containsKey(event)) {
+                    found.put(
+                            event,
+                            new CatalogPort.EventSchedule(
+                                    event,
+                                    owner,
+                                    "Đêm nhạc",
+                                    "Nhà hát",
+                                    List.of(new AssignmentWindow.Session(sessions.get(event), startsAt, null))));
+                }
+            }
+            return found;
+        });
+    }
+
     @Test
     @DisplayName("Nhân viên soát vé chỉ soát được sự kiện đã được gán; người quản lý tổ chức thì không cần gán")
     void chi_soat_su_kien_duoc_gan() {
         UUID staff = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
+        UUID otherEvent = UUID.randomUUID();
         UUID otherSession = UUID.randomUUID();
-        when(catalog.sessionInfo(sessionId))
-                .thenReturn(Optional.of(new CatalogPort.SessionInfo(eventId, "Đêm nhạc", Instant.now(), null)));
-        when(catalog.sessionInfo(otherSession))
-                .thenReturn(
-                        Optional.of(new CatalogPort.SessionInfo(UUID.randomUUID(), "Đêm khác", Instant.now(), null)));
+        givenSchedules(Map.of(eventId, sessionId, otherEvent, otherSession), Instant.now(), organizationId);
 
         // Chưa gán: từ chối, kể cả khi app có để lọt màn hình quét.
         assertThatThrownBy(() -> access.requireAssigned(false, organizationId, staff, sessionId))
                 .isInstanceOf(ApiException.class)
                 .hasMessageContaining("chưa được gán");
 
-        assignments.replace(organizationId, staff, List.of(eventId), UUID.randomUUID());
+        assignments.assign(
+                organizationId, staff, List.of(new CheckinAssignments.Target(eventId, null)), UUID.randomUUID());
 
         assertThatCode(() -> access.requireAssigned(false, organizationId, staff, sessionId))
                 .doesNotThrowAnyException();
@@ -409,24 +438,69 @@ class TicketCheckinIT extends TicketingTestBase {
     }
 
     @Test
-    @DisplayName("Gỡ nhân viên khỏi sự kiện: mất quyền ngay ở lượt quét kế tiếp")
+    @DisplayName("Gỡ nhân viên khỏi sự kiện: mất quyền ngay ở lượt quét kế tiếp; gửi lại không tạo trùng")
     void go_khoi_su_kien_mat_quyen_ngay() {
         UUID staff = UUID.randomUUID();
         UUID kept = UUID.randomUUID();
         UUID removed = UUID.randomUUID();
         UUID assigner = UUID.randomUUID();
-        when(catalog.sessionInfo(sessionId))
-                .thenReturn(Optional.of(new CatalogPort.SessionInfo(removed, "Đêm nhạc", Instant.now(), null)));
-        assignments.replace(organizationId, staff, List.of(kept, removed), assigner);
+        givenSchedules(Map.of(removed, sessionId, kept, UUID.randomUUID()), Instant.now(), organizationId);
+        assignments.assign(
+                organizationId,
+                staff,
+                List.of(new CheckinAssignments.Target(kept, null), new CheckinAssignments.Target(removed, null)),
+                assigner);
 
-        var after = assignments.replace(organizationId, staff, List.of(kept), assigner);
+        var after =
+                assignments.assign(organizationId, staff, List.of(new CheckinAssignments.Target(kept, null)), assigner);
         // Gửi lại đúng danh sách cũ không được tạo trùng hay đổi gì.
-        assignments.replace(organizationId, staff, List.of(kept, kept), assigner);
+        assignments.assign(
+                organizationId,
+                staff,
+                List.of(new CheckinAssignments.Target(kept, null), new CheckinAssignments.Target(kept, null)),
+                assigner);
 
         assertThat(after).extracting(CheckinAssignments.Assigned::eventId).containsExactly(kept);
         assertThat(assignments.list(organizationId, staff)).hasSize(1);
         assertThatThrownBy(() -> access.requireAssigned(false, organizationId, staff, sessionId))
                 .isInstanceOf(ApiException.class);
+    }
+
+    @Test
+    @DisplayName("Gán theo SUẤT; hết hạn sau suất + 6 giờ thì bị từ chối nhưng vẫn giữ làm lịch sử")
+    void gan_theo_suat_va_het_han() {
+        UUID staff = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        // Suất bắt đầu 13 giờ trước, không khai giờ kết thúc (tính 6 giờ) → hết hạn 1 giờ trước.
+        givenSchedules(Map.of(eventId, sessionId), Instant.now().minusSeconds(13 * 3600), organizationId);
+        assignments.assign(
+                organizationId, staff, List.of(new CheckinAssignments.Target(eventId, sessionId)), UUID.randomUUID());
+
+        assertThatThrownBy(() -> access.requireAssigned(false, organizationId, staff, sessionId))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.errorCode())
+                        .isEqualTo(TicketingErrorCode.CHECKIN_ASSIGNMENT_EXPIRED));
+
+        // Lưu danh sách rỗng chỉ gỡ phân công còn hiệu lực: dòng đã hết hạn nằm lại để xem lịch sử.
+        assignments.assign(organizationId, staff, List.of(), null);
+        assertThat(assignments.list(organizationId, staff)).singleElement().satisfies(a -> {
+            assertThat(a.eventSessionId()).isEqualTo(sessionId);
+            assertThat(a.status()).isEqualTo("EXPIRED");
+        });
+        assertThat(assignments.activeOf(organizationId, staff)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Gán sự kiện của tổ chức khác: từ chối, không ghi dòng nào")
+    void gan_su_kien_to_chuc_khac() {
+        UUID staff = UUID.randomUUID();
+        UUID foreign = UUID.randomUUID();
+        givenSchedules(Map.of(foreign, UUID.randomUUID()), Instant.now(), UUID.randomUUID());
+
+        assertThatThrownBy(() -> assignments.assign(
+                        organizationId, staff, List.of(new CheckinAssignments.Target(foreign, null)), null))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.errorCode())
+                        .isEqualTo(TicketingErrorCode.EVENT_NOT_IN_ORGANIZATION));
+        assertThat(assignments.list(organizationId, staff)).isEmpty();
     }
 
     @Test

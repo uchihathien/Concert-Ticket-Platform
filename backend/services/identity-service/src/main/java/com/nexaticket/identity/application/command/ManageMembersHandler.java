@@ -3,6 +3,7 @@ package com.nexaticket.identity.application.command;
 
 import com.nexaticket.identity.application.IdentityErrorCode;
 import com.nexaticket.identity.domain.model.Organization;
+import com.nexaticket.identity.domain.port.CheckinAssignmentPort;
 import com.nexaticket.identity.domain.port.OrganizationRepository;
 import com.nexaticket.kernel.access.Permission;
 import com.nexaticket.kernel.access.Role;
@@ -35,15 +36,30 @@ import org.springframework.transaction.annotation.Transactional;
  *       {@code ORG_ADMIN} làm việc đó là cho họ tự nâng quyền qua trung gian: phong một tài khoản
  *       mình kiểm soát lên OWNER rồi dùng tài khoản đó.
  * </ol>
+ *
+ * <h3>Phân công soát vé đi theo tư cách nhân viên soát vé</h3>
+ *
+ * <p>Gỡ một người khỏi tổ chức, hoặc đổi họ khỏi vai {@code CHECKIN_STAFF}, thì các phân công soát
+ * vé CÒN HIỆU LỰC của họ bên ticketing bị gỡ theo; phân công đã hết hạn được giữ làm lịch sử.
+ * Membership mất thì lượt quét đã bị chặn ngay từ {@code TenantFilter}, nhưng để dòng phân công
+ * nằm lại là để dành một cái bẫy: lần sau người đó được thêm lại, họ soát được ngay những sự kiện
+ * cũ mà không ai gán lại.
+ *
+ * <p>Gọi ticketing <b>trước</b> khi đổi membership: ticketing không trả lời thì cả lệnh thất bại và
+ * không có gì đổi. Đảo thứ tự thì một lần ticketing chập chờn để lại người đã bị gỡ mà phân công
+ * vẫn còn.
  */
 @Service
 public class ManageMembersHandler {
 
     private final OrganizationRepository organizations;
+    private final CheckinAssignmentPort assignments;
     private final AuditLogger audit;
 
-    public ManageMembersHandler(OrganizationRepository organizations, AuditLogger audit) {
+    public ManageMembersHandler(
+            OrganizationRepository organizations, CheckinAssignmentPort assignments, AuditLogger audit) {
         this.organizations = organizations;
+        this.assignments = assignments;
         this.audit = audit;
     }
 
@@ -68,6 +84,9 @@ public class ManageMembersHandler {
                 .orElseThrow(() -> new ApiException(IdentityErrorCode.NOT_A_MEMBER, "Not a member"))
                 .role();
         requireOwnerToTouchOwner(actor, organizationId, before);
+        if (before == Role.CHECKIN_STAFF && newRole != Role.CHECKIN_STAFF) {
+            revokeAssignments(organizationId, memberId);
+        }
 
         try {
             organization.changeRole(memberId, newRole);
@@ -99,6 +118,9 @@ public class ManageMembersHandler {
                 .orElseThrow(() -> new ApiException(IdentityErrorCode.NOT_A_MEMBER, "Not a member"))
                 .role();
         requireOwnerToTouchOwner(actor, organizationId, before);
+        if (before == Role.CHECKIN_STAFF) {
+            revokeAssignments(organizationId, memberId);
+        }
 
         try {
             organization.removeMember(memberId);
@@ -117,6 +139,16 @@ public class ManageMembersHandler {
     private static void requireOwnerToTouchOwner(TenantScope actor, TenantId organizationId, Role targetRole) {
         if (targetRole == Role.ORG_OWNER && !actor.superAdmin() && actor.roleIn(organizationId) != Role.ORG_OWNER) {
             throw ApiException.forbidden("Chỉ chủ sở hữu mới đổi hoặc gỡ được chủ sở hữu");
+        }
+    }
+
+    private void revokeAssignments(TenantId organizationId, UserId memberId) {
+        try {
+            assignments.revokeActive(organizationId, memberId);
+        } catch (CheckinAssignmentPort.AssignmentsUnavailableException e) {
+            throw new ApiException(
+                    IdentityErrorCode.CHECKIN_ASSIGNMENTS_UNAVAILABLE,
+                    "Chưa gỡ được phân công soát vé của người này. Thử lại sau ít phút.");
         }
     }
 

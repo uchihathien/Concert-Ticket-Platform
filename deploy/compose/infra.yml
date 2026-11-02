@@ -67,7 +67,15 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
-    command: ["start-dev", "--import-realm"]
+    # Ba cờ `--spi-theme-*` tắt cache của theme đăng nhập: sửa CSS/FTL trong deploy/keycloak/themes
+    # rồi tải lại trang là thấy ngay, không phải khởi động lại container. `start-dev` vốn đã tắt
+    # phần lớn cache này; ghi rõ ra để ai đổi sang `start` khi thử nghiệm không bị bất ngờ.
+    command:
+      - start-dev
+      - --import-realm
+      - --spi-theme-static-max-age=-1
+      - --spi-theme-cache-themes=false
+      - --spi-theme-cache-templates=false
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
@@ -92,6 +100,9 @@ services:
       # chúng đi. Tài khoản người dùng tự đăng ký thì vẫn mất khi recreate; đó là cái giá của việc
       # không gắn volume, đổi lại realm JSON luôn được import lại đúng như trong repo.
       - ../keycloak/nexaticket-realm.json:/opt/keycloak/data/import/nexaticket-realm.json:ro
+      # Theme đăng nhập `nexaticket` và `nexaticket-lime`. Theme có sẵn của Keycloak nằm trong file jar,
+      # không nằm ở thư mục này, nên mount đè cả thư mục không làm mất theme mặc định.
+      - ../keycloak/themes:/opt/keycloak/themes:ro
     healthcheck:
       # Cổng 9000 (management), KHÔNG phải 8081: bản trước hỏi /health/ready trên cổng ứng
       # dụng và nhận 404 mãi mãi. Cổng này chỉ dùng trong mạng của compose, không cần publish.

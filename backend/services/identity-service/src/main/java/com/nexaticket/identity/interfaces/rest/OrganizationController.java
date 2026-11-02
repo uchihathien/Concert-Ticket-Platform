@@ -2,6 +2,7 @@
 package com.nexaticket.identity.interfaces.rest;
 
 import com.nexaticket.identity.application.command.AcceptInvitationHandler;
+import com.nexaticket.identity.application.command.AddMemberHandler;
 import com.nexaticket.identity.application.command.InviteMemberHandler;
 import com.nexaticket.identity.application.command.ManageMembersHandler;
 import com.nexaticket.identity.application.command.OrganizationLifecycleHandler;
@@ -67,6 +68,7 @@ public class OrganizationController {
     private final RevokeSessionsHandler revokeSessions;
     private final SendPasswordResetHandler sendPasswordReset;
     private final AuditQueries auditQueries;
+    private final AddMemberHandler addMember;
 
     public OrganizationController(
             OrganizationQueries queries,
@@ -78,7 +80,8 @@ public class OrganizationController {
             SetPurchaseLimitsHandler purchaseLimits,
             RevokeSessionsHandler revokeSessions,
             SendPasswordResetHandler sendPasswordReset,
-            AuditQueries auditQueries) {
+            AuditQueries auditQueries,
+            AddMemberHandler addMember) {
         this.queries = queries;
         this.inviteMember = inviteMember;
         this.acceptInvitation = acceptInvitation;
@@ -89,6 +92,7 @@ public class OrganizationController {
         this.revokeSessions = revokeSessions;
         this.sendPasswordReset = sendPasswordReset;
         this.auditQueries = auditQueries;
+        this.addMember = addMember;
     }
 
     /**
@@ -162,6 +166,28 @@ public class OrganizationController {
 
     @GetMapping("/organizations/{organizationId}/members")
     public List<MemberView> members(@PathVariable UUID organizationId) {
+        return queries.members(TenantId.of(organizationId));
+    }
+
+    /**
+     * Tìm một tài khoản NexaTicket đã đăng ký theo email hoặc số điện thoại <b>chính xác</b>, để thêm
+     * vào tổ chức.
+     *
+     * <p>Không tìm mờ: xem {@link AddMemberHandler}. Không thấy thì 404 {@code USER_NOT_REGISTERED}.
+     */
+    @GetMapping("/organizations/{organizationId}/members/lookup")
+    @RequiresPermission(Permission.ORG_MEMBERS_MANAGE)
+    public AddMemberHandler.Candidate lookupMember(
+            @PathVariable UUID organizationId, @RequestParam @NotBlank @Size(max = 254) String contact) {
+        return addMember.find(TenantId.of(organizationId), contact);
+    }
+
+    /** Thêm một tài khoản đã đăng ký vào tổ chức. Trả lại cả bảng thành viên, như đổi vai và gỡ. */
+    @PostMapping("/organizations/{organizationId}/members")
+    @RequiresPermission(Permission.ORG_MEMBERS_MANAGE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<MemberView> addMember(@PathVariable UUID organizationId, @Valid @RequestBody AddMemberRequest request) {
+        addMember.add(TenantId.of(organizationId), request.contact(), request.role());
         return queries.members(TenantId.of(organizationId));
     }
 
@@ -239,6 +265,9 @@ public class OrganizationController {
     public record RenameRequest(@NotBlank @Size(max = 200) String name) {}
 
     public record RoleRequest(@NotNull Role role) {}
+
+    /** @param contact email hoặc số điện thoại, đúng như người đó đã đăng ký */
+    public record AddMemberRequest(@NotBlank @Size(max = 254) String contact, @NotNull Role role) {}
 
     /** Null = kế thừa trần nền tảng. Không nhận 0: "mua được 0 vé" không phải một trần hợp lệ. */
     public record LimitsRequest(

@@ -87,6 +87,40 @@ class CatalogFlowIT extends CatalogTestBase {
     }
 
     @Test
+    @DisplayName("lịch diễn nội bộ: tổ chức, tên, mọi suất; sự kiện chưa có suất vẫn có mặt; id lạ bị bỏ")
+    void lich_dien_noi_bo() throws Exception {
+        UUID venueId = createVenue("Nhà hát Hoà Bình", "TP.HCM");
+        createZone(venueId, "A", "Khu A", 2, 2);
+        UUID withSessions = createEvent(venueId, "Đêm nhạc lịch", "dem-nhac-lich");
+        createSession(withSessions);
+        UUID withoutSessions = createEvent(venueId, "Đêm nhạc chưa có suất", "dem-nhac-chua-suat");
+
+        MvcResult result = mockMvc.perform(get("/internal/events/schedules")
+                        .param(
+                                "eventIds",
+                                withSessions.toString(),
+                                withoutSessions.toString(),
+                                UUID.randomUUID().toString()))
+                .andReturn();
+
+        assertThat(result.getResponse().getStatus()).isEqualTo(200);
+        JsonNode body = json.readTree(result.getResponse().getContentAsString());
+        assertThat(body).hasSize(2);
+        for (JsonNode schedule : body) {
+            assertThat(schedule.path("organizationId").asText()).isEqualTo(ORG.toString());
+            assertThat(schedule.path("venueName").asText()).isEqualTo("Nhà hát Hoà Bình");
+            if (schedule.path("eventId").asText().equals(withSessions.toString())) {
+                assertThat(schedule.path("eventTitle").asText()).isEqualTo("Đêm nhạc lịch");
+                assertThat(schedule.path("sessions")).hasSize(1);
+                assertThat(schedule.path("sessions").get(0).path("startsAt").asText())
+                        .isNotBlank();
+            } else {
+                assertThat(schedule.path("sessions")).isEmpty();
+            }
+        }
+    }
+
+    @Test
     @DisplayName("gửi lại hình học cho Inventory: thêm một message, sự kiện vẫn đang bán")
     void gui_lai_hinh_hoc() throws Exception {
         UUID venueId = createVenue("Nhà hát Tây Đô", "Cần Thơ");

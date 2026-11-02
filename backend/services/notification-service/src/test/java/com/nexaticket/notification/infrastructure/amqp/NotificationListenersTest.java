@@ -56,7 +56,35 @@ class NotificationListenersTest {
     @DisplayName("IdentityEventsListener")
     class Identity {
 
-        private final IdentityEventsListener listener = new IdentityEventsListener(queue, JSON);
+        private final IdentityEventsListener listener = new IdentityEventsListener(queue, directory, JSON);
+
+        @Test
+        @DisplayName("member.added: tra email theo userId, mẫu 'được thêm', vai trò ghi bằng chữ")
+        void duoc_them() {
+            when(directory.lookup(USER))
+                    .thenReturn(Optional.of(new RecipientDirectory.Recipient("lan@example.com", "Lan")));
+
+            listener.onMemberAdded(message(
+                    "member.added",
+                    "{\"userId\":\"" + USER + "\",\"organizationName\":\"Acme\",\"role\":\"CHECKIN_STAFF\"}"));
+
+            QueueNotificationHandler.Command cmd = queued();
+            assertThat(cmd.recipient()).isEqualTo("lan@example.com");
+            assertThat(cmd.template()).isEqualTo(EmailTemplate.MEMBER_ADDED);
+            assertThat(cmd.headline()).isEqualTo("Acme");
+            assertThat(cmd.detail()).isEqualTo("Staff (soát vé)");
+        }
+
+        @Test
+        @DisplayName("member.added không tra được người nhận hoặc thiếu userId: bỏ qua, không ném")
+        void duoc_them_khong_tra_duoc() {
+            when(directory.lookup(USER)).thenReturn(Optional.empty());
+
+            listener.onMemberAdded(message("member.added", "{\"userId\":\"" + USER + "\"}"));
+            listener.onMemberAdded(message("member.added", "{\"organizationName\":\"Acme\"}"));
+
+            verifyNoInteractions(queue);
+        }
 
         @Test
         @DisplayName("member.invited: người nhận là email trong payload, mẫu lời mời, headline là tên tổ chức")

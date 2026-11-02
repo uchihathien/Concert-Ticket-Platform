@@ -1,0 +1,41 @@
+/*
+ * Biến thể xanh chanh — CHỈ ghi đè biến, không thêm luật bố cục nào.
+ *
+ * Giá trị lấy từ app mobile (`apps/mobile`, nền #111713 + xanh chanh #D5FF66) và từ
+ * `apps/web-admin/src/app/organizer-theme.css`. Đổi màu biến thể này thì sửa ở đây; mọi thứ khác
+ * (bố cục, nút, ô nhập) đến từ nexaticket.css của theme cha.
+ *
+ * Tương phản (WCAG): chữ chính #F1F5F1 trên thẻ #19221B 14.8:1 · chữ phụ #A6B1A8 7.4:1 ·
+ * chữ #17210D trên nút #D5FF66 14.6:1 · lỗi #FF8C79 7.2:1.
+ */
+:root {
+  --nt-bg: #151d17;
+  --nt-bg-subtle: #111713;
+  --nt-surface: #19221b;
+  --nt-elevated: #1f2a22;
+  --nt-border: #2c3a30;
+  --nt-text: #f1f5f1;
+  --nt-text-muted: #a6b1a8;
+  --nt-hover: #212c23;
+
+  --nt-input-bg: #111713;
+  --nt-input-border: #3b493f;
+
+  /* Nút xanh chanh chữ tối, đúng như nút hành động của app. */
+  --nt-primary: #d5ff66;
+  --nt-primary-hover: #c4f04f;
+  --nt-primary-ink: #17210d;
+  --nt-primary-text: #d5ff66;
+  --nt-accent: #d5ff66;
+  --nt-accent-ink: #17210d;
+
+  --nt-success-text: #5dd39e;
+  --nt-warn-text: #ffd36b;
+  --nt-danger: #c53030;
+  --nt-danger-text: #ff8c79;
+
+  /* Cột giới thiệu: xanh đậm thay cho gradient đỏ, chữ sáng, tick xanh chanh. */
+  --nt-panel-bg: linear-gradient(150deg, #26342a 0%, #111713 100%);
+  --nt-panel-ink: #f1f5f1;
+  --nt-panel-muted: #c4cec5;
+}

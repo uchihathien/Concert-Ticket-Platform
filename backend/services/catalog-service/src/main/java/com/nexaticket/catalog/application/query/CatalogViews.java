@@ -150,6 +150,18 @@ public final class CatalogViews {
      */
     public record SessionInfo(UUID eventSessionId, UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
 
+    /**
+     * Lịch diễn của một sự kiện — ticketing-service dùng để biết phân công soát vé còn hiệu lực
+     * không (hết hạn sau suất cuối 6 giờ) và để kiểm sự kiện có đúng của tổ chức không.
+     *
+     * @param sessions mọi suất, kể cả đã qua, sớm nhất trước
+     */
+    public record EventSchedule(
+            UUID eventId, UUID organizationId, String eventTitle, String venueName, List<ScheduledSession> sessions) {}
+
+    /** @param endsAt {@code null} khi ban tổ chức không khai giờ kết thúc */
+    public record ScheduledSession(UUID eventSessionId, Instant startsAt, Instant endsAt) {}
+
     public record AdminTicketType(
             UUID id, UUID venueZoneId, String zoneCode, String zoneName, String name, long priceVnd, int capacity) {}
 

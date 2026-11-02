@@ -28,4 +28,27 @@ public interface CatalogPort {
      * @param endsAt {@code null} khi ban tổ chức không khai giờ kết thúc
      */
     record SessionInfo(UUID eventId, String eventTitle, Instant startsAt, Instant endsAt) {}
+
+    /**
+     * Lịch diễn của nhiều sự kiện. Sự kiện không tồn tại thì không có trong map.
+     *
+     * @throws CatalogUnavailableException khi catalog không trả lời — KHÔNG trả map rỗng, vì "không
+     *     có sự kiện nào" và "không biết" dẫn tới hai quyết định ngược nhau ở chỗ gọi
+     */
+    java.util.Map<UUID, EventSchedule> eventSchedules(java.util.Collection<UUID> eventIds);
+
+    /** @param sessions mọi suất, kể cả đã qua */
+    record EventSchedule(
+            UUID eventId,
+            UUID organizationId,
+            String eventTitle,
+            String venueName,
+            java.util.List<com.nexaticket.ticketing.domain.model.AssignmentWindow.Session> sessions) {}
+
+    class CatalogUnavailableException extends RuntimeException {
+
+        public CatalogUnavailableException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
 }

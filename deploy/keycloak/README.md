@@ -148,3 +148,32 @@ Không khai thì Keycloak **từ chối** `post_logout_redirect_uri` và cả y�
 trong im lặng.
 
 `+` nghĩa là "mọi giá trị đã khai ở `redirectUris`", cộng thêm trang chủ và trang đăng nhập.
+
+## Theme đăng nhập: `nexaticket` và `nexaticket-lime`
+
+Trang đăng nhập, đăng ký, quên/đặt lại mật khẩu, thông báo và lỗi của Keycloak dùng theme riêng ở
+`themes/`. Web và app mobile đều mở đúng trang này, nên sửa một chỗ là cả hai đổi theo.
+
+| Theme | Màu | Gán cho |
+| --- | --- | --- |
+| `nexaticket` | xanh lá + xanh chanh theo `apps/web-customer/src/app/customer-theme.css` | cả realm (`loginTheme`) — web-customer, web-scanner, web-platform và mọi client khác |
+| `nexaticket-lime` | nền `#111713` + xanh chanh `#D5FF66` | thuộc tính `login_theme` của client mobile-customer, mobile-staff, web-admin |
+
+- Kế thừa theme `keycloak` có sẵn, chỉ ghi đè `template.ftl` và CSS — không cần build, không phải
+  code backend. `nexaticket-lime` chỉ ghi đè khối biến `--nt-*`.
+- **Đổi màu**: sửa khối `:root` ở `themes/nexaticket/login/resources/css/nexaticket.css` (tên biến
+  trùng token của web, giá trị chép từ `customer-theme.css` — không phải bộ đỏ của `tokens.css`) hoặc `themes/nexaticket-lime/.../nexaticket-lime.css`.
+- **Tiếng Việt**: Keycloak 26.0 không có bản dịch tiếng Việt; bản dịch nằm ở
+  `themes/nexaticket/login/messages/messages_vi.properties`. Realm chỉ khai `supportedLocales: ["vi"]`
+  vì Keycloak chọn ngôn ngữ theo trình duyệt TRƯỚC ngôn ngữ mặc định, và link "Quên mật khẩu?" / link
+  trong email không mang được `ui_locales` — máy để tiếng Anh sẽ thấy trang tiếng Anh nếu realm có `en`.
+- **Một chỗ Keycloak bỏ qua `login_theme`**: trang đầu của link `login-actions/reset-credentials`
+  mở thẳng (nút "Quên mật khẩu?" trên `/login` của web) render bằng theme của realm và không đưa
+  `client` vào template. `template.ftl` lấy `client_id` từ địa chỉ form rồi tự nạp CSS xanh chanh —
+  danh sách client ở đó phải khớp `LIME_CLIENTS` trong `deploy/scripts/keycloak-set-theme.sh`.
+- **Áp dụng cho realm đang chạy**: `--import-realm` không ghi đè realm đã có, nên chạy
+  `deploy/scripts/keycloak-set-theme.sh` (đặt `loginTheme`, ngôn ngữ, `login_theme` của client; client
+  chưa tồn tại thì bỏ qua và cảnh báo). `mobile-staff` không có trong file realm nào — chỉ script này
+  gán được theme cho nó.
+- **Cache**: compose dev tắt cache theme (`--spi-theme-*`), sửa CSS/FTL rồi tải lại trang là thấy.
+  Prod giữ cache — sửa theme thì restart container.
