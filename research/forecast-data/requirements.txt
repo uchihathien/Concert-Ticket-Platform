@@ -4,3 +4,6 @@ playwright==1.48.0
 openpyxl==3.1.5
 # Kiểm thử các hàm đọc giá, ngày giờ, trạng thái vé.
 pytest==8.3.3
+# Huấn luyện thử LightGBM quantile (train.py).
+lightgbm==4.5.0
+numpy==2.0.2

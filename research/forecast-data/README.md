@@ -253,3 +253,26 @@ data/               dữ liệu (gitignore)
 
 Phần đọc trang và các hàm chuẩn hoá giá, ngày giờ, thành phố lấy lại từ bộ cào demo
 `scripts/ticketbox/` trên nhánh main, commit d4cd45a.
+
+## Huấn luyện thử (train.py)
+
+Bản kiểm tra quy trình LightGBM quantile regression, chưa phải kết quả cuối. Có thêm dữ liệu thì chạy lại:
+
+```bash
+brew install libomp          # chỉ lần đầu, LightGBM trên macOS cần thư viện này
+.venv/bin/python train.py    # tuỳ chọn: --ti-le-test 0.2 --thu-muc models
+```
+
+- Đơn vị: một suất nhóm CO đã diễn và đã được chụp sau buổi diễn.
+- Nhãn: tổng giá các hạng HET_VE / tổng giá mọi hạng, ở lần chụp đầu tiên sau ngày diễn. Đây là đại
+  lượng thay thế cho sức mua vì Ticketbox không công khai số vé bán.
+- Đặc trưng chỉ dùng thông tin có lúc mở bán và tín hiệu 7 ngày đầu, không dùng `trang_thai_cuoi` hay
+  `ngay_thay_lan_dau`. Đặc trưng có ở dưới 30% dòng train (hiện là sức chứa và tín hiệu 7 ngày) bị bỏ
+  tự động, và tự được dùng lại khi đủ dữ liệu.
+- Chia theo thời gian: 20% suất diễn muộn nhất làm test, cắt theo ngày.
+- Mốc so sánh: quantile của nhãn theo thể loại trong tập train.
+- Đầu ra ở `models/`: `model_q10.txt`, `model_q50.txt`, `model_q90.txt`, `features.json`,
+  `encoders.json`, `du_doan_test.csv`, `bao_cao.json`. Cuối mỗi lần chạy, script mở lại mô hình từ đĩa
+  và kiểm tra dự đoán giống hệt.
+- Xác suất hòa vốn: `xac_suat_hoa_von(q10, q50, q90, nguong)`, với `nguong` lấy từ
+  `nguong_tu_so_ve(số vé hòa vốn, tổng số vé)` hoặc `nguong_tu_chi_phi(chi phí, doanh thu tối đa)`.
