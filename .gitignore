@@ -49,3 +49,9 @@ scripts/ticketbox/data/
 scripts/ticketbox/.venv/
 scripts/ticketbox/**/__pycache__/
 scripts/ticketbox/.pytest_cache/
+
+# Bộ dữ liệu nghiên cứu Ticketbox: dữ liệu cào, mô hình và môi trường ảo, không đưa lên git
+research/forecast-data/data/
+research/forecast-data/models/
+research/forecast-data/.venv/
+research/forecast-data/.pytest_cache/
