@@ -48,3 +48,9 @@ scripts/ticketbox/.pytest_cache/
 
 # Ảnh chụp giao diện chỉ để xem ở máy, không đưa lên git
 docs/screenshots/
+
+# Bộ dữ liệu nghiên cứu Ticketbox: dữ liệu cào và môi trường ảo, không đưa lên git
+research/forecast-data/data/
+research/forecast-data/.venv/
+research/forecast-data/.pytest_cache/
+research/forecast-data/models/
