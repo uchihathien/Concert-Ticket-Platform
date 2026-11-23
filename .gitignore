@@ -55,3 +55,8 @@ research/forecast-data/data/
 research/forecast-data/models/
 research/forecast-data/.venv/
 research/forecast-data/.pytest_cache/
+# File làm việc có dữ liệu lấy từ Ticketbox (đối chiếu nhãn, bản in dữ liệu): repo public, không đưa lên git
+research/doi_chieu_nhan_thu_cong.xlsx
+research/*.pdf
+# Bản sao lưu tạm của bài báo
+research/*.bak
