@@ -276,3 +276,34 @@ brew install libomp          # chỉ lần đầu, LightGBM trên macOS cần th
   và kiểm tra dự đoán giống hệt.
 - Xác suất hòa vốn: `xac_suat_hoa_von(q10, q50, q90, nguong)`, với `nguong` lấy từ
   `nguong_tu_so_ve(số vé hòa vốn, tổng số vé)` hoặc `nguong_tu_chi_phi(chi phí, doanh thu tối đa)`.
+
+## Đánh giá bổ sung (danh_gia_them.py)
+
+Chạy sau `train.py`. Không thay đổi mô hình đã lưu:
+
+```bash
+.venv/bin/python danh_gia_them.py
+```
+
+Kết quả ghi vào `models/danh_gia_them.json`, gồm:
+
+- phễu dữ liệu;
+- kiểm tra nhãn (độ trễ gắn nhãn, số hạng vé, trạng thái sau buổi diễn);
+- so sánh với 3 mô hình cơ sở kèm bootstrap ghép cặp;
+- Brier score và AUC của xác suất đạt ngưỡng 0,3 / 0,5 / 0,7, so với một bộ phân loại LightGBM;
+- learning curve, rolling-origin, mức quan trọng của đặc trưng và ablation.
+
+Hình cho bài báo được ghi vào `../hinh/`.
+
+## Công cụ dự báo cho ban tổ chức (du_bao_api.py)
+
+```bash
+.venv/bin/python du_bao_api.py   # mở http://localhost:8765
+```
+
+Dịch vụ nạp mô hình trong `models/` (phải chạy `train.py` trước). API gồm:
+
+- `GET /api/thong-tin`
+- `POST /api/du-bao`, nhận JSON gồm: `the_loai`, `thanh_pho`, `gia_min`, `gia_max`, `so_hang_ve`, `so_suat_su_kien`, `ngay_mo_ban`, `ngay_dien`, `gio_dien`, `chi_phi`, `doanh_thu_toi_da`.
+
+Kết quả trả về gồm `q10`, `q50`, `q90`, ngưỡng `chi_phi / doanh_thu_toi_da` và xác suất đạt ngưỡng. Dịch vụ hiện chạy độc lập, chưa gắn vào NexaTicket.
