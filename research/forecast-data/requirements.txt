@@ -7,3 +7,5 @@ pytest==8.3.3
 # Huấn luyện thử LightGBM quantile (train.py).
 lightgbm==4.5.0
 numpy==2.0.2
+# Vẽ hình cho bài báo (danh_gia_them.py).
+matplotlib==3.9.2
